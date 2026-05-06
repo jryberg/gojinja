@@ -20,9 +20,23 @@ import (
 	"strings"
 )
 
-// Markup is a string the engine has marked as already-safe for HTML output.
-// Anything passed to [Escape] that is already a Markup is returned unchanged
-// (idempotence), so wrapping is safe to repeat.
+// Markup is a string the engine has marked as already-safe for HTML
+// output. Autoescape passes Markup values through verbatim; plain
+// strings get HTML-escaped on the way out.
+//
+// **When to use Markup directly**: most code shouldn't. The engine
+// produces Markup itself for filter outputs that are intentionally
+// pre-escaped (`safe`, `escape`, `tojson`, `urlize`, `xmlattr`).
+// Custom filters returning HTML should also wrap in Markup.
+//
+// **Caution**: marking a string as Markup turns off autoescape for that
+// value. Never wrap untrusted input in Markup directly — the whole
+// point of the autoescape default is to prevent that mistake.
+//
+// Example:
+//
+//	// In a custom filter that produces a snippet of HTML:
+//	return escape.Markup(fmt.Sprintf("<b>%s</b>", escape.Escape(name))), nil
 type Markup string
 
 // String returns the underlying string, satisfying [fmt.Stringer].
@@ -52,8 +66,16 @@ func IsMarkup(v any) (Markup, bool) {
 	}
 }
 
-// Escape returns v as a Markup. If v is already safe (Markup or HTMLer) it
-// is returned unchanged; otherwise its string form is HTML-escaped.
+// Escape returns v as a [Markup]. If v is already safe (Markup or
+// satisfies [HTMLer]) it is returned unchanged; otherwise its string form
+// is HTML-escaped.
+//
+// Idempotent: `Escape(Escape(x)) == Escape(x)`.
+//
+// Example:
+//
+//	escape.Escape("<b>")               →  Markup("&lt;b&gt;")
+//	escape.Escape(escape.Markup("<b>")) →  Markup("<b>")  (unchanged)
 func Escape(v any) Markup {
 	if m, ok := IsMarkup(v); ok {
 		return m
@@ -61,8 +83,15 @@ func Escape(v any) Markup {
 	return Markup(escapeString(SoftStr(v)))
 }
 
-// ForceEscape always escapes — even values that are already Markup. Used to
-// implement the `forceescape` filter.
+// ForceEscape always escapes — even values that are already [Markup].
+// Used to implement the `forceescape` filter.
+//
+// Use when you have a Markup value you don't trust (e.g. came from a
+// caller you don't want to grant autoescape-bypass).
+//
+// Example:
+//
+//	escape.ForceEscape(escape.Markup("<b>"))  →  Markup("&lt;b&gt;")
 func ForceEscape(v any) Markup {
 	return Markup(escapeString(SoftStr(v)))
 }

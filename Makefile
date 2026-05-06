@@ -1,4 +1,4 @@
-.PHONY: test vet lint audit tidy build parity parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall
+.PHONY: test vet lint audit tidy build parity parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall docs docs-serve docs-check
 
 GO ?= go
 
@@ -20,7 +20,7 @@ lint:
 
 # Smoke audit: greps for things that should never appear.
 # Real audit lives in docs/security-audit-checklist.md and is run per-phase.
-audit:
+audit: docs-check
 	@echo "==> no unsafe package use outside internal/"
 	@! grep -rEn '^[[:space:]]*"unsafe"[[:space:]]*$$' --include='*.go' pkg cmd
 	@echo "==> no os/exec use"
@@ -55,6 +55,33 @@ parity-external:
 # external parity). Run this before opening a PR.
 ci: build vet test audit parity
 	@echo "ci: all checks passed"
+
+# Documentation site (mkdocs-material + mike). See docs/site/README.md.
+# `make docs` regenerates filter/test/global pages from the registry, then
+# builds the static site under docs/site/site/.
+docs:
+	@if [ -d tools/docgen ]; then \
+	  $(GO) run ./tools/docgen build   --out docs/site/content/templates; \
+	  $(GO) run ./tools/docgen symbols --out docs/site/content/api/symbols.md; \
+	fi
+	cd docs/site && mkdocs build --strict
+
+docs-serve:
+	@if [ -d tools/docgen ]; then \
+	  $(GO) run ./tools/docgen build   --out docs/site/content/templates; \
+	  $(GO) run ./tools/docgen symbols --out docs/site/content/api/symbols.md; \
+	fi
+	cd docs/site && mkdocs serve
+
+# CI gate: every registered filter/test/global must have either a hand-written
+# override or a structured godoc on its underlying func. Skips silently until
+# tools/docgen lands so this target is safe to wire into `audit` from day one.
+docs-check:
+	@if [ -d tools/docgen ]; then \
+	  $(GO) run ./tools/docgen check; \
+	else \
+	  echo "tools/docgen not present yet; skipping docs-check"; \
+	fi
 
 # Verify all tracked .go files are gofmt-clean. Whole-tree check; the
 # pre-commit hook only checks staged files.

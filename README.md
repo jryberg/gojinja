@@ -2,6 +2,8 @@
 
 A Go implementation of [Jinja2](https://github.com/pallets/jinja) — the template engine. The bar gojinja sets for itself: **a template that renders in canonical Python Jinja2 should render byte-identically in gojinja.**
 
+📚 **Full documentation:** <https://jryberg.github.io/gojinja/>
+
 [![CI](https://github.com/jryberg/gojinja/actions/workflows/ci.yml/badge.svg)](https://github.com/jryberg/gojinja/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/jryberg/gojinja.svg)](https://pkg.go.dev/github.com/jryberg/gojinja)
 [![Go Report Card](https://goreportcard.com/badge/github.com/jryberg/gojinja)](https://goreportcard.com/report/github.com/jryberg/gojinja)

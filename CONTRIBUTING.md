@@ -118,6 +118,57 @@ gap), but to run the same suite CI runs you'll want all of these on your
 The `staticcheck` and `govulncheck` versions match the pins in
 `.github/workflows/ci.yml` — bump them here when CI bumps.
 
+## Documenting a new filter, test, or global
+
+The published [docs site](https://jryberg.github.io/gojinja/) regenerates
+its filter / test / global reference pages from this repo on every push.
+Each registered name needs **either** a structured godoc comment on its
+underlying Go function **or** a hand-authored Markdown override page. CI
+fails (`make docs-check`) if a name has neither.
+
+### Godoc style (the preferred path)
+
+Backfill a structured godoc on the underlying private func. The format
+docgen looks for:
+
+```go
+// filterX implements the `name` filter: <one-line summary>.
+//
+// Signature: name(positional, kw=default)
+//
+// <Optional Behavior: paragraph for non-obvious cases>
+//
+// Example:
+//
+//	{{ value | name }}  →  result
+//
+// <Optional Divergence from Python: ... pointing at docs/divergences.md>
+```
+
+Same shape for tests (`testX`) and globals (`globalX`). Keep examples
+short — prefer 2-3 lines over a long block. The first sentence becomes
+the page summary; everything else becomes the page body.
+
+### Override pages (for popular filters that deserve richer prose)
+
+For filters / tests / globals that warrant side-by-side Python comparison,
+common-gotcha admonitions, or multiple worked examples, drop a Markdown
+file at:
+
+    docs/site/content/templates/{filters,tests,globals}/<slug>.md
+
+`<slug>` is the canonical name (e.g. `default.md`, `tojson.md`). The
+override completely replaces the godoc-derived page. See
+`docs/site/content/templates/filters/default.md` for the convention —
+front matter isn't needed; just `# `name`` plus body.
+
+### Local preview
+
+```bash
+make docs-check    # fails fast if a registered name has no docs
+make docs-serve    # mkdocs serve on http://127.0.0.1:8000
+```
+
 ## Pull request checklist
 
 Before requesting review:

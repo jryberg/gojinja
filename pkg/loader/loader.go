@@ -69,6 +69,13 @@ var ErrInvalidPath = errors.New("loader: invalid template path")
 
 // Dict is a string→source map. The simplest possible loader — useful for
 // tests and for templates compiled into a binary as a `map[string]string`.
+//
+// Example:
+//
+//	env, _ := environment.New(environment.WithLoader(loader.Dict{
+//	    "hello.j2": "Hi {{ name }}!",
+//	}))
+//	tpl, _ := env.GetTemplate("hello.j2")
 type Dict map[string]string
 
 // GetSource implements [Loader].
@@ -91,6 +98,18 @@ func (d Dict) GetSource(name string) (Source, error) {
 
 // FuncLoader wraps an arbitrary fetch function. Useful for adapting to
 // other source backends (DBs, S3, etc.).
+//
+// The wrapped function returns `(source, ok, err)` — `ok=false` becomes
+// a `TemplateNotFound`, error is returned as-is.
+//
+// Example:
+//
+//	loader.FuncLoader{Fetch: func(name string) (loader.Source, bool, error) {
+//	    row, err := db.QueryRow("SELECT body FROM tpl WHERE name = $1", name)
+//	    if err == sql.ErrNoRows { return loader.Source{}, false, nil }
+//	    if err != nil          { return loader.Source{}, false, err }
+//	    return loader.Source{Code: row.Body, Filename: name}, true, nil
+//	}}
 type FuncLoader struct {
 	Fetch func(name string) (Source, bool, error)
 }
@@ -114,6 +133,18 @@ func (f FuncLoader) GetSource(name string) (Source, error) {
 
 // Prefix routes by name prefix. `mapping["app1"] = …` makes "app1/x.html"
 // load from that loader (with the prefix stripped).
+//
+// `Delimiter` is `/` by default. Names without the delimiter, or with a
+// prefix not in the mapping, return `TemplateNotFound`.
+//
+// Example:
+//
+//	loader.Prefix{Mapping: map[string]loader.Loader{
+//	    "admin": loader.Dict{"dashboard.html": "…"},
+//	    "site":  fileSystemLoader,
+//	}}
+//	// "admin/dashboard.html" → routes to the Dict, "dashboard.html" lookup
+//	// "site/about.html"      → routes to fileSystemLoader, "about.html" lookup
 type Prefix struct {
 	Mapping   map[string]Loader
 	Delimiter string // default "/"
@@ -145,6 +176,15 @@ func (p Prefix) GetSource(name string) (Source, error) {
 // =============================================================== Choice
 
 // Choice tries each loader in order, returning the first hit.
+// `TemplateNotFound` is swallowed (next loader is tried); any other error
+// short-circuits.
+//
+// Example:
+//
+//	loader.Choice{Loaders: []loader.Loader{
+//	    overrideLoader,        // checked first — themes / overrides
+//	    defaultLoader,         // fallback — shipped templates
+//	}}
 type Choice struct{ Loaders []Loader }
 
 // GetSource tries each loader; only TemplateNotFound is swallowed.
@@ -181,12 +221,25 @@ func WithFollowLinks(b bool) FileSystemOption {
 }
 
 // FileSystem reads templates from one or more allowlisted root directories.
+//
 // Path-traversal protections:
-//   - Names are validated through [SplitPath].
+//   - Names are validated through [SplitPath] (rejects `..`, drive
+//     letters, NUL bytes).
 //   - Joined paths are resolved with filepath.EvalSymlinks; the result
 //     must remain within the configured root.
 //   - Symlink-following is OFF by default; enabling it via
 //     [WithFollowLinks] still enforces the root containment check.
+//
+// This is a deliberate hardening divergence from Python Jinja2's
+// `FileSystemLoader`, which is lenient by default. Symlinks pointing
+// outside the root are rejected with a SecurityError when
+// `followLinks=false` (the default).
+//
+// Example:
+//
+//	fs, err := loader.NewFileSystem([]string{"./templates"})
+//	if err != nil { log.Fatal(err) }
+//	env, _ := environment.New(environment.WithLoader(fs))
 type FileSystem struct {
 	roots       []string
 	encoding    string // currently unused; we always read UTF-8
@@ -287,7 +340,19 @@ func isWithin(parent, candidate string) bool {
 
 // =============================================================== embed.FS
 
-// Embed wraps an fs.FS (e.g. an embed.FS) under a path prefix.
+// Embed wraps an `fs.FS` (typically an [embed.FS]) under a path prefix.
+//
+// The Go-idiomatic replacement for Python Jinja2's `PackageLoader`.
+//
+// Example:
+//
+//	//go:embed templates/*
+//	var templateFS embed.FS
+//
+//	env, _ := environment.New(environment.WithLoader(
+//	    loader.NewEmbed(templateFS, "templates"),
+//	))
+//	// "page.html" → reads "templates/page.html" from the embedded FS.
 type Embed struct {
 	FS     fs.FS
 	Prefix string
@@ -323,7 +388,17 @@ func (e Embed) GetSource(name string) (Source, error) {
 
 // Cached wraps a Loader and memoises results in process. Useful when
 // templates are large but the underlying source rarely changes. Calls
-// each entry's Uptodate before returning a cached value.
+// each entry's `Uptodate()` before returning a cached value — when it
+// reports stale, the entry is re-fetched.
+//
+// The cache is unbounded; pair with [pkg/cache.Filesystem] (via
+// `WithExternalCache`) for cold-start gains across processes.
+//
+// Example:
+//
+//	env, _ := environment.New(environment.WithLoader(
+//	    loader.NewCached(slowLoader),
+//	))
 type Cached struct {
 	Inner Loader
 

@@ -1,0 +1,130 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label to publish (e.g. 'preview' or 'v1.2.3')"
+        required: true
+        default: preview
+      alias:
+        description: "Optional alias to point at this version (e.g. 'stable')"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          check-latest: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: install python deps
+        run: pip install -r docs/site/requirements.txt
+
+      - name: configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: decide labels
+        id: labels
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_ALIAS: ${{ github.event.inputs.alias }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            push)
+              if [[ "$REF" == refs/tags/v* ]]; then
+                tag="${REF#refs/tags/}"
+                # tag must match v(MAJOR).(MINOR).(PATCH) optionally
+                # followed by -prerelease — anything else is rejected
+                # to keep mike's version space sane.
+                if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$'; then
+                  echo "::error::tag $tag rejected: must match vMAJOR.MINOR.PATCH[-prerelease]"
+                  exit 1
+                fi
+                label="$tag"
+                # Promote 'stable' only for non-prerelease tags.
+                if [[ "$tag" == *-* ]]; then
+                  alias=""
+                else
+                  alias="stable"
+                fi
+              else
+                # Push to main (or any non-tag branch event) → 'dev' alias.
+                label="dev"
+                alias=""
+              fi
+              ;;
+            workflow_dispatch)
+              if ! printf '%s' "$INPUT_VERSION" | grep -Eq '^[A-Za-z0-9._+-]{1,64}$'; then
+                echo "::error::version label rejected: must match [A-Za-z0-9._+-]{1,64}"
+                exit 1
+              fi
+              label="$INPUT_VERSION"
+              alias=""
+              if [ -n "$INPUT_ALIAS" ]; then
+                if ! printf '%s' "$INPUT_ALIAS" | grep -Eq '^[A-Za-z0-9._+-]{1,32}$'; then
+                  echo "::error::alias rejected: must match [A-Za-z0-9._+-]{1,32}"
+                  exit 1
+                fi
+                alias="$INPUT_ALIAS"
+              fi
+              ;;
+            *)
+              echo "::error::unsupported event $EVENT_NAME"
+              exit 1
+              ;;
+          esac
+          {
+            echo "label=$label"
+            echo "alias=$alias"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: docgen check
+        run: go run ./tools/docgen check
+
+      - name: generate reference pages
+        env:
+          MIKE_VERSION: ${{ steps.labels.outputs.label }}
+        run: |
+          set -euo pipefail
+          go run ./tools/docgen build   --out docs/site/content/templates
+          go run ./tools/docgen symbols --out docs/site/content/api/symbols.md
+
+      - name: mike deploy
+        working-directory: docs/site
+        env:
+          LABEL: ${{ steps.labels.outputs.label }}
+          ALIAS: ${{ steps.labels.outputs.alias }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ALIAS" ]; then
+            mike deploy --push --update-aliases "$LABEL" "$ALIAS"
+          else
+            mike deploy --push --update-aliases "$LABEL"
+          fi
