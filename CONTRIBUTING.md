@@ -76,13 +76,47 @@ Certificate of Origin attestation (<https://developercertificate.org>) — by
 signing off, you state you have the right to contribute the change under the
 project's BSD 3-Clause license.
 
-Commits without sign-off will be rejected by CI. Two ways to add it:
+The [Local hooks](#local-hooks) section below explains the easiest way to add
+this automatically. Without hooks, use `git commit -s` manually. Commits
+without sign-off are rejected by CI.
 
-- Run `make hooks-install` once per clone to enable the in-repo `.githooks/`,
-  which auto-appends `Signed-off-by:` (using `git config user.email`) and
-  also runs the fast lint subset (`go vet`, `make audit`, `staticcheck`) on
-  every commit. Pre-push runs the full `make ci` suite.
-- Or use `git commit -s` manually each time.
+## Local hooks
+
+The repo ships hooks under `.githooks/` that mirror the CI gates. Install
+once per clone:
+
+    make hooks-install
+
+That sets `core.hooksPath=.githooks` for this checkout and wires up:
+
+- `prepare-commit-msg` — auto-appends `Signed-off-by:` using
+  `git config user.email`.
+- `commit-msg` — rejects commits without a sign-off (same regex as the CI
+  DCO check).
+- `pre-commit` — fast lint subset: `gofmt -l` on staged files, `go vet`,
+  `make audit`, `staticcheck`.
+- `pre-push` — full `make ci` (build + vet + test + audit + parity) plus
+  `staticcheck` and `govulncheck`.
+
+Bypass with `git commit --no-verify` / `git push --no-verify` only when
+genuinely necessary. Disable the hooks entirely with `make hooks-uninstall`.
+
+### Tool prerequisites
+
+The hooks skip-with-warning anything that isn't installed (CI catches the
+gap), but to run the same suite CI runs you'll want all of these on your
+`PATH`. After `go install`, make sure `$(go env GOPATH)/bin` is on your
+`PATH`.
+
+| Tool | Install | Used by |
+|---|---|---|
+| Go 1.22+ (`go`, `gofmt`, `go vet`, `go test`) | <https://go.dev/dl/> | every hook |
+| `staticcheck` | `go install honnef.co/go/tools/cmd/staticcheck@2025.1.1` | pre-commit, pre-push |
+| `govulncheck` | `go install golang.org/x/vuln/cmd/govulncheck@v1.1.4` | pre-push |
+| Python 3 + Jinja2 (for the parity harness) | `python3 -m pip install jinja2` | pre-push (`make parity`) |
+
+The `staticcheck` and `govulncheck` versions match the pins in
+`.github/workflows/ci.yml` — bump them here when CI bumps.
 
 ## Pull request checklist
 
