@@ -43,9 +43,9 @@ func runSymbols(repoRoot, outPath string) error {
 		"pkg/ast",
 	}
 	type row struct {
-		Package string // import path suffix (e.g. "pkg/environment")
-		Symbol  string
-		Kind    string // "type" / "func" / "var" / "const"
+		Package  string // import path suffix (e.g. "pkg/environment")
+		Symbol   string
+		Kind     string // "type" / "func" / "var" / "const"
 		Synopsis string
 	}
 	var rows []row
