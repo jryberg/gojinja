@@ -1,0 +1,25 @@
+# Build artifacts
+/bin/
+/dist/
+*.test
+*.out
+
+# Stray top-level binaries from local builds.
+/gojinja
+/parity
+/external
+
+# Editors
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Go
+vendor/
+coverage.txt
+coverage.html
+
+# LLM
+CLAUDE.md
+PROMPT.md

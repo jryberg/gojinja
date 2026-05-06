@@ -1,0 +1,6 @@
+{% for k in user.keys()|sort %}{{ k }}
+{% endfor %}---
+{% for v in user.values()|map('string')|sort %}{{ v }}
+{% endfor %}---
+{{ user.get('name', 'missing') }}
+{{ user.get('absent', 'fallback') }}

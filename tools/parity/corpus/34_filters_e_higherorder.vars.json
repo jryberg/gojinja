@@ -1,0 +1,1 @@
+{"users": [{"name": "john"}, {"name": "jane"}, {"name": "mike"}], "items": [{"name": "a", "active": true}, {"name": "b", "active": false}, {"name": "c", "active": true}], "string": "<foo>"}

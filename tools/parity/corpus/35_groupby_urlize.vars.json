@@ -1,0 +1,1 @@
+{"users": [{"name": "alice", "group": "A"}, {"name": "bob", "group": "B"}, {"name": "carol", "group": "A"}], "items": [{"v": 1, "meta": {"k": "x"}}, {"v": 2, "meta": {"k": "y"}}, {"v": 3, "meta": {"k": "x"}}]}

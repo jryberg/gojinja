@@ -1,0 +1,26 @@
+{# defined / even / odd / lower / upper / type-checks / eq / sameas / in #}
+{{ missing is defined }}|{{ true is defined }}
+{{ 1 is even }}|{{ 2 is even }}
+{{ 1 is odd }}|{{ 2 is odd }}
+{{ "foo" is lower }}|{{ "FOO" is lower }}
+{{ "FOO" is upper }}|{{ "foo" is upper }}
+{{ none is none }}|{{ false is none }}|{{ 42 is none }}
+{{ true is true }}|{{ 0 is true }}|{{ false is true }}
+{{ false is false }}|{{ 0 is false }}
+{{ none is boolean }}|{{ true is boolean }}|{{ 0 is boolean }}
+{{ none is integer }}|{{ 42 is integer }}|{{ 3.14 is integer }}
+{{ none is float }}|{{ 42 is float }}|{{ 4.2 is float }}
+{{ none is number }}|{{ 42 is number }}|{{ 3.14 is number }}
+{{ none is string }}|{{ "foo" is string }}|{{ 42 is string }}
+{{ "foo" is sequence }}|{{ [] is sequence }}|{{ {} is sequence }}
+{{ {} is mapping }}|{{ [] is mapping }}
+{{ "foo" is iterable }}|{{ [] is iterable }}|{{ {} is iterable }}
+{{ "foo" is callable }}|{{ range is callable }}
+{{ foo is eq 12 }}|{{ foo is eq 0 }}|{{ foo is eq (3 * 4) }}
+{{ bar is eq "baz" }}|{{ bar is eq "zab" }}|{{ bar is eq ("ba" + "z") }}
+{{ 2 is eq 2 }}|{{ 2 is ne 2 }}|{{ 2 is lt 3 }}|{{ 2 is gt 1 }}
+{{ foo_false is sameas false }}|{{ 0 is sameas false }}
+{{ "o" is in "foo" }}|{{ "b" is in "foo" }}
+{{ 1 is in [1, 2] }}|{{ 3 is in [1, 2] }}
+{{ 1 is greaterthan 0 }}|{{ 0 is greaterthan 1 }}
+{{ 0 is lessthan 1 }}|{{ 1 is lessthan 0 }}

@@ -1,0 +1,4 @@
+{% for grouper, list in users|groupby('group') -%}
+{{ grouper }}:
+{%- for u in list %} {{ u.name }}{% endfor %}
+{% endfor %}

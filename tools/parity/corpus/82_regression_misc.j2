@@ -1,0 +1,18 @@
+{# subproperty_if; partial_conditional_assignments; macro var bug; reverse iteration; etc. #}
+{% if a.b %}has-b{% else %}no-b{% endif %}
+{% if a['b'] %}via-getitem{% else %}no{% endif %}
+{# nested for-else with break #}
+{% for x in xs %}{% for y in ys %}{{ x }}.{{ y }}{% if y == 'stop' %}{% break %}{% endif %};{% endfor %}|{% endfor %}
+{# loop.cycle past the array end wraps #}
+{% for x in [1,2,3,4,5] %}{{ loop.cycle('a','b') }}{% endfor %}
+{# raise condexpr #}
+{{ "yes" if false }}
+{{ "no" if false else "alt" }}
+{# empty for + else #}
+{% for x in [] %}body{% else %}else{% endfor %}
+{# string formatting %d/%i with kwarg position #}
+{{ "<%s|%s|%s>"|format(1, 2.5, "x") }}
+{# nested set + filter #}
+{% set vals = ["1","2","3"]|map("int")|list %}{{ vals|sum }}
+{# dict access mixing literal and var #}
+{% set d = {"a": 1, "b": 2} %}{{ d["a"] }}|{{ d.b }}|{{ d[k] }}

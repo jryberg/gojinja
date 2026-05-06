@@ -1,0 +1,7 @@
+{% for x in items -%}
+i={{ loop.index }} i0={{ loop.index0 }} ri={{ loop.revindex }} ri0={{ loop.revindex0 }} f={{ loop.first }} l={{ loop.last }} len={{ loop.length }} prev={{ loop.previtem|default('-') }} next={{ loop.nextitem|default('-') }}
+{% endfor %}
+{# cycle: #}
+{% for x in items -%}
+{{ loop.cycle('A','B','C') }}{{ x }}
+{% endfor %}

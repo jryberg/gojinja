@@ -1,0 +1,6 @@
+{% import "module" as m %}{{ m.test() }}
+{% import "module" as m without context %}{{ m.test() }}
+{% import "module" as m with context %}{{ m.test() }}
+{% from "module" import test %}{{ test() }}
+{% from "module" import test without context %}{{ test() }}
+{% from "module" import test with context %}{{ test() }}

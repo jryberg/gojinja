@@ -1,0 +1,13 @@
+{# Cases mirror jinja-reference/tests/test_filters.py — capitalize/center/default/escape/trim/striptags/lower/upper/title/length #}
+{{ "foo bar"|capitalize }}
+{{ "foo"|center(9) }}
+{{ missing|default('no') }}|{{ false|default('no') }}|{{ false|default('no', true) }}|{{ given|default('no') }}
+{{ '<">&'|escape }}
+"{{ '  ..stays..'|trim }}"
+"{{ '  ..stays..'|trim('.') }}"
+"{{ '  ..stays..'|trim(' .') }}"
+{{ '  <p>just a small   \n <a href="#">example</a> link</p>\n<p>to a webpage</p> <!-- <p>and some commented stuff</p> -->'|striptags }}
+{{ "FOO"|lower }}
+{{ "foo"|upper }}
+{{ "foo bar baz"|title }}
+{{ "Hello World"|length }}

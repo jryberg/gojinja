@@ -1,0 +1,4 @@
+{% for row in matrix -%}
+[{% for cell in row %}{{ cell }}{% if not loop.last %},{% endif %}{% endfor %}]
+{% endfor -%}
+{% for outer in matrix %}{% for inner in outer %}{{ outer.0 }}.{{ inner }}-{% endfor %}{% endfor %}

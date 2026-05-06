@@ -1,0 +1,12 @@
+{% set greeting = 'hello' -%}
+{% macro shout(s) -%}
+{{ s.upper() }}!
+{%- endmacro -%}
+{{ shout(greeting) }}
+{% set xs = [1, 2, 3, 4, 5] -%}
+sum: {{ xs|sum }}
+even: {{ xs|select('even')|list|join(',') }}
+odd:  {{ xs|reject('even')|list|join(',') }}
+{% set users = [{'name': 'a', 'age': 20}, {'name': 'b', 'age': 30}] -%}
+{% for u in users|sort(attribute='age', reverse=true) %}{{ u.name }}={{ u.age }}
+{% endfor %}
