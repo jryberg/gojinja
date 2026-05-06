@@ -23,7 +23,11 @@ permissions:
   actions: read
 
 concurrency:
-  group: docs-${{ github.ref }}
+  # Serialise on the actual shared resource (the gh-pages branch),
+  # not on the triggering ref. Otherwise a push-to-main run and a
+  # tag/dispatch run race each other and one's `mike deploy --push`
+  # gets rejected.
+  group: docs-gh-pages
   cancel-in-progress: false
 
 jobs:
