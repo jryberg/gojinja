@@ -1,0 +1,26 @@
+#!/bin/sh
+# Auto-append a Signed-off-by trailer if the commit message lacks one.
+# Equivalent to running `git commit -s` for every commit.
+
+msg_file="$1"
+source="$2"
+
+case "$source" in
+    merge|squash) exit 0 ;;
+esac
+
+if grep -v '^[[:space:]]*#' "$msg_file" | grep -qiE '^Signed-off-by: '; then
+    exit 0
+fi
+
+name=$(git config user.name || true)
+email=$(git config user.email || true)
+
+if [ -z "$name" ] || [ -z "$email" ]; then
+    echo "prepare-commit-msg: user.name or user.email not set; skipping signoff" >&2
+    exit 0
+fi
+
+git interpret-trailers --in-place \
+    --trailer "Signed-off-by: $name <$email>" \
+    "$msg_file"

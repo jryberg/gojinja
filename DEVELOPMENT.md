@@ -38,25 +38,36 @@ git clone https://github.com/jryberg/gojinja
 cd gojinja
 go build ./...
 go test -race ./...
+make hooks-install   # opt in to .githooks/ (DCO sign-off + lint)
 ```
 
 Requirements:
 - Go 1.22+
 - For the parity harness: `python3` with `jinja2` installed on `$PATH` (`python3 -m pip install jinja2`).
-- Optional: `staticcheck` for `make lint`.
+- Optional: `staticcheck` for `make lint` and the pre-commit hook.
+
+Hooks (after `make hooks-install`):
+- `prepare-commit-msg` auto-appends `Signed-off-by:` to every commit (using `git config user.email`).
+- `commit-msg` rejects commits without a sign-off (matches the CI DCO check).
+- `pre-commit` runs the fast lint subset: `gofmt -l` on staged files, `go vet`, `make audit`, `staticcheck`.
+- `pre-push` runs the full `make ci` (build + vet + test + audit + parity) plus `staticcheck`/`govulncheck` if installed. Bypass with `git push --no-verify` only when truly necessary.
 
 The reference Python implementation is expected at a sibling directory outside this repo (e.g. `../jinja-reference/`), checked out at the pinned upstream commit `5ef70112a1ff19c05324ff889dd30405b1002044` (see [`docs/divergences.md`](docs/divergences.md#reference)). It is **not a Go dependency** — gojinja never imports from it; the clone is used for research only.
 
 ## Make targets
 
 ```bash
-make build   # go build ./...
-make test    # go test -race ./...
-make vet     # go vet ./...
-make lint    # staticcheck ./... (skipped if not installed)
-make audit   # smoke checks: no os/exec, no unsafe, no CGo, no third-party deps in pkg/cmd
-make tidy    # go mod tidy
-make parity  # run the Python-vs-gojinja parity harness
+make build            # go build ./...
+make test             # go test -race ./...
+make vet              # go vet ./...
+make lint             # staticcheck ./... (skipped if not installed)
+make audit            # smoke checks: no os/exec, no unsafe, no CGo, no third-party deps in pkg/cmd
+make gofmt-check      # whole-tree gofmt -l (no rewrite)
+make precommit        # vet + audit + lint (mirrors what the pre-commit hook runs, modulo gofmt)
+make tidy             # go mod tidy
+make parity           # run the Python-vs-gojinja parity harness
+make hooks-install    # set core.hooksPath = .githooks
+make hooks-uninstall  # clear core.hooksPath
 ```
 
 `make audit` is intentionally a thin grep-based check, not a substitute for the methodical walk in `docs/security-audit-v0.1.0.md`. The full per-section walk is run before each release tag and recorded as a fresh `docs/security-audit-vX.Y.Z.md`.

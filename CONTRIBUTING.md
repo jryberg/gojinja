@@ -71,12 +71,18 @@ literal `cli` / `parity` / `docs` / `ci`.
 
 ## Sign-off
 
-Every commit must carry a `Signed-off-by` trailer. Use `git commit -s` to add
-it automatically. This is a Developer Certificate of Origin attestation
-(<https://developercertificate.org>) — by signing off, you state you have the
-right to contribute the change under the project's BSD 3-Clause license.
+Every commit must carry a `Signed-off-by` trailer. This is a Developer
+Certificate of Origin attestation (<https://developercertificate.org>) — by
+signing off, you state you have the right to contribute the change under the
+project's BSD 3-Clause license.
 
-Commits without sign-off will be rejected by CI.
+Commits without sign-off will be rejected by CI. Two ways to add it:
+
+- Run `make hooks-install` once per clone to enable the in-repo `.githooks/`,
+  which auto-appends `Signed-off-by:` (using `git config user.email`) and
+  also runs the fast lint subset (`go vet`, `make audit`, `staticcheck`) on
+  every commit. Pre-push runs the full `make ci` suite.
+- Or use `git commit -s` manually each time.
 
 ## Pull request checklist
 

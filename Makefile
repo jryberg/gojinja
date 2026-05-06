@@ -1,4 +1,4 @@
-.PHONY: test vet lint audit tidy build parity parity-external parity-external-fetch ci
+.PHONY: test vet lint audit tidy build parity parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall
 
 GO ?= go
 
@@ -55,3 +55,28 @@ parity-external:
 # external parity). Run this before opening a PR.
 ci: build vet test audit parity
 	@echo "ci: all checks passed"
+
+# Verify all tracked .go files are gofmt-clean. Whole-tree check; the
+# pre-commit hook only checks staged files.
+gofmt-check:
+	@bad=$$(gofmt -l $$(git ls-files '*.go') 2>/dev/null); \
+	 if [ -n "$$bad" ]; then \
+	   echo "gofmt: unformatted files:"; echo "$$bad"; \
+	   echo "fix with: gofmt -w <files>"; \
+	   exit 1; \
+	 fi
+
+# Fast lint subset matching the .githooks/pre-commit hook's non-gofmt steps.
+# (gofmt is staged-only in the hook; run `make gofmt-check` for a whole-tree pass.)
+precommit: vet audit lint
+	@echo "precommit: passed"
+
+# Wire up the in-repo .githooks/ directory. Run once per clone.
+hooks-install:
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/*
+	@echo "hooks: installed (core.hooksPath=.githooks)"
+
+hooks-uninstall:
+	@git config --unset core.hooksPath || true
+	@echo "hooks: uninstalled (core.hooksPath cleared)"
