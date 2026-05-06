@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
     tags: ['v*.*.*']
+  workflow_run:
+    workflows: ["release-please"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       version:
@@ -17,18 +20,129 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.labels.outputs.skip }}
+      label: ${{ steps.labels.outputs.label }}
+      alias: ${{ steps.labels.outputs.alias }}
+      ref: ${{ steps.labels.outputs.ref }}
+    steps:
+      - name: decide labels
+        id: labels
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_ALIAS: ${{ github.event.inputs.alias }}
+          WR_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WR_ID: ${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          skip=false
+          label=""
+          alias=""
+          ref=""
+          case "$EVENT_NAME" in
+            push)
+              if [[ "$REF" == refs/tags/v* ]]; then
+                tag="${REF#refs/tags/}"
+                # tag must match v(MAJOR).(MINOR).(PATCH) optionally
+                # followed by -prerelease — anything else is rejected
+                # to keep mike's version space sane.
+                if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$'; then
+                  echo "::error::tag $tag rejected: must match vMAJOR.MINOR.PATCH[-prerelease]"
+                  exit 1
+                fi
+                label="$tag"
+                ref="$REF"
+                # Promote 'stable' only for non-prerelease tags.
+                if [[ "$tag" == *-* ]]; then
+                  alias=""
+                else
+                  alias="stable"
+                fi
+              else
+                # Push to main (or any non-tag branch event) → 'dev' alias.
+                label="dev"
+                ref="$REF"
+                alias=""
+              fi
+              ;;
+            workflow_dispatch)
+              if ! printf '%s' "$INPUT_VERSION" | grep -Eq '^[A-Za-z0-9._+-]{1,64}$'; then
+                echo "::error::version label rejected: must match [A-Za-z0-9._+-]{1,64}"
+                exit 1
+              fi
+              label="$INPUT_VERSION"
+              ref="$REF"
+              alias=""
+              if [ -n "$INPUT_ALIAS" ]; then
+                if ! printf '%s' "$INPUT_ALIAS" | grep -Eq '^[A-Za-z0-9._+-]{1,32}$'; then
+                  echo "::error::alias rejected: must match [A-Za-z0-9._+-]{1,32}"
+                  exit 1
+                fi
+                alias="$INPUT_ALIAS"
+              fi
+              ;;
+            workflow_run)
+              # Triggered after release-please completes. Skip silently
+              # unless that run uploaded a release-marker artifact (i.e.
+              # actually tagged a release).
+              if [ "$WR_CONCLUSION" != "success" ]; then
+                echo "::notice::release-please run was not successful; skipping"
+                skip=true
+              elif ! gh api "repos/$GH_REPO/actions/runs/$WR_ID/artifacts" \
+                    --jq '.artifacts[].name' | grep -qx 'release-marker'; then
+                echo "::notice::release-please did not create a release; skipping"
+                skip=true
+              else
+                mkdir -p ./_rp
+                gh run download "$WR_ID" -n release-marker -D ./_rp -R "$GH_REPO"
+                tag="$(cat ./_rp/tag)"
+                if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$'; then
+                  echo "::error::tag $tag from release-please rejected: must match vMAJOR.MINOR.PATCH[-prerelease]"
+                  exit 1
+                fi
+                label="$tag"
+                ref="refs/tags/$tag"
+                if [[ "$tag" == *-* ]]; then
+                  alias=""
+                else
+                  alias="stable"
+                fi
+              fi
+              ;;
+            *)
+              echo "::error::unsupported event $EVENT_NAME"
+              exit 1
+              ;;
+          esac
+          {
+            echo "skip=$skip"
+            echo "label=$label"
+            echo "alias=$alias"
+            echo "ref=$ref"
+          } >> "$GITHUB_OUTPUT"
+
   build-and-deploy:
+    needs: decide
+    if: needs.decide.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ needs.decide.outputs.ref }}
 
       - uses: actions/setup-go@v6
         with:
@@ -47,70 +161,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: decide labels
-        id: labels
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-          INPUT_ALIAS: ${{ github.event.inputs.alias }}
-        run: |
-          set -euo pipefail
-          case "$EVENT_NAME" in
-            push)
-              if [[ "$REF" == refs/tags/v* ]]; then
-                tag="${REF#refs/tags/}"
-                # tag must match v(MAJOR).(MINOR).(PATCH) optionally
-                # followed by -prerelease — anything else is rejected
-                # to keep mike's version space sane.
-                if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$'; then
-                  echo "::error::tag $tag rejected: must match vMAJOR.MINOR.PATCH[-prerelease]"
-                  exit 1
-                fi
-                label="$tag"
-                # Promote 'stable' only for non-prerelease tags.
-                if [[ "$tag" == *-* ]]; then
-                  alias=""
-                else
-                  alias="stable"
-                fi
-              else
-                # Push to main (or any non-tag branch event) → 'dev' alias.
-                label="dev"
-                alias=""
-              fi
-              ;;
-            workflow_dispatch)
-              if ! printf '%s' "$INPUT_VERSION" | grep -Eq '^[A-Za-z0-9._+-]{1,64}$'; then
-                echo "::error::version label rejected: must match [A-Za-z0-9._+-]{1,64}"
-                exit 1
-              fi
-              label="$INPUT_VERSION"
-              alias=""
-              if [ -n "$INPUT_ALIAS" ]; then
-                if ! printf '%s' "$INPUT_ALIAS" | grep -Eq '^[A-Za-z0-9._+-]{1,32}$'; then
-                  echo "::error::alias rejected: must match [A-Za-z0-9._+-]{1,32}"
-                  exit 1
-                fi
-                alias="$INPUT_ALIAS"
-              fi
-              ;;
-            *)
-              echo "::error::unsupported event $EVENT_NAME"
-              exit 1
-              ;;
-          esac
-          {
-            echo "label=$label"
-            echo "alias=$alias"
-          } >> "$GITHUB_OUTPUT"
-
       - name: docgen check
         run: go run ./tools/docgen check
 
       - name: generate reference pages
         env:
-          MIKE_VERSION: ${{ steps.labels.outputs.label }}
+          MIKE_VERSION: ${{ needs.decide.outputs.label }}
         run: |
           set -euo pipefail
           go run ./tools/docgen build   --out docs/site/content/templates
@@ -119,8 +175,8 @@ jobs:
       - name: mike deploy
         working-directory: docs/site
         env:
-          LABEL: ${{ steps.labels.outputs.label }}
-          ALIAS: ${{ steps.labels.outputs.alias }}
+          LABEL: ${{ needs.decide.outputs.label }}
+          ALIAS: ${{ needs.decide.outputs.alias }}
         run: |
           set -euo pipefail
           if [ -n "$ALIAS" ]; then
@@ -132,7 +188,7 @@ jobs:
       - name: mike set-default
         working-directory: docs/site
         env:
-          LABEL: ${{ steps.labels.outputs.label }}
+          LABEL: ${{ needs.decide.outputs.label }}
         run: |
           set -euo pipefail
           # Without set-default, gh-pages has no root index.html and
