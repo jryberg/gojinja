@@ -78,7 +78,7 @@ func decodeStringLiteral(value string) (string, error) {
 				return "", fmt.Errorf("truncated \\xHH escape")
 			}
 			h := value[i+2 : i+4]
-			n, err := strconv.ParseUint(h, 16, 32)
+			n, err := strconv.ParseUint(h, 16, 8)
 			if err != nil {
 				return "", fmt.Errorf("invalid \\x escape: %s", h)
 			}
@@ -91,7 +91,7 @@ func decodeStringLiteral(value string) (string, error) {
 				return "", fmt.Errorf("truncated \\uHHHH escape")
 			}
 			h := value[i+2 : i+6]
-			n, err := strconv.ParseUint(h, 16, 32)
+			n, err := strconv.ParseUint(h, 16, 16)
 			if err != nil {
 				return "", fmt.Errorf("invalid \\u escape: %s", h)
 			}
@@ -104,7 +104,7 @@ func decodeStringLiteral(value string) (string, error) {
 				return "", fmt.Errorf("truncated \\UHHHHHHHH escape")
 			}
 			h := value[i+2 : i+10]
-			n, err := strconv.ParseUint(h, 16, 32)
+			n, err := strconv.ParseUint(h, 16, 21)
 			if err != nil {
 				return "", fmt.Errorf("invalid \\U escape: %s", h)
 			}
@@ -128,7 +128,7 @@ func decodeStringLiteral(value string) (string, error) {
 					count++
 				}
 				digits := value[i+1 : j]
-				n, err := strconv.ParseUint(digits, 8, 32)
+				n, err := strconv.ParseUint(digits, 8, 9)
 				if err != nil {
 					return "", fmt.Errorf("invalid octal escape \\%s", digits)
 				}

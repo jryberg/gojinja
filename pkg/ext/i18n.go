@@ -362,7 +362,7 @@ func I18NTag(p *parser.Parser) (ast.Node, error) {
 	gettextCall.SetLineno(lineno)
 
 	// Wrap with substitution if there are variables to expand.
-	var resultExpr ast.Expr = gettextCall
+	var resultExpr ast.Expr
 	if len(variables) > 0 {
 		// Build the var dict.
 		dictItems := make([]*ast.Pair, 0, len(variables))
