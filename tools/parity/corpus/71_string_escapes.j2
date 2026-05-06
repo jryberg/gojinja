@@ -1,0 +1,21 @@
+{# String literal escapes #}
+{{ "\n" }}END
+{{ "\t" }}END
+{{ "\\" }}END
+{{ "\"" }}END
+{{ "\xff" }}END
+{{ "é" }}END
+{{ '\'' }}END
+{# String multiplication / repetition #}
+{{ "ab" * 3 }}
+{{ 5 * "x" }}
+{# Negative numbers / unary #}
+{{ -5 }}|{{ +5 }}|{{ - -5 }}|{{ -1.5 }}
+{# Operator precedence #}
+{{ 2 + 3 * 4 }}|{{ (2 + 3) * 4 }}|{{ 10 - 2 - 3 }}|{{ 2 ** 3 ** 2 }}
+{# Comparison chains #}
+{{ 1 < 2 < 3 }}|{{ 1 < 3 < 2 }}|{{ 3 > 2 > 1 }}
+{# Boolean ops #}
+{{ true and false }}|{{ true or false }}|{{ not true }}|{{ none or 'x' }}
+{# Membership #}
+{{ 'a' in 'abc' }}|{{ 'd' in 'abc' }}|{{ 'a' not in 'bcd' }}

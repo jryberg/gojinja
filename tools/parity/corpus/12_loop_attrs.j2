@@ -1,0 +1,3 @@
+{% for item in items -%}
+[{{ loop.index0 }}/{{ loop.length }}] {{ item }} (first={{ loop.first }}, last={{ loop.last }})
+{% endfor %}

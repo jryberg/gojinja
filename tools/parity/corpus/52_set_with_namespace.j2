@@ -1,0 +1,11 @@
+{# set / set-block / with / namespace #}
+{% set foo = 1 %}{{ foo }}
+{% set foo %}42{% endset -%}
+{{ foo }}
+{% set ns = namespace() %}{% set ns.bar = '42' %}{{ ns.bar }}
+{% set ns = namespace(a=1, b=2) %}{{ ns.a }} {{ ns.b }}
+{% with x = 1, y = 2 %}{{ x }}+{{ y }}{% endwith %}
+{% set total = nums|sum %}total={{ total }}
+{% set xs = [1, 2, 3] %}{% for x in xs %}{{ x }}{% endfor %}
+{# tuple unpacking in set #}
+{% set a, b = (1, 2) %}{{ a }}-{{ b }}

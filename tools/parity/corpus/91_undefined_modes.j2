@@ -1,0 +1,7 @@
+{# Default Undefined behavior — printing renders empty string, comparisons #}
+{{ missing }}|done
+{{ missing == "" }}|{{ missing == none }}|{{ missing is defined }}|{{ missing is none }}
+{# Iteration over Undefined renders nothing #}
+{% for x in missing %}-{{ x }}-{% endfor %}END
+{# Conditional fallback #}
+{{ x|default('fallback') }}|{{ x or 'or-fallback' }}

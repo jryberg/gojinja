@@ -1,0 +1,6 @@
+{% extends "layout" %}
+{% block title %}Hello {{ name }}{% endblock %}
+{% block content %}
+  Welcome, {{ name }}.
+  parent says: {{ super() }}
+{% endblock %}

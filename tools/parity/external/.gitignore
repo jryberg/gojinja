@@ -1,0 +1,5 @@
+# Fetched upstream templates live here. The cache is built from
+# SOURCES.md / manifest.go via `go run ./tools/parity/external -fetch`
+# and is intentionally not committed: redistributing thousands of
+# upstream files would muddle the licensing surface of this project.
+cache/

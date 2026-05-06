@@ -1,0 +1,31 @@
+#!/bin/sh
+# Fast lint subset of CI (.github/workflows/ci.yml `audit-and-lint`).
+# Heavy checks (build, tests, parity, govulncheck) live in pre-push.
+
+set -eu
+
+staged_go=$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$' || true)
+if [ -n "$staged_go" ]; then
+    bad=$(gofmt -l $staged_go || true)
+    if [ -n "$bad" ]; then
+        echo "pre-commit: gofmt: unformatted staged files:" >&2
+        echo "$bad" >&2
+        echo "fix with: gofmt -w $bad" >&2
+        exit 1
+    fi
+fi
+
+echo "==> go vet"
+go vet ./...
+
+echo "==> make audit"
+make audit
+
+if command -v staticcheck >/dev/null 2>&1; then
+    echo "==> staticcheck"
+    staticcheck ./...
+else
+    echo "pre-commit: staticcheck not installed; skipping (CI will run it)" >&2
+fi
+
+echo "pre-commit: passed"

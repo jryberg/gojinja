@@ -1,0 +1,69 @@
+name: Bug report
+description: A template that renders differently in gojinja than in Python Jinja2, or a crash / panic / unexpected error.
+title: "fix: <short summary>"
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! gojinja's contract is byte-for-byte parity
+        with canonical Python Jinja2. The most useful bug report shows
+        exactly which two outputs disagree.
+  - type: input
+    id: version
+    attributes:
+      label: gojinja version
+      description: Output of `git describe --tags` or the module version pinned in your go.mod.
+    validations:
+      required: true
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      description: Output of `go version`.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. linux/amd64, macOS 14.5/arm64
+    validations:
+      required: true
+  - type: textarea
+    id: template
+    attributes:
+      label: Minimal template
+      description: The smallest .j2 you can reduce the bug to.
+      render: jinja2
+    validations:
+      required: true
+  - type: textarea
+    id: vars
+    attributes:
+      label: Render context (JSON)
+      description: The variables passed to Render / RenderContext.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: gojinja-output
+    attributes:
+      label: gojinja output
+      description: What gojinja actually produced.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: python-output
+    attributes:
+      label: Python Jinja2 output (expected)
+      description: What canonical Python Jinja2 produces for the same template + vars. If you ran `make parity` and it caught this, paste the diff.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Anything else — stack trace, related issues, suspected cause.

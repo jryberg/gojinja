@@ -1,0 +1,13 @@
+{# kwarg passes through to a custom filter — Python's test_keyword_folding #}
+{# Built-in filters that take kwargs: #}
+{{ "abc"|center(11) }}
+{{ users|sort(reverse=true, attribute='name')|map(attribute='name')|join(',') }}
+{{ users|map(attribute='age', default=0)|sum }}
+{{ users|selectattr('active')|map(attribute='name')|list }}
+{# nested macros and conditional expressions: #}
+{% if expr %}true{% endif %}{{ ' ' if expr }}
+{# nested for+macro #}
+{% macro wrap(s) %}<{{ s }}>{% endmacro -%}
+{% for x in items %}{{ wrap(x) }}{% endfor %}
+{# block_set_with_extends: set inside body #}
+{% set msg = "hi" %}{{ msg }}|{{ msg|upper }}

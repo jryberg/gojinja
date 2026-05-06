@@ -1,0 +1,18 @@
+#!/bin/sh
+# Reject commits without a Signed-off-by trailer. Same regex the CI DCO job
+# uses, so passing here is sufficient for CI.
+
+msg_file="$1"
+
+if grep -v '^[[:space:]]*#' "$msg_file" | grep -qiE '^Signed-off-by: '; then
+    exit 0
+fi
+
+cat >&2 <<'EOF'
+commit-msg: missing Signed-off-by trailer.
+
+Every commit must carry one (Developer Certificate of Origin). Either:
+  - run `make hooks-install` once per clone so prepare-commit-msg adds it for you, or
+  - use `git commit -s` to add it manually.
+EOF
+exit 1

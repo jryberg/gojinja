@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a new feature, filter, test, or parser tag.
+title: "feat: <short summary>"
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        gojinja tracks Python Jinja2 1:1. If you are proposing a feature
+        that exists in canonical Jinja2 but not yet in gojinja, please link
+        the upstream documentation or source. If you are proposing a feature
+        that does not exist in Python Jinja2, expect a high bar — divergent
+        features go in the divergences table in docs/divergences.md and
+        require explicit maintainer approval.
+  - type: textarea
+    id: feature
+    attributes:
+      label: What feature?
+      description: Describe the feature in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example template
+      description: A short template showing how the feature would be used.
+      render: jinja2
+  - type: input
+    id: jinja2-link
+    attributes:
+      label: Upstream Jinja2 reference
+      description: Link to the Jinja2 doc / source / test that defines this behaviour.
+      placeholder: https://jinja.palletsprojects.com/en/stable/...
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What are you trying to do that needs this?
+    validations:
+      required: true

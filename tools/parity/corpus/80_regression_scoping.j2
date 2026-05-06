@@ -1,0 +1,5 @@
+{# from test_regression.py: scoping bugs #}
+{%- for item in (1, 2, 3, 4) -%}
+[{{ item }}]
+{%- endfor %}
+{{- item -}}

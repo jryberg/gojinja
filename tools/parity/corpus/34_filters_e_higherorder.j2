@@ -1,0 +1,14 @@
+{# map / select / reject / selectattr / rejectattr / replace #}
+{{ ["1", "2", "3"]|map("int")|sum }}
+{{ [[1,2], [3], [4,5,6]]|map("sum")|list }}
+{{ users|map(attribute="name")|join("|") }}
+{{ none|map("upper")|list }}
+{{ [1, 2, 3, 4, 5]|select("odd")|list }}
+{{ [false, 0, 1, 2, '', 'd', none]|select|list }}
+{{ [1, 2, 3, 4, 5]|reject("odd")|list }}
+{{ [false, 0, 1, 2, '', 'd', none]|reject|list }}
+{{ items|selectattr('active')|map(attribute='name')|list }}
+{{ items|rejectattr('active')|map(attribute='name')|list }}
+{{ string|replace("o", 42) }}
+{{ string|replace("<", 42) }}
+{{ string|replace("o", ">x<") }}

@@ -1,0 +1,7 @@
+{% set x = 5 %}
+x = {{ x }}
+{% with y = x * 2 %}
+y = {{ y }}
+{% endwith %}
+{% set total = nums|sum %}
+total = {{ total }}
