@@ -1,0 +1,158 @@
+site_name: gojinja
+site_description: A Jinja2-compatible template engine for Go.
+site_url: https://jryberg.github.io/gojinja/
+site_author: Johan Ryberg
+copyright: Copyright &copy; Johan Ryberg
+
+repo_name: jryberg/gojinja
+repo_url: https://github.com/jryberg/gojinja
+edit_uri: edit/main/docs/site/content/
+
+docs_dir: content
+
+# mkdocs ships a default exclude that drops any /templates/ directory at
+# the root of docs_dir (it's reserved for theme partials). We un-exclude
+# it because that's exactly the URL prefix we want for the template
+# language reference (matches https://jinja.palletsprojects.com/templates/).
+exclude_docs: |
+  !/templates/
+
+# Per-filter / per-test / per-global pages live as standalone files but
+# they're reached via the `_index.md` table — no point cluttering the
+# left nav with 50+ entries.
+not_in_nav: |
+  /templates/*/_generated/
+  /templates/filters/*.md
+  /templates/tests/*.md
+  /templates/globals/*.md
+
+theme:
+  name: material
+  custom_dir: overrides
+  language: en
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+
+plugins:
+  - search
+  - include-markdown:
+      # Override the default `include` / `include-markdown` directive
+      # names so literal `{% include "x" %}` strings inside our prose
+      # (e.g. on the template designer page) don't get evaluated as
+      # transclusion directives.
+      opening_tag: "{=="
+      closing_tag: "==}"
+  - mike:
+      version_selector: true
+      canonical_version: stable
+      css_dir: css
+      javascript_dir: js
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  version:
+    provider: mike
+    default: stable
+    alias: true
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/jryberg/gojinja
+      name: gojinja on GitHub
+    - icon: fontawesome/brands/golang
+      link: https://pkg.go.dev/github.com/jryberg/gojinja
+      name: gojinja on pkg.go.dev
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: installation.md
+      - Quick start: quickstart.md
+  - Templates:
+      - Designer: templates/designer.md
+      - Filters: templates/filters/index.md
+      - Tests: templates/tests/index.md
+      - Globals: templates/globals/index.md
+  - Guides:
+      - Loaders: loaders.md
+      - Caching: caching.md
+      - Sandbox: sandbox.md
+      - Native types: native.md
+      - Extensions: extensions.md
+      - Migrating from Python Jinja2: migrating-from-jinja2.md
+      - CLI: cli.md
+  - API reference:
+      - Overview: api/index.md
+      - Symbols: api/symbols.md
+  - Project:
+      - Architecture: architecture.md
+      - Divergences: divergences.md
+      - Security: security.md
+      - FAQ: faq.md
+      - Changelog: changelog.md

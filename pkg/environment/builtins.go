@@ -13,119 +13,16 @@ import (
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
-// registerBuiltins seeds an Environment with a minimal set of filters,
-// tests, and globals so basic templates render. Full coverage is added
-// in Phase 12 / 13 / 14.
+// registerBuiltins seeds an Environment with the standard filters,
+// tests, and globals.
 func registerBuiltins(e *Environment) {
 	// ------------------------------------------------------- globals
-	e.globals["range"] = func(args ...int) ([]any, error) {
-		var start, stop, step int
-		switch len(args) {
-		case 0:
-			return nil, gjerrors.NewTemplateRuntimeError("range() requires at least 1 argument")
-		case 1:
-			start, stop, step = 0, args[0], 1
-		case 2:
-			start, stop, step = args[0], args[1], 1
-		case 3:
-			start, stop, step = args[0], args[1], args[2]
-		default:
-			return nil, gjerrors.NewTemplateRuntimeError("range() takes 1-3 arguments")
-		}
-		if step == 0 {
-			return nil, gjerrors.NewTemplateRuntimeError("range() step argument must not be zero")
-		}
-		size := 0
-		if step > 0 && start < stop {
-			size = (stop - start + step - 1) / step
-		} else if step < 0 && start > stop {
-			size = (start - stop + (-step) - 1) / (-step)
-		}
-		if size > e.maxRange {
-			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("range size %d exceeds limit %d", size, e.maxRange))
-		}
-		out := make([]any, 0, size)
-		for i := start; (step > 0 && i < stop) || (step < 0 && i > stop); i += step {
-			out = append(out, i)
-		}
-		return out, nil
-	}
-	// dict() accepts an optional mapping arg, alternating key/value
-	// positional pairs, and keyword arguments — mirrors Python.
-	e.globals["dict"] = KwargsCallable(func(args []any, kwargs map[string]any) (any, error) {
-		out := runtime.NewOrderedDict()
-		if len(args) == 1 {
-			switch x := args[0].(type) {
-			case *runtime.OrderedDict:
-				for _, k := range x.Keys() {
-					v, _ := x.Get(k)
-					out.Set(k, v)
-				}
-			case map[string]any:
-				for k, v := range x {
-					out.Set(k, v)
-				}
-			case map[any]any:
-				for k, v := range x {
-					out.Set(k, v)
-				}
-			default:
-				return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("dict() argument must be a mapping or alternating pairs, got %T", x))
-			}
-		} else {
-			if len(args)%2 != 0 {
-				return nil, gjerrors.NewTemplateRuntimeError("dict() requires alternating key/value")
-			}
-			for i := 0; i < len(args); i += 2 {
-				k, ok := args[i].(string)
-				if !ok {
-					return nil, gjerrors.NewTemplateRuntimeError("dict() keys must be strings")
-				}
-				out.Set(k, args[i+1])
-			}
-		}
-		// Iterate kwargs in deterministic key order. Go's map iteration is
-		// randomized, so a naive `for k := range kwargs` produces flaky
-		// `dict(a=1, b=2) | items` output. Python preserves the call-site
-		// order; gojinja currently flattens kwargs into map[string]any at
-		// the call boundary, so we settle for alphabetic — deterministic
-		// and right whenever the call site already sorts that way.
-		ks := make([]string, 0, len(kwargs))
-		for k := range kwargs {
-			ks = append(ks, k)
-		}
-		sort.Strings(ks)
-		for _, k := range ks {
-			out.Set(k, kwargs[k])
-		}
-		return out, nil
-	})
-	// namespace() / namespace(a=1, b=2). Python supports either an
-	// explicit dict-positional argument or keyword arguments. We accept
-	// the dict-arg via Call's variadic-any binding and the kwargs via
-	// the NamespaceFromKwargs adapter (see runtime.NewNamespace).
+	e.globals["range"] = globalRange(e)
+	e.globals["dict"] = KwargsCallable(globalDict)
 	e.globals["namespace"] = namespaceCtor
-	e.globals["cycler"] = func(items ...any) *runtime.Cycler { return runtime.NewCycler(items...) }
-	e.globals["joiner"] = func(seps ...string) *runtime.Joiner {
-		s := ", "
-		if len(seps) > 0 {
-			s = seps[0]
-		}
-		return runtime.NewJoiner(s)
-	}
-	e.globals["lipsum"] = func(args ...int) any {
-		n, min, max := 5, 20, 100
-		if len(args) > 0 {
-			n = args[0]
-		}
-		if len(args) > 1 {
-			min = args[1]
-		}
-		if len(args) > 2 {
-			max = args[2]
-		}
-		return generateLipsum(n, min, max, true)
-	}
+	e.globals["cycler"] = globalCycler
+	e.globals["joiner"] = globalJoiner
+	e.globals["lipsum"] = globalLipsum
 
 	// ------------------------------------------------------- filters
 	e.filters["upper"] = Filter{Func: filterUpper}
@@ -225,10 +122,23 @@ func registerBuiltins(e *Environment) {
 	e.tests["test"] = Test{Func: testIsTest}
 }
 
-// namespaceCtor implements the `namespace()` global. Accepts an
-// optional positional dict (Python: `namespace({'a': 1})`) and / or
-// keyword arguments (`namespace(a=1, b=2)`). Both forms seed the
-// resulting Namespace.
+// namespaceCtor implements the `namespace` global: a mutable container
+// you can write to from inside a `{% set %}` block.
+//
+// Signature: namespace() | namespace(mapping) | namespace(**kwargs)
+//
+// Returns a [runtime.Namespace]. The point of `namespace` is to escape
+// the loop-local scoping of plain `{% set %}` so accumulator-style
+// patterns work:
+//
+//	{% set ns = namespace(found=false) %}
+//	{% for item in items %}
+//	  {% if item.match %}{% set ns.found = true %}{% endif %}
+//	{% endfor %}
+//	{% if ns.found %}…{% endif %}
+//
+// Both a positional mapping and keyword arguments seed the resulting
+// Namespace.
 func namespaceCtor(args []any, kwargs map[string]any) (any, error) {
 	seed := map[string]any{}
 	for _, a := range args {
@@ -262,17 +172,44 @@ func namespaceCtor(args []any, kwargs map[string]any) (any, error) {
 
 // =========================================================== Filter funcs
 
+// filterUpper implements the `upper` filter: convert a value to uppercase.
+//
+// Signature: upper(s)
+//
+// Stringifies via [escape.SoftStr] then applies [strings.ToUpper] (Unicode-aware).
+//
+// Example:
+//
+//	{{ "hello" | upper }}  →  HELLO
 func filterUpper(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	return strings.ToUpper(escape.SoftStr(value)), nil
 }
+
+// filterLower implements the `lower` filter: convert a value to lowercase.
+//
+// Signature: lower(s)
+//
+// Stringifies via [escape.SoftStr] then applies [strings.ToLower] (Unicode-aware).
+//
+// Example:
+//
+//	{{ "HELLO" | lower }}  →  hello
 func filterLower(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	return strings.ToLower(escape.SoftStr(value)), nil
 }
+
+// filterTitle implements the `title` filter: title-case a string.
+//
+// Signature: title(s)
+//
+// Splits on whitespace and `-`, `(`, `{`, `[`, `<`. Apostrophes do NOT
+// split words (so `"foo's bar" | title` → `Foo's Bar`, matching Python's
+// `do_title`, NOT Python's `str.title()`).
+//
+// Example:
+//
+//	{{ "hello world" | title }}  →  Hello World
 func filterTitle(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	// Jinja2 splits on `-`, whitespace, `(`, `{`, `[`, `<` and lowercases
-	// the rest of each word. Apostrophes do NOT split words, so
-	// `"foo's bar".title()` becomes `"Foo's Bar"` (unlike Python's
-	// builtin `str.title()`).
 	return jinjaTitle(escape.SoftStr(value)), nil
 }
 
@@ -303,6 +240,18 @@ func jinjaTitle(s string) string {
 	}
 	return b.String()
 }
+
+// filterCapitalize implements the `capitalize` filter: uppercase the first
+// character, lowercase the rest.
+//
+// Signature: capitalize(s)
+//
+// Operates on bytes, not runes — input is expected to be UTF-8 with an
+// ASCII first character (matching Python's behaviour for the common case).
+//
+// Example:
+//
+//	{{ "hello WORLD" | capitalize }}  →  Hello world
 func filterCapitalize(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	if s == "" {
@@ -310,6 +259,19 @@ func filterCapitalize(_ *Environment, _ *runtime.Context, value any, _ []any, _ 
 	}
 	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:]), nil
 }
+
+// filterTrim implements the `trim` filter: strip surrounding characters.
+//
+// Signature: trim(s, chars=None)
+//
+// With no argument, trims ASCII + Unicode whitespace (Go's
+// [strings.TrimSpace]). With `chars`, trims any of the given runes from
+// both ends (Go's [strings.Trim]).
+//
+// Example:
+//
+//	{{ "  hi  " | trim }}        →  hi
+//	{{ "##hi##" | trim('#') }}   →  hi
 func filterTrim(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	if len(args) > 0 {
@@ -319,6 +281,23 @@ func filterTrim(_ *Environment, _ *runtime.Context, value any, args []any, _ map
 	}
 	return strings.TrimSpace(s), nil
 }
+
+// filterLength implements the `length` filter (alias `count`): return the
+// number of items in a sequence or mapping, or runes in a string.
+//
+// Signature: length(value)
+//
+// Strings: byte length (matches Python's `len()` on `str` for ASCII;
+// multi-byte UTF-8 characters count as multiple bytes — same as Python's
+// `bytes` and gojinja's other byte-oriented operations).
+// Sequences and mappings: number of elements / key-value pairs.
+// Undefined: 0 for ModeBase / ModeChainable; ModeStrict raises through Iter.
+//
+// Example:
+//
+//	{{ [1, 2, 3] | length }}      →  3
+//	{{ "hello"  | length }}       →  5
+//	{{ {'a': 1} | length }}       →  1
 func filterLength(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	switch x := value.(type) {
 	case string:
@@ -345,18 +324,80 @@ func filterLength(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	}
 	return 0, gjerrors.NewFilterArgumentError("length: object has no length")
 }
+
+// filterString implements the `string` filter: stringify a value the way
+// Python's `str()` would.
+//
+// Signature: string(value)
+//
+// Critically, this means `None` → `"None"`, `True` → `"True"`, `False` →
+// `"False"` (capitalised, matching Python — NOT Go's lowercase form).
+// Implemented by [escape.SoftStr].
+//
+// Example:
+//
+//	{{ true  | string }}  →  True
+//	{{ none  | string }}  →  None
 func filterString(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	return escape.SoftStr(value), nil
 }
+
+// filterSafe implements the `safe` filter: mark a value as already-escaped
+// so autoescape won't double-escape it.
+//
+// Signature: safe(value)
+//
+// Returns a [escape.Markup] wrapping. Once a value is Markup, the engine
+// emits it verbatim through `{{ ... }}`. Use with care for any value that
+// originated outside trusted code.
+//
+// Example:
+//
+//	{{ "<b>x</b>" | safe }}  →  <b>x</b>      (rendered as HTML)
+//	{{ "<b>x</b>" }}         →  &lt;b&gt;x&lt;/b&gt;  (autoescaped)
 func filterSafe(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	return escape.Markup(escape.SoftStr(value)), nil
 }
+
+// filterEscape implements the `escape` filter (alias `e`): HTML-escape a
+// value's stringified form, returning [escape.Markup].
+//
+// Signature: escape(value)
+//
+// If the input is already Markup, returns it unchanged (no double-escape).
+// To force re-escape, use [filterForceEscape].
+//
+// Example:
+//
+//	{{ "<b>" | escape }}  →  &lt;b&gt;
 func filterEscape(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	return escape.Escape(value), nil
 }
+
+// filterForceEscape implements the `forceescape` filter: HTML-escape a
+// value even if it's already Markup.
+//
+// Signature: forceescape(value)
+//
+// Example:
+//
+//	{{ "<b>" | safe | forceescape }}  →  &lt;b&gt;
 func filterForceEscape(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	return escape.ForceEscape(value), nil
 }
+
+// filterDefault implements the `default` filter (alias `d`): substitute a
+// fallback when the value is undefined (or, optionally, falsy).
+//
+// Signature: default(value, default_value="", boolean=False)
+//
+// With `boolean=True`, the fallback is also used when the value is
+// truthy-False (`""`, `0`, empty list, empty map, `None`, `False`).
+//
+// Example:
+//
+//	{{ unset_var | default('fallback') }}                       →  fallback
+//	{{ ""        | default('fallback', true) }}                 →  fallback
 func filterDefault(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	def := any("")
 	booleanMode := false
@@ -378,6 +419,21 @@ func filterDefault(_ *Environment, _ *runtime.Context, value any, args []any, _ 
 	}
 	return value, nil
 }
+
+// filterJoin implements the `join` filter: concatenate the items of an
+// iterable, with an optional separator.
+//
+// Signature: join(value, d="", attribute=None)
+//
+// `attribute` (positional or keyword) extracts the named attribute from
+// each item before stringifying. Strings are iterated as runes (matching
+// Python's `sep.join(string)`).
+//
+// Example:
+//
+//	{{ [1, 2, 3]     | join('-') }}                  →  1-2-3
+//	{{ users         | join(', ', attribute='name') }}  →  Alice, Bob
+//	{{ "abc"         | join('.') }}                  →  a.b.c
 func filterJoin(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	sep := ""
 	if len(args) > 0 {
@@ -439,6 +495,18 @@ func filterJoin(env *Environment, _ *runtime.Context, value any, args []any, kwa
 	}
 	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("join: cannot join %T", value))
 }
+
+// filterReplace implements the `replace` filter: replace occurrences of
+// `old` with `new` in a string.
+//
+// Signature: replace(s, old, new, count=None)
+//
+// With `count` set, only the first N occurrences are replaced.
+//
+// Example:
+//
+//	{{ "Hello World"   | replace('World', 'Go') }}  →  Hello Go
+//	{{ "aaaa"          | replace('a', 'b', 2) }}    →  bbaa
 func filterReplace(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	if len(args) < 2 {
 		return nil, gjerrors.NewFilterArgumentError("replace requires (old, new) args")
@@ -453,6 +521,19 @@ func filterReplace(_ *Environment, _ *runtime.Context, value any, args []any, _ 
 	}
 	return strings.Replace(escape.SoftStr(value), old, new_, count), nil
 }
+
+// filterReverse implements the `reverse` filter: reverse a string or
+// sequence.
+//
+// Signature: reverse(value)
+//
+// Strings are reversed by rune (multi-byte safe). Lists return a new
+// reversed slice; the original is left unmodified.
+//
+// Example:
+//
+//	{{ "abc"      | reverse }}  →  cba
+//	{{ [1, 2, 3]  | reverse }}  →  [3, 2, 1]
 func filterReverse(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	switch x := value.(type) {
 	case string:
@@ -470,6 +551,18 @@ func filterReverse(_ *Environment, _ *runtime.Context, value any, _ []any, _ map
 	}
 	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("reverse: cannot reverse %T", value))
 }
+
+// filterAbs implements the `abs` filter: absolute value of a number.
+//
+// Signature: abs(value)
+//
+// Accepts int, int64, and float64. Other types raise a filter argument
+// error.
+//
+// Example:
+//
+//	{{ -7    | abs }}  →  7
+//	{{ -1.5  | abs }}  →  1.5
 func filterAbs(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	switch x := value.(type) {
 	case int:
@@ -490,8 +583,22 @@ func filterAbs(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[str
 	}
 	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("abs: not numeric %T", value))
 }
+
+// filterInt implements the `int` filter: convert a value to an integer.
+//
+// Signature: int(value, default=0, base=10)
+//
+// Conversion falls back to `default` if parsing fails. Bases other than
+// 10 accept the optional `0x` / `0o` / `0b` prefix. Base-10 input that
+// looks like a float is truncated toward zero (`"32.32" | int → 32`,
+// matching Python).
+//
+// Example:
+//
+//	{{ "42"     | int }}             →  42
+//	{{ "ff"     | int(0, 16) }}      →  255
+//	{{ "bad"    | int(-1) }}         →  -1
 func filterInt(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	// Python signature: int(default=0, base=10)
 	def := int64(0)
 	if len(args) > 0 {
 		if n, ok := asInt(args[0]); ok {
@@ -566,6 +673,18 @@ func filterInt(_ *Environment, _ *runtime.Context, value any, args []any, kwargs
 	}
 	return def, nil
 }
+
+// filterFloat implements the `float` filter: convert a value to a
+// float64.
+//
+// Signature: float(value, default=0.0)
+//
+// Falls back to `default` if parsing fails.
+//
+// Example:
+//
+//	{{ "3.14"  | float }}        →  3.14
+//	{{ "bad"   | float(0.0) }}   →  0.0
 func filterFloat(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	def := 0.0
 	if len(args) > 0 {
@@ -598,6 +717,17 @@ func filterFloat(_ *Environment, _ *runtime.Context, value any, args []any, kwar
 	}
 	return def, nil
 }
+
+// filterList implements the `list` filter: convert a value to a list.
+//
+// Signature: list(value)
+//
+// Lists pass through. Strings are split into single-rune strings (matching
+// Python's `list("abc")` → `['a', 'b', 'c']`).
+//
+// Example:
+//
+//	{{ "abc"  | list }}  →  ['a', 'b', 'c']
 func filterList(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	switch x := value.(type) {
 	case []any:
@@ -611,6 +741,17 @@ func filterList(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 	}
 	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("list: cannot convert %T", value))
 }
+
+// filterFirst implements the `first` filter: first item of a sequence.
+//
+// Signature: first(seq)
+//
+// Empty sequences and non-sequences yield an Undefined value (matching
+// Python's `first` returning `Undefined`, not raising).
+//
+// Example:
+//
+//	{{ [1, 2, 3]  | first }}  →  1
 func filterFirst(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	if x, ok := value.([]any); ok {
 		if len(x) == 0 {
@@ -620,6 +761,18 @@ func filterFirst(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 	}
 	return runtime.NewBase("", "first", value, nil), nil
 }
+
+// filterLast implements the `last` filter: last item of a sequence.
+//
+// Signature: last(seq)
+//
+// Empty sequences and non-sequences yield an Undefined value. NOTE: don't
+// use this on generators or maps — only ordered sequences have a defined
+// "last".
+//
+// Example:
+//
+//	{{ [1, 2, 3]  | last }}  →  3
 func filterLast(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	if x, ok := value.([]any); ok {
 		if len(x) == 0 {
@@ -629,6 +782,20 @@ func filterLast(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 	}
 	return runtime.NewBase("", "last", value, nil), nil
 }
+
+// filterSort implements the `sort` filter: sort a sequence.
+//
+// Signature: sort(value, reverse=False, case_sensitive=False, attribute=None)
+//
+// Sort is **stable**. With `attribute`, sorts by the named attribute of
+// each element (dotted paths and integer indices both supported via
+// [lookupDottedAttr]). String comparisons are case-insensitive by default.
+//
+// Example:
+//
+//	{{ ['B', 'a', 'C'] | sort }}                      →  ['a', 'B', 'C']
+//	{{ users           | sort(attribute='age') }}     →  sorted by age
+//	{{ users           | sort(reverse=true, attribute='name') }}
 func filterSort(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	x, ok := value.([]any)
 	if !ok {
@@ -684,6 +851,18 @@ func filterSort(env *Environment, _ *runtime.Context, value any, args []any, kwa
 
 // ----------------------------------------------------- additional filters
 
+// filterSum implements the `sum` filter: sum the items of a sequence.
+//
+// Signature: sum(iterable, attribute=None, start=0)
+//
+// `attribute` (positional or keyword, dotted-path supported) extracts a
+// numeric field from each item. The result is `int64` when all addends
+// are integers, `float64` otherwise.
+//
+// Example:
+//
+//	{{ [1, 2, 3]     | sum }}                       →  6
+//	{{ products      | sum(attribute='price') }}    →  total price
 func filterSum(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	items, err := iterableForSum(value)
 	if err != nil {
@@ -775,6 +954,18 @@ func lookupDottedAttr(env *Environment, obj any, path string) (any, error) {
 	return cur, nil
 }
 
+// filterMin implements the `min` filter: smallest item in a sequence.
+//
+// Signature: min(value, case_sensitive=False, attribute=None)
+//
+// Empty sequences yield Undefined. With `attribute`, compares by the
+// named attribute (dotted path supported). String comparisons are
+// case-insensitive by default.
+//
+// Example:
+//
+//	{{ [3, 1, 2]   | min }}                       →  1
+//	{{ users       | min(attribute='age') }}      →  youngest user
 func filterMin(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	x, ok := value.([]any)
 	if !ok || len(x) == 0 {
@@ -793,6 +984,18 @@ func filterMin(env *Environment, _ *runtime.Context, value any, args []any, kwar
 	return mi, nil
 }
 
+// filterMax implements the `max` filter: largest item in a sequence.
+//
+// Signature: max(value, case_sensitive=False, attribute=None)
+//
+// Empty sequences yield Undefined. With `attribute`, compares by the
+// named attribute (dotted path supported). String comparisons are
+// case-insensitive by default.
+//
+// Example:
+//
+//	{{ [3, 1, 2]   | max }}                       →  3
+//	{{ users       | max(attribute='score') }}    →  top-scoring user
 func filterMax(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	x, ok := value.([]any)
 	if !ok || len(x) == 0 {
@@ -843,6 +1046,21 @@ func minMaxKeyFn(env *Environment, args []any, kwargs map[string]any) func(any) 
 	}
 }
 
+// filterItems implements the `items` filter: yield (key, value) pairs for
+// a mapping.
+//
+// Signature: items(d)
+//
+// Output is a list of two-element tuples. For Go map types, keys are
+// sorted lexicographically (Go map iteration order is non-deterministic;
+// sorting keeps output stable across renders). For [runtime.OrderedDict],
+// insertion order is preserved (matching Python dicts since 3.7).
+// Undefined input yields an empty list.
+//
+// Example:
+//
+//	{% for k, v in {'a': 1, 'b': 2} | items %}{{ k }}={{ v }} {% endfor %}
+//	→  a=1 b=2
 func filterItems(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	switch x := value.(type) {
 	case map[string]any:
@@ -885,6 +1103,17 @@ func filterItems(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("items: %T is not a mapping", value))
 }
 
+// filterDictsort implements the `dictsort` filter: sort a dict and emit
+// (key, value) pairs.
+//
+// Signature: dictsort(value, case_sensitive=False, by="key", reverse=False)
+//
+// Use `by="value"` to sort by the dict values instead of keys.
+//
+// Example:
+//
+//	{% for k, v in {'b': 2, 'a': 1} | dictsort %}{{ k }}={{ v }} {% endfor %}
+//	→  a=1 b=2
 func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	m, ok := value.(map[string]any)
 	if !ok {
@@ -937,6 +1166,18 @@ func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, _
 	return out, nil
 }
 
+// filterUnique implements the `unique` filter: drop duplicate items
+// preserving input order.
+//
+// Signature: unique(value, case_sensitive=False)
+//
+// Equality is value equality for primitives. String comparisons are
+// case-insensitive by default — first-seen casing wins.
+//
+// Example:
+//
+//	{{ [1, 2, 1, 3]            | unique }}  →  [1, 2, 3]
+//	{{ ['Foo', 'foo', 'BAR']   | unique }}  →  ['Foo', 'BAR']
 func filterUnique(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	x, ok := value.([]any)
 	if !ok {
@@ -963,6 +1204,17 @@ func filterUnique(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 	return out, nil
 }
 
+// filterBatch implements the `batch` filter: group items into rows of N.
+//
+// Signature: batch(value, linecount, fill_with=None)
+//
+// The last row is padded with `fill_with` to reach `linecount` if a
+// fill value is provided; otherwise it's left short.
+//
+// Example:
+//
+//	{{ [1, 2, 3, 4, 5]      | batch(2) }}     →  [[1, 2], [3, 4], [5]]
+//	{{ [1, 2, 3, 4, 5]      | batch(2, 0) }}  →  [[1, 2], [3, 4], [5, 0]]
 func filterBatch(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	x, ok := value.([]any)
 	if !ok {
@@ -996,6 +1248,18 @@ func filterBatch(_ *Environment, _ *runtime.Context, value any, args []any, _ ma
 	return out, nil
 }
 
+// filterSlice implements the `slice` filter: distribute items across N
+// columns of nearly-equal length.
+//
+// Signature: slice(value, slices, fill_with=None)
+//
+// Useful for newspaper-style layouts. Earlier slices get one extra item
+// when the count doesn't divide evenly. With `fill_with`, short slices
+// are padded so all have equal length.
+//
+// Example:
+//
+//	{{ [1, 2, 3, 4, 5]   | slice(3) }}  →  [[1, 2], [3, 4], [5]]
 func filterSlice(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	x, ok := value.([]any)
 	if !ok {
@@ -1032,12 +1296,19 @@ func filterSlice(_ *Environment, _ *runtime.Context, value any, args []any, _ ma
 	return out, nil
 }
 
+// filterTruncate implements the `truncate` filter: shorten a string and
+// append an ellipsis.
+//
+// Signature: truncate(s, length=255, killwords=False, end='...', leeway=5)
+//
+// Strings shorter than `length + leeway` are returned unchanged.
+// `killwords=False` (the default) breaks at the last whitespace before
+// the cut so words aren't split mid-word.
+//
+// Example:
+//
+//	{{ "this is a long sentence" | truncate(12) }}  →  this is a...
 func filterTruncate(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	// Python signature: truncate(s, length=255, killwords=False,
-	//                             end='...', leeway=None).
-	// `leeway` defaults to env.policies['truncate.leeway'] = 5 — short
-	// inputs that exceed `length` by less than `leeway` are returned
-	// unchanged.
 	s := escape.SoftStr(value)
 	length := 255
 	killWords := false
@@ -1088,6 +1359,16 @@ func filterTruncate(_ *Environment, _ *runtime.Context, value any, args []any, k
 	return s[:cut] + end, nil
 }
 
+// filterWordcount implements the `wordcount` filter: count "words" in a
+// string.
+//
+// Signature: wordcount(s)
+//
+// A word is a maximal run of `[A-Za-z0-9_]`. Anything else is a separator.
+//
+// Example:
+//
+//	{{ "hello world foo"  | wordcount }}  →  3
 func filterWordcount(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	count := 0
@@ -1102,6 +1383,18 @@ func filterWordcount(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 	return count, nil
 }
 
+// filterIndent implements the `indent` filter: indent each line by N
+// spaces.
+//
+// Signature: indent(s, width=4, first=False, blank=False)
+//
+// `first=False` skips indenting the first line (so the filter chains with
+// templates that already have content on the line). `blank=False` skips
+// blank lines.
+//
+// Example:
+//
+//	{{ "a\nb\nc" | indent(2, true) }}  →  "  a\n  b\n  c"
 func filterIndent(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	width := 4
@@ -1132,6 +1425,17 @@ func filterIndent(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 	return strings.Join(lines, "\n"), nil
 }
 
+// filterStripTags implements the `striptags` filter: drop HTML tags and
+// HTML comments, then collapse whitespace.
+//
+// Signature: striptags(s)
+//
+// `<!-- ... -->` spans are removed entirely (including content). Whitespace
+// runs are collapsed to a single space.
+//
+// Example:
+//
+//	{{ "<p>hi <b>there</b></p>" | striptags }}  →  hi there
 func filterStripTags(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	// Strip HTML comments first — Python's striptags drops the entire
@@ -1165,6 +1469,16 @@ func filterStripTags(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 	return strings.Join(out, " "), nil
 }
 
+// filterCenter implements the `center` filter: pad a string with spaces
+// to centre it within a given width.
+//
+// Signature: center(s, width=80)
+//
+// Strings that already exceed `width` are returned unchanged.
+//
+// Example:
+//
+//	{{ "hi" | center(6) }}  →  "  hi  "
 func filterCenter(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	width := 80
@@ -1182,6 +1496,19 @@ func filterCenter(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right), nil
 }
 
+// filterRound implements the `round` filter: round a number to N decimal
+// places.
+//
+// Signature: round(value, precision=0, method='common')
+//
+// Methods: 'common' (round-half-to-even), 'ceil', 'floor'. Negative
+// precision rounds to powers of ten (e.g. precision=-2 rounds to the
+// nearest 100).
+//
+// Example:
+//
+//	{{ 3.14159 | round(2) }}             →  3.14
+//	{{ 3.5     | round(0, 'ceil') }}     →  4
 func filterRound(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	f, ok := numAsFloat(value)
 	if !ok {
@@ -1223,6 +1550,18 @@ func filterRound(_ *Environment, _ *runtime.Context, value any, args []any, kwar
 	}
 }
 
+// filterFilesizeformat implements the `filesizeformat` filter: render a
+// byte count as a human-friendly size.
+//
+// Signature: filesizeformat(value, binary=False)
+//
+// Default uses decimal (kB, MB, GB) with a 1000-base; `binary=True` uses
+// binary (KiB, MiB, GiB) with a 1024-base.
+//
+// Example:
+//
+//	{{ 1500       | filesizeformat }}            →  1.5 kB
+//	{{ 1500       | filesizeformat(true) }}      →  1.5 KiB
 func filterFilesizeformat(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	f, ok := numAsFloat(value)
 	if !ok {
@@ -1252,6 +1591,20 @@ func filterFilesizeformat(_ *Environment, _ *runtime.Context, value any, args []
 	return fmt.Sprintf("%.1f %s", f, suffix[idx]), nil
 }
 
+// filterUrlencode implements the `urlencode` filter: percent-encode a
+// string or build a query string from a mapping.
+//
+// Signature: urlencode(value)
+//
+// Strings: percent-encode for the path-segment context (preserves `/`).
+// Mappings: produce `k1=v1&k2=v2&...` with both keys and values
+// percent-encoded for the query-string context. Map iteration is sorted
+// by key for stability; [runtime.OrderedDict] preserves insertion order.
+//
+// Example:
+//
+//	{{ "hello world"          | urlencode }}  →  hello%20world
+//	{{ {'q': 'go', 'page': 2} | urlencode }}  →  page=2&q=go
 func filterUrlencode(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	switch x := value.(type) {
 	case string:
@@ -1283,6 +1636,17 @@ func filterUrlencode(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 	return urlEncodePath(escape.SoftStr(value)), nil
 }
 
+// filterTojson implements the `tojson` filter: serialise a value as JSON
+// safe for embedding in `<script>` blocks.
+//
+// Signature: tojson(value, indent=None)
+//
+// `&`, `<`, `>`, `'` are unicode-escaped (`<` etc.) so the result is
+// safe inside HTML script context. The result is returned as Markup.
+//
+// Example:
+//
+//	<script>const data = {{ payload | tojson }};</script>
 func filterTojson(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	indent := 0
 	if len(args) > 0 {
@@ -1304,6 +1668,17 @@ func filterTojson(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 	return escape.Markup(out), nil
 }
 
+// filterAttr implements the `attr` filter: look up an attribute by name.
+//
+// Signature: attr(value, name)
+//
+// Equivalent to `value.name` in template syntax, but returns the result
+// of attribute access through the engine's sandbox-aware [Environment.GetAttr].
+// Useful when the attribute name is dynamic.
+//
+// Example:
+//
+//	{{ obj | attr('field_name') }}     ≡  {{ obj.field_name }}
 func filterAttr(env *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	if len(args) < 1 {
 		return nil, gjerrors.NewFilterArgumentError("attr requires a name")
@@ -1315,9 +1690,18 @@ func filterAttr(env *Environment, _ *runtime.Context, value any, args []any, _ m
 	return env.GetAttr(value, name)
 }
 
-// filterFormat implements `'%s %d' | format('a', 1)` style. Supports a
-// subset of Python's printf-style: %s %d %f %x %o %b %% and %05d-style
-// width/precision specifiers via fmt.Sprintf.
+// filterFormat implements the `format` filter: Python printf-style
+// formatting.
+//
+// Signature: format(s, *args)
+//
+// Supports `%s`, `%d`, `%f`, `%x`, `%o`, `%b`, `%r` (Python repr), `%%`,
+// and width/precision flags (`%05d`, `%.2f`). `%s` always stringifies
+// via [escape.SoftStr] to match Python's `str()` semantics.
+//
+// Example:
+//
+//	{{ '%s scored %d' | format('Alice', 95) }}   →  Alice scored 95
 func filterFormat(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	return pythonFormat(s, args), nil
@@ -1437,9 +1821,23 @@ func pyStringRepr(s string) string {
 
 // ------------------------------------------------------ higher-order filters
 
-// filterMap supports two forms:
-//   - {{ items | map('upper') }}            apply named filter to each
-//   - {{ items | map(attribute='name') }}   extract attribute from each
+// filterMap implements the `map` filter: apply a filter to each item, or
+// extract an attribute from each item.
+//
+// Signature: map(value, *args, **kwargs)
+//
+// Two forms:
+//   - `map(filter_name, *args)` applies the named filter to each item.
+//   - `map(attribute='name', default=...)` extracts the named attribute
+//     (dotted path supported) from each item, falling back to `default`
+//     when the attribute is undefined.
+//
+// `None` and Undefined inputs yield an empty list (matching Python).
+//
+// Example:
+//
+//	{{ ['a', 'b']  | map('upper')         | list }}  →  ['A', 'B']
+//	{{ users       | map(attribute='name') | list }}  →  list of names
 func filterMap(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	// Python: map(seq, ...) treats None / missing as empty.
 	x, err := mapSequenceArg(value)
@@ -1512,12 +1910,45 @@ func mapSequenceArg(value any) ([]any, error) {
 	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("map/select/reject: %T is not iterable", value))
 }
 
+// filterSelect implements the `select` filter: keep items where a test
+// passes.
+//
+// Signature: select(value, test_name=None, *test_args)
+//
+// With no arguments, keeps items that are truthy. With a test name,
+// applies the named test to each item.
+//
+// Example:
+//
+//	{{ [1, 2, 3, 4]  | select('odd') | list }}      →  [1, 3]
+//	{{ [0, 1, 2, '', 'x'] | select | list }}         →  [1, 2, 'x']
 func filterSelect(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	return selectReject(env, ctx, value, args, true, "")
 }
+
+// filterReject implements the `reject` filter: drop items where a test
+// passes (the complement of [filterSelect]).
+//
+// Signature: reject(value, test_name=None, *test_args)
+//
+// Example:
+//
+//	{{ [1, 2, 3, 4]  | reject('odd') | list }}  →  [2, 4]
 func filterReject(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	return selectReject(env, ctx, value, args, false, "")
 }
+
+// filterSelectAttr implements the `selectattr` filter: keep items whose
+// named attribute passes a test.
+//
+// Signature: selectattr(value, attribute, test_name=None, *test_args)
+//
+// With no test, keeps items where the attribute is truthy.
+//
+// Example:
+//
+//	{{ users | selectattr('admin') | list }}                →  admins
+//	{{ users | selectattr('age', 'gt', 18) | list }}        →  adults
 func filterSelectAttr(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	if len(args) < 1 {
 		return nil, gjerrors.NewFilterArgumentError("selectattr requires an attribute name")
@@ -1528,6 +1959,15 @@ func filterSelectAttr(env *Environment, ctx *runtime.Context, value any, args []
 	}
 	return selectReject(env, ctx, value, args[1:], true, attr)
 }
+
+// filterRejectAttr implements the `rejectattr` filter: drop items whose
+// named attribute passes a test (complement of [filterSelectAttr]).
+//
+// Signature: rejectattr(value, attribute, test_name=None, *test_args)
+//
+// Example:
+//
+//	{{ users | rejectattr('banned') | list }}  →  non-banned users
 func filterRejectAttr(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	if len(args) < 1 {
 		return nil, gjerrors.NewFilterArgumentError("rejectattr requires an attribute name")
@@ -1581,31 +2021,69 @@ func selectReject(env *Environment, ctx *runtime.Context, value any, args []any,
 
 // =========================================================== Test funcs
 
+// testDefined implements the `defined` test: true if the value is not
+// Undefined.
+//
+// Signature: x is defined
+//
+// Example:
+//
+//	{% if user is defined %}…{% endif %}
 func testDefined(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	if u, ok := value.(runtime.Undefiner); ok && u.IsUndefined() {
 		return false, nil
 	}
 	return true, nil
 }
+
+// testUndefined implements the `undefined` test: true if the value is
+// Undefined (the complement of [testDefined]).
+//
+// Signature: x is undefined
 func testUndefined(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	if u, ok := value.(runtime.Undefiner); ok && u.IsUndefined() {
 		return true, nil
 	}
 	return false, nil
 }
+
+// testNone implements the `none` test: true if the value is `None`
+// (Go: `nil`).
+//
+// Signature: x is none
 func testNone(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	return value == nil, nil
 }
+
+// testFalse implements the `false` test: true iff the value is exactly
+// `False` (the boolean, not just falsy).
+//
+// Signature: x is false
 func testFalse(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	return value == false, nil
 }
+
+// testTrue implements the `true` test: true iff the value is exactly
+// `True` (the boolean, not just truthy).
+//
+// Signature: x is true
 func testTrue(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	return value == true, nil
 }
+
+// testBoolean implements the `boolean` test: true if the value is a
+// `bool` (either True or False).
+//
+// Signature: x is boolean
 func testBoolean(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	_, ok := value.(bool)
 	return ok, nil
 }
+
+// testString implements the `string` test: true if the value is a string
+// or [escape.Markup].
+//
+// Signature: x is string
 func testString(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	_, ok := value.(string)
 	if ok {
@@ -1614,6 +2092,11 @@ func testString(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 	_, ok = value.(escape.Markup)
 	return ok, nil
 }
+
+// testNumber implements the `number` test: true if the value is any
+// numeric type (int, float, …).
+//
+// Signature: x is number
 func testNumber(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch value.(type) {
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
@@ -1621,6 +2104,11 @@ func testNumber(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 	}
 	return false, nil
 }
+
+// testInteger implements the `integer` test: true if the value is any
+// integer type (no floats).
+//
+// Signature: x is integer
 func testInteger(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch value.(type) {
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
@@ -1628,6 +2116,11 @@ func testInteger(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 	}
 	return false, nil
 }
+
+// testFloat implements the `float` test: true if the value is a float32
+// or float64.
+//
+// Signature: x is float
 func testFloat(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch value.(type) {
 	case float32, float64:
@@ -1635,18 +2128,41 @@ func testFloat(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[str
 	}
 	return false, nil
 }
+
+// testOdd implements the `odd` test: true if the value is an integer and
+// not divisible by 2.
+//
+// Signature: x is odd
+//
+// Example:
+//
+//	{% for n in numbers if n is odd %}{{ n }} {% endfor %}
 func testOdd(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	if n, ok := asInt(value); ok {
 		return n%2 != 0, nil
 	}
 	return false, nil
 }
+
+// testEven implements the `even` test: true if the value is an integer
+// and divisible by 2.
+//
+// Signature: x is even
 func testEven(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	if n, ok := asInt(value); ok {
 		return n%2 == 0, nil
 	}
 	return false, nil
 }
+
+// testDivisibleBy implements the `divisibleby` test: true if value is
+// divisible by the given divisor.
+//
+// Signature: x is divisibleby(n)
+//
+// Example:
+//
+//	{% if n is divisibleby(3) %}fizz{% endif %}
 func testDivisibleBy(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, gjerrors.NewTemplateRuntimeError("divisibleby requires divisor")
@@ -1661,15 +2177,26 @@ func testDivisibleBy(_ *Environment, _ *runtime.Context, value any, args []any, 
 	}
 	return n%d == 0, nil
 }
+
+// testSequence implements the `sequence` test: true if the value can be
+// length-queried and index-accessed.
+//
+// Signature: x is sequence
+//
+// Includes lists, tuples, strings, and mappings (mirrors Python's "anything
+// with `__len__` and `__getitem__`").
 func testSequence(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
-	// Python's `is sequence`: anything with __len__ and __getitem__.
-	// That includes dicts, lists, tuples, and strings.
 	switch value.(type) {
 	case []any, string, runtime.Tuple, map[string]any, map[any]any, *runtime.OrderedDict:
 		return true, nil
 	}
 	return false, nil
 }
+
+// testMapping implements the `mapping` test: true if the value is a
+// dict-like.
+//
+// Signature: x is mapping
 func testMapping(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch value.(type) {
 	case map[string]any, map[any]any, *runtime.OrderedDict:
@@ -1677,6 +2204,14 @@ func testMapping(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 	}
 	return false, nil
 }
+
+// testIterable implements the `iterable` test: true if a `for` loop can
+// iterate over the value.
+//
+// Signature: x is iterable
+//
+// Strings count as iterable (over runes). Tuples are not in the
+// iterable predicate set in Jinja2; we match that.
 func testIterable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch value.(type) {
 	case []any, string, map[string]any, map[any]any, *runtime.OrderedDict:
@@ -1684,12 +2219,22 @@ func testIterable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	}
 	return false, nil
 }
+
+// testLowerStr implements the `lower` test: true if the value is a string
+// containing at least one letter and equal to its lowercase form.
+//
+// Signature: x is lower
 func testLowerStr(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	if s, ok := value.(string); ok {
 		return s == strings.ToLower(s) && containsLetter(s), nil
 	}
 	return false, nil
 }
+
+// testUpperStr implements the `upper` test: true if the value is a string
+// containing at least one letter and equal to its uppercase form.
+//
+// Signature: x is upper
 func testUpperStr(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	if s, ok := value.(string); ok {
 		return s == strings.ToUpper(s) && containsLetter(s), nil
@@ -1706,42 +2251,81 @@ func containsLetter(s string) bool {
 	return false
 }
 
+// testEq implements the `eq` / `equalto` / `==` test: equality comparison.
+//
+// Signature: x is eq(other)  ·  x is equalto(other)  ·  x is ==(other)
+//
+// Example:
+//
+//	{% if name is eq("Alice") %}…{% endif %}
 func testEq(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
 	}
 	return equalAny(value, args[0]), nil
 }
+
+// testNe implements the `ne` / `!=` test: inequality comparison.
+//
+// Signature: x is ne(other)  ·  x is !=(other)
 func testNe(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
 	}
 	return !equalAny(value, args[0]), nil
 }
+
+// testLt implements the `lt` / `lessthan` / `<` test: strict-less comparison.
+//
+// Signature: x is lt(other)
 func testLt(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
 	}
 	return compareLess(value, args[0]), nil
 }
+
+// testLtEq implements the `le` / `<=` test: less-or-equal comparison.
+//
+// Signature: x is le(other)
 func testLtEq(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
 	}
 	return compareLess(value, args[0]) || equalAny(value, args[0]), nil
 }
+
+// testGt implements the `gt` / `greaterthan` / `>` test: strict-greater
+// comparison.
+//
+// Signature: x is gt(other)
 func testGt(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
 	}
 	return !compareLess(value, args[0]) && !equalAny(value, args[0]), nil
 }
+
+// testGtEq implements the `ge` / `>=` test: greater-or-equal comparison.
+//
+// Signature: x is ge(other)
 func testGtEq(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
 	}
 	return !compareLess(value, args[0]), nil
 }
+
+// testIn implements the `in` test: membership check.
+//
+// Signature: x is in(collection)
+//
+// For lists/tuples: element-wise equality. For strings: substring match.
+// For dicts: key existence (value must be a string).
+//
+// Example:
+//
+//	{% if "admin" is in(roles) %}…{% endif %}
 func testIn(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
@@ -1770,6 +2354,13 @@ func testIn(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 	}
 	return false, nil
 }
+
+// testSameAs implements the `sameas` test: identity comparison (`is`).
+//
+// Signature: x is sameas(other)
+//
+// Compares by Go's `==` on `any` — for pointers and interface-typed
+// values this is identity; for primitives it's value equality.
 func testSameAs(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
@@ -1777,9 +2368,12 @@ func testSameAs(_ *Environment, _ *runtime.Context, value any, args []any, _ map
 	return value == args[0], nil
 }
 
-// testCallable returns true when value is invokable (a Go function, a
-// macro, an OrderedDict's bound method, etc.). Mirrors Python's
-// `callable()` builtin.
+// testCallable implements the `callable` test: true when the value is
+// invokable (a Go function, a macro, etc.).
+//
+// Signature: x is callable
+//
+// Mirrors Python's `callable()` builtin. Uses reflection.
 func testCallable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	if value == nil {
 		return false, nil
@@ -1788,14 +2382,19 @@ func testCallable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	return rv.Kind() == reflect.Func, nil
 }
 
-// testEscaped returns true when value is already a Markup — i.e. the
-// runtime treats it as safe HTML and won't double-escape on output.
+// testEscaped implements the `escaped` test: true when the value is
+// already [escape.Markup] (so autoescape will pass it through verbatim).
+//
+// Signature: x is escaped
 func testEscaped(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	_, ok := value.(escape.Markup)
 	return ok, nil
 }
 
-// testIsFilter returns true when name is a registered filter on the env.
+// testIsFilter implements the `filter` test: true when the value is the
+// name of a registered filter on the environment.
+//
+// Signature: name is filter
 func testIsFilter(env *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	name, ok := value.(string)
 	if !ok {
@@ -1805,7 +2404,10 @@ func testIsFilter(env *Environment, _ *runtime.Context, value any, _ []any, _ ma
 	return exists, nil
 }
 
-// testIsTest returns true when name is a registered test on the env.
+// testIsTest implements the `test` test: true when the value is the name
+// of a registered test on the environment.
+//
+// Signature: name is test
 func testIsTest(env *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	name, ok := value.(string)
 	if !ok {

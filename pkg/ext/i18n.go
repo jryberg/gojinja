@@ -11,8 +11,35 @@ import (
 )
 
 // Translator is the gettext-style backend the i18n extension calls into.
-// Implementations are expected to be safe for concurrent use across
-// renders.
+// Implementations must be safe for concurrent use across renders.
+//
+// gojinja's idiomatic-Go alternative to Python Jinja2's `gettext`-based
+// integration. Instead of depending on the C `gettext` library, you
+// supply this small interface backed by whatever translation source
+// suits you (JSON, YAML, a database, a `golang.org/x/text` catalog).
+//
+// Use [TranslatorGlobals] to wire an implementation into an
+// environment.
+//
+// Example minimal implementation:
+//
+//	type myTr struct{ table map[string]string }
+//	func (t myTr) Gettext(m string) string {
+//	    if v, ok := t.table[m]; ok { return v }
+//	    return m
+//	}
+//	func (t myTr) NGettext(s, p string, n int) string {
+//	    if n == 1 { return t.Gettext(s) }
+//	    return t.Gettext(p)
+//	}
+//	func (t myTr) PGettext(c, m string) string  { return t.Gettext(c+":"+m) }
+//	func (t myTr) NPGettext(c, s, p string, n int) string {
+//	    if n == 1 { return t.PGettext(c, s) }
+//	    return t.PGettext(c, p)
+//	}
+//
+//	globals := ext.TranslatorGlobals(myTr{table: ...})
+//	env, _ := environment.New(environment.WithGlobals(globals))
 type Translator interface {
 	// Gettext returns the translation of message in the current locale,
 	// or message unchanged if untranslated.
@@ -28,9 +55,9 @@ type Translator interface {
 	NPGettext(context, singular, plural string, n int) string
 }
 
-// NullTranslator is the passthrough Translator: returns messages as-is,
-// uses simple n==1 plural selection, ignores context. Useful as a default
-// or for tests.
+// NullTranslator is the passthrough [Translator]: returns messages
+// unchanged, uses simple `n==1` plural selection, ignores context. The
+// natural default and the right choice for tests.
 type NullTranslator struct{}
 
 // Gettext returns message unchanged.

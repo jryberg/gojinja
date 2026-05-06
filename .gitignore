@@ -23,3 +23,9 @@ coverage.html
 # LLM
 CLAUDE.md
 PROMPT.md
+
+# Docs site build output and generated reference pages.
+/docs/site/site/
+/docs/site/content/templates/filters/_generated/
+/docs/site/content/templates/tests/_generated/
+/docs/site/content/templates/globals/_generated/

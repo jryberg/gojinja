@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+
+{% block outdated %}
+You're viewing an older version of gojinja.
+<a href="{{ '../' ~ base_url }}stable/">
+  Click here to go to the latest documentation.
+</a>
+{% endblock %}

@@ -6,16 +6,25 @@ import (
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 )
 
-// UndefinedMode selects the behavioral variant of an Undefined value:
+// UndefinedMode selects the behavioral variant of an Undefined value.
+// Mirrors Python Jinja2's Undefined hierarchy.
 //
-//	ModeBase       — the default; prints empty, iterates empty, is falsy,
-//	                 errors only on real use (arithmetic, call, getitem,
-//	                 inequality comparison).
-//	ModeChainable  — base + getattr/getitem return the same Undefined.
-//	ModeDebug      — base, but printing yields "{{ name }}"-style placeholder.
-//	ModeStrict     — every observation errors. Even printing or boolean test.
+// Behavior matrix:
 //
-// Selecting a mode is a per-Environment choice (see PHASE_10_environment.md).
+//	Operation                Base      Chainable  Debug                Strict
+//	-------------------------------------------------------------------------------
+//	{{ x }} (print)          ""        ""         "{{ name }}"         error
+//	{% if x %} (truthy)      false     false      false                error
+//	{% for i in x %}         empty     empty      empty                error
+//	x | length               0         0          0                    error
+//	x.attr / x['k']          error     same Und.  error                error
+//	x()                      error     error      error                error
+//	x + 1                    error     error      error                error
+//	x == y                   true if Undefined    true if Undefined    error
+//
+// Selecting a mode is a per-Environment choice via
+// [environment.WithUndefined]. The default is `ModeBase` (matches
+// Python's plain `Undefined`).
 type UndefinedMode int
 
 const (

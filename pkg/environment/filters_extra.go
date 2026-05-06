@@ -13,11 +13,21 @@ import (
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
-// filterGroupby groups items by an attribute and returns a list of
-// (grouper, items) pairs sorted by grouper. Mirrors Python's
-// groupby(value, attribute, default=None, case_sensitive=False).
-// Attribute supports dotted notation ("meta.k") and numeric segments
-// for indexing into tuples / lists.
+// filterGroupby implements the `groupby` filter: group items by a shared
+// attribute value.
+//
+// Signature: groupby(value, attribute, default=None, case_sensitive=False)
+//
+// Returns a list of `(grouper, [items])` tuples sorted by grouper.
+// `attribute` supports dotted notation (`meta.k`) and numeric segments
+// for indexing into tuples / lists. `default` is the value used when the
+// attribute is undefined.
+//
+// Example:
+//
+//	{% for kind, group in items | groupby('category') %}
+//	  {{ kind }}: {{ group | length }}
+//	{% endfor %}
 func filterGroupby(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	items, err := mapSequenceArg(value)
 	if err != nil {
@@ -96,7 +106,18 @@ func filterGroupby(env *Environment, _ *runtime.Context, value any, args []any, 
 	return out, nil
 }
 
-// filterWordwrap breaks long lines at word boundaries to width chars.
+// filterWordwrap implements the `wordwrap` filter: break long lines at
+// word boundaries.
+//
+// Signature: wordwrap(s, width=79)
+//
+// Existing newlines are preserved; only lines longer than `width` get
+// rewrapped at whitespace.
+//
+// Example:
+//
+//	{{ "the quick brown fox" | wordwrap(10) }}
+//	→  "the quick\nbrown fox"
 func filterWordwrap(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	width := 79
@@ -134,7 +155,17 @@ func filterWordwrap(_ *Environment, _ *runtime.Context, value any, args []any, _
 	return strings.Join(out, "\n"), nil
 }
 
-// filterPprint pretty-prints any Go value.
+// filterPprint implements the `pprint` filter: pretty-print any value as
+// indented JSON.
+//
+// Signature: pprint(value)
+//
+// Useful for debugging template context. Falls back to `fmt.Sprintf("%v")`
+// for values JSON can't represent.
+//
+// Example:
+//
+//	{{ ctx | pprint }}
 func filterPprint(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	b, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -143,9 +174,20 @@ func filterPprint(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	return string(b), nil
 }
 
-// filterRandom returns a random element from a sequence. Uses a
-// session-deterministic RNG seeded from the call site to keep tests
-// reproducible.
+// filterRandom implements the `random` filter: pick a random element from
+// a sequence.
+//
+// Signature: random(seq)
+//
+// Empty sequences yield Undefined. The RNG is seeded deterministically
+// from the sequence length, so the same input gives the same output —
+// this is intentional, to keep gojinja's output reproducible for snapshot
+// tests. (Python's `random` filter is non-deterministic; gojinja
+// intentionally diverges here.)
+//
+// Example:
+//
+//	{{ ['rock', 'paper', 'scissors'] | random }}
 func filterRandom(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	x, ok := value.([]any)
 	if !ok || len(x) == 0 {
@@ -155,8 +197,21 @@ func filterRandom(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	return x[r.Intn(len(x))], nil
 }
 
-// filterXmlattr renders a mapping as an SGML/XML attribute string.
-// Keys must not contain whitespace, /, =, > to avoid attribute-injection.
+// filterXmlattr implements the `xmlattr` filter: render a mapping as
+// an SGML/XML attribute string.
+//
+// Signature: xmlattr(d, autospace=True)
+//
+// Keys containing whitespace, `/`, `=`, or `>` are rejected to prevent
+// attribute injection. `None` and Undefined values are skipped (no
+// attribute emitted). Values are HTML-escaped. With `autospace=True`,
+// the result is prefixed with a space so it slots straight after a tag
+// name.
+//
+// Example:
+//
+//	<div{{ {'class': 'red', 'id': 'x'} | xmlattr }}>
+//	→  <div class="red" id="x">
 func filterXmlattr(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	// Accept both map[string]any (engine-side) and map[any]any (the
 	// shape produced by `{...}` dict literals).
@@ -225,7 +280,22 @@ func filterXmlattr(_ *Environment, _ *runtime.Context, value any, args []any, _ 
 // closely enough for template parity.
 var urlRegex = regexp.MustCompile(`(?i)(?:https?://[^\s<>"]+|www\.[^\s<>"]+|[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}|[a-z0-9.\-]+\.[a-z]{2,}(?:/[^\s<>"]*)?)`)
 
-// filterUrlize converts URLs/emails in text into HTML links.
+// filterUrlize implements the `urlize` filter: convert URLs and email
+// addresses in text into HTML links.
+//
+// Signature: urlize(value, trim_url_limit=None, nofollow=False, target=None, rel="noopener")
+//
+// `trim_url_limit` truncates display text (the href stays full).
+// `nofollow=True` adds `rel="nofollow"`.
+//
+// Divergence from Python: `rel="noopener"` is added by default for
+// http(s)/www/bare-domain links (Python's default is empty). `mailto:`
+// links never get rel="noopener" since there's no cross-origin concern.
+//
+// Example:
+//
+//	{{ "Visit https://example.com" | urlize }}
+//	→  Visit <a href="https://example.com" rel="noopener">https://example.com</a>
 func filterUrlize(env *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	trim := 0

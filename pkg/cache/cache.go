@@ -56,9 +56,15 @@ type Cache interface {
 
 // =============================================================== Memory
 
-// Memory is an in-process LRU-bounded cache. Eviction is naive (drops
+// Memory is an in-process bounded cache. Eviction is naive (drops an
 // arbitrary entry when over capacity); good enough until profiling
-// indicates LRU is needed.
+// indicates true LRU is needed.
+//
+// Example:
+//
+//	env, _ := environment.New(environment.WithExternalCache(
+//	    cache.NewMemory(1000),
+//	))
 type Memory struct {
 	cap int
 	mu  sync.Mutex
@@ -106,9 +112,19 @@ func (m *Memory) Put(key, checksum string, tpl *ast.Template) error {
 
 // =============================================================== Filesystem
 
-// Filesystem stores cache entries under a directory using atomic temp+rename
-// writes. Mismatched checksums on read are silently ignored (treated as
-// misses), so a tampered or stale file just causes a recompile.
+// Filesystem stores cache entries under a directory using atomic
+// temp+rename writes. Mismatched checksums on read are silently ignored
+// (treated as misses), so a tampered or stale file just causes a recompile.
+//
+// Cache files start with the 16-byte magic header `gojinja-ast-v1\n\n`
+// followed by the 64-char hex SHA-256 of the source, then the
+// `gob`-encoded `*ast.Template`. See the package doc for the exact
+// layout.
+//
+// Example:
+//
+//	c, _ := cache.NewFilesystem("/var/cache/myapp/templates")
+//	env, _ := environment.New(environment.WithExternalCache(c))
 type Filesystem struct {
 	dir     string
 	pattern string
