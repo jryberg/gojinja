@@ -12,7 +12,29 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: googleapis/release-please-action@v5
+      - id: rp
+        uses: googleapis/release-please-action@v5
         with:
           config-file: .github/release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # When release-please tags a release the push is made with the
+      # default GITHUB_TOKEN, which deliberately does not trigger other
+      # workflows. We leave a marker artifact so docs.yml's
+      # workflow_run trigger can pick the new tag up and deploy it.
+      - name: write release marker
+        if: steps.rp.outputs.release_created == 'true'
+        env:
+          TAG: ${{ steps.rp.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p ./release-marker
+          printf '%s\n' "$TAG" > ./release-marker/tag
+
+      - name: upload release marker
+        if: steps.rp.outputs.release_created == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-marker
+          path: ./release-marker
+          retention-days: 1
