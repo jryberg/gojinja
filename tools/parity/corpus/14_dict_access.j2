@@ -1,0 +1,6 @@
+{{ user['name'] }}
+{{ user.name }}
+{{ user.age }}
+{{ user.tags|join(',') }}
+{% for key, val in user.items()|sort %}{{ key }}: {{ val }}
+{% endfor %}

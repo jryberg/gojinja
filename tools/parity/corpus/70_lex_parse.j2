@@ -1,0 +1,22 @@
+{# whitespace control, raw blocks, comments, line statements (default off) #}
+[{%- if true %}A{% endif -%}]
+[{% if true -%}A{%- endif %}]
+[{# this is a comment #}]
+{# multi-line
+   comment #}
+[done]
+{% raw %}{{ this is not parsed }}{% endraw %}
+{{ "tab\there" }}
+{{ "newline\nhere" }}
+{{ "unicodeéhere" }}
+{{ "hex\x41here" }}
+{# 1//2 (floor div) #}
+{{ 7 // 2 }}|{{ 7 / 2 }}|{{ 7 % 2 }}|{{ 2 ** 3 }}
+{# concat with ~ #}
+{{ "x" ~ 5 ~ true ~ none }}
+{# tuple parsing #}
+{% set a, b, c = (1, 2, 3) %}{{ a }},{{ b }},{{ c }}
+{# slicing #}
+{{ "abcdef"[1:4] }}|{{ "abcdef"[::-1] }}|{{ [1,2,3,4,5][1:4] }}|{{ [1,2,3,4,5][::-1] }}
+{# conditional expression #}
+{{ "yes" if true else "no" }}|{{ "yes" if false else "no" }}|{{ x if x else "default" }}

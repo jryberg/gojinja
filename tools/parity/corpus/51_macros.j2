@@ -1,0 +1,16 @@
+{# macro variations from test_core_tags.py #}
+{% macro test() %}{{ varargs|join('|') }}{% endmacro -%}
+{{ test(1, 2, 3) }}
+{% macro greet(name, salutation='Hi') -%}
+{{ salutation }}, {{ name }}!
+{%- endmacro %}
+{{ greet('Alice') }}
+{{ greet('Bob', 'Hello') }}
+{{ greet(name='Carol', salutation='Hey') }}
+{% macro foo(x) %}{{ x }}{% if x > 1 %}|{{ foo(x - 1) }}{% endif %}{% endmacro -%}
+{{ foo(5) }}
+{% macro wrap() %}[[{{ caller() }}]]{% endmacro -%}
+{% call wrap() %}data{% endcall %}
+{% macro takes_args() %}{{ caller('data') }}{% endmacro -%}
+{% call(data) takes_args() %}{{ data }}{% endcall %}
+{% set caller = 42 %}{% macro hidden() %}{{ caller is not defined }}{% endmacro %}{{ hidden() }}

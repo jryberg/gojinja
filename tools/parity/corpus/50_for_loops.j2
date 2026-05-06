@@ -1,0 +1,17 @@
+{# Mirror of test_core_tags.py TestForLoop cases #}
+{% for item in seq %}{{ item }}{% endfor %}
+{% for item in [] %}XXX{% else %}...{% endfor %}
+{% for item in [] %}{% else %}{{ item }}{% endfor %}
+<{% for item in seq %}{% else %}{% endfor %}>
+{% for item in seq -%}
+{{ loop.cycle('<1>', '<2>') }}
+{%- endfor %}
+{% for item in seq -%}
+{{ loop.previtem|default('x') }}-{{ item }}-{{ loop.nextitem|default('x') }}|
+{%- endfor %}
+{% for item in items -%}
+{{ loop.changed(item) }},
+{%- endfor %}
+{% for item in seq %}{% endfor %}{{ item|default('') }}
+{% for item, value in things %}{{ item }}={{ value }};{% endfor %}
+{% for k, v in d.items() %}{{ k }}={{ v }};{% endfor %}

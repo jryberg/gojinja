@@ -1,0 +1,5 @@
+{% macro greeting(name, salutation='Hi') -%}
+{{ salutation }}, {{ name }}!
+{%- endmacro %}
+{{ greeting('Alice') }}
+{{ greeting('Bob', 'Hello') }}

@@ -1,0 +1,12 @@
+{# unique with attribute, min/max with case_sensitive, groupby variations #}
+{{ "".join(["b", "A", "a", "b"]|unique) }}
+{{ "".join(["b", "A", "a", "b"]|unique(true)) }}
+{{ ["a", "B"]|min }}|{{ ["a", "B"]|min(case_sensitive=true) }}|{{ []|min|default('') }}
+{{ ["a", "B"]|max }}|{{ ["a", "B"]|max(case_sensitive=true) }}|{{ []|max|default('') }}
+{# groupby on numeric tuple-index #}
+{%- for grouper, list in pairs|groupby(0) -%}
+{{ grouper }}{% for x in list %}:{{ x.1 }}{% endfor %}|
+{%- endfor %}
+{# groupby with default #}
+{% for city, items in users|groupby('city', default='NY') %}{{ city }}: {{ items|map(attribute='name')|join(', ') }}
+{% endfor %}

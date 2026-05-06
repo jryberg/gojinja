@@ -1,0 +1,15 @@
+{# sort, sum, min, max, unique, abs, round; sum/min/max with attribute #}
+{{ [1, 2, 3, 4, 5, 6]|sum }}
+{{ values|sum('value') }}
+{{ values_nested|sum('real.value') }}
+{{ -1|abs }}|{{ 1|abs }}
+{{ 2.7|round }}|{{ 2.1|round }}|{{ 2.1234|round(3, 'floor') }}|{{ 2.1|round(0, 'ceil') }}
+{{ 21.3|round(-1) }}|{{ 21.3|round(-1, 'ceil') }}|{{ 21.3|round(-1, 'floor') }}
+{{ [2, 3, 1]|sort }}|{{ [2, 3, 1]|sort(true) }}
+{{ ['c', 'A', 'b', 'D']|sort|join('') }}
+{{ ['foo', 'Bar', 'blah']|sort }}
+{{ ['c', 'A', 'b', 'D']|unique|list }}
+{{ ['c', 'A', 'b', 'D']|unique(case_sensitive=true)|list }}
+{{ [1, 2, 3]|min }}|{{ [1, 2, 3]|max }}
+{{ "foo bar baz"|wordcount }}
+{{ ['<foo>', '<bar>']|first|upper|escape }}

@@ -1,0 +1,11 @@
+{# groupby with attribute, default, case_sensitive #}
+{% for grouper, list in users|groupby('group') %}{{ grouper }}: {{ list|map(attribute='name')|join(',') }}
+{% endfor %}
+{# nested attribute groupby #}
+{% for k, group in items|groupby('meta.k') %}{{ k }}: {{ group|map(attribute='v')|join(',') }}
+{% endfor %}
+{# urlize basics #}
+{{ "see http://example.org for more"|urlize }}
+{{ "email me at me@example.org or visit example.com"|urlize }}
+{# wordwrap #}
+{{ "The quick brown fox jumps over the lazy dog"|wordwrap(20) }}

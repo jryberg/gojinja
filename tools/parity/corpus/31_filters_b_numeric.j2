@@ -1,0 +1,16 @@
+{# numeric / list-head filters mirrored from test_filters.py #}
+{{ 100|filesizeformat }}|{{ 1000|filesizeformat }}|{{ 1000000|filesizeformat }}|{{ 1000000000|filesizeformat }}|{{ 1000000000000|filesizeformat }}|{{ 100|filesizeformat(true) }}|{{ 1000|filesizeformat(true) }}|{{ 1000000|filesizeformat(true) }}|{{ 1000000000|filesizeformat(true) }}|{{ 1000000000000|filesizeformat(true) }}
+{{ 300|filesizeformat }}|{{ 3000|filesizeformat }}|{{ 3000000|filesizeformat }}|{{ 3000000000|filesizeformat }}|{{ 3000000000000|filesizeformat }}|{{ 300|filesizeformat(true) }}|{{ 3000|filesizeformat(true) }}|{{ 3000000|filesizeformat(true) }}
+{{ items|first }}
+{{ "42"|float }}|{{ "abc"|float }}|{{ "32.32"|float }}
+{{ "abc"|float(default=1.0) }}
+{{ '%s|%s'|format('a', 'b') }}
+{{ "42"|int }}|{{ "abc"|int }}|{{ "32.32"|int }}
+{{ "0x4d32"|int(base=16) }}|{{ "011"|int(base=8) }}|{{ "0x33Z"|int(base=16) }}
+{{ "abc"|int(default=1) }}
+{{ [1, 2, 3]|join("|") }}
+{{ items|last }}
+{{ items|length }}
+{{ -42|abs }}|{{ 42|abs }}
+{{ 2.7|round }}|{{ 2.1|round }}|{{ 2.1234|round(3, 'floor') }}|{{ 2.1234|round(2, 'ceil') }}
+{{ -5.5|round }}|{{ -5.5|round(method='ceil') }}

@@ -1,0 +1,6 @@
+{% set d = {'first': 1, 'second': 2, 'third': 3} -%}
+{% for k, v in d.items() %}{{ k }}={{ v }}
+{% endfor %}---
+{% for k in d.keys() %}{{ k }}
+{% endfor %}---
+{{ d }}

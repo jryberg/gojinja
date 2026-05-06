@@ -1,0 +1,7 @@
+{# if/elif/else flavors #}
+{% if 1 < 2 %}yes{% else %}no{% endif %}
+{% if a == 1 %}one{% elif a == 2 %}two{% elif a == 3 %}three{% else %}other{% endif %}
+{% if data %}data is truthy{% else %}empty{% endif %}
+{% if items %}{{ items|length }} item(s){% endif %}
+{% if name in 'abcdef' %}letter{% else %}not a letter{% endif %}
+{% if not (a == 1 or a == 2) %}neither{% else %}one or two{% endif %}

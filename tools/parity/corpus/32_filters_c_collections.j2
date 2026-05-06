@@ -1,0 +1,17 @@
+{# items / batch / slice / reverse / string / title / truncate #}
+{% set d = {0: 'a', 1: 'b', 2: 'c'} -%}
+{{ d|items|list }}
+{{ {}|items|list }}
+{{ foo|batch(3)|list }}
+{{ foo|batch(3, 'X')|list }}
+{{ foo|slice(3)|list }}
+{{ foo|slice(3, 'X')|list }}
+{{ 'foobar'|reverse|join }}|{{ [1, 2, 3]|reverse|list }}
+{{ obj|string }}
+{{ "foo bar"|title }}
+{{ "foo's bar"|title }}
+{{ "foo (bar)"|title }}
+{{ "foo-bar"|title }}
+{{ data|truncate(15, true, ">>>") }}|{{ data|truncate(15, false, ">>>") }}|{{ smalldata|truncate(15) }}
+{{ "foo bar baz"|truncate(9) }}|{{ "foo bar baz"|truncate(9, true) }}
+{{ "Joel is a slug"|truncate(7, true) }}

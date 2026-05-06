@@ -1,0 +1,8 @@
+{# Python parity: dict key vs method - .items() returns the method even when 'items' is also a key. .attr is method, ['key'] is index. #}
+{{ foo.items()|list }}
+{{ foo['items'] }}
+{{ foo|attr("items")()|list }}
+{{ foo|attr("missing")|default('?') }}
+{# Cycler API #}
+{% set c = cycler('a', 'b', 'c') -%}
+{{ c.current }}|{{ c.next() }}|{{ c.next() }}|{{ c.next() }}|{{ c.next() }}|{{ c.current }}

@@ -1,0 +1,8 @@
+{% include "header" %}
+{% include "missing" ignore missing %}
+[no-context-include: {% include "noctx" without context %}]
+{% from "macros" import greet, shout %}
+{{ greet('Alice') }}
+{{ shout('hello') }}
+{% import "macros" as m %}
+{{ m.greet('Bob') }}

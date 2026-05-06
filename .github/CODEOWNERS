@@ -1,0 +1,5 @@
+# Every PR auto-requests a review from the maintainer.
+# Path-scoped overrides (e.g. /pkg/sandbox/) can be added later if a
+# co-maintainer joins.
+
+*       @jryberg

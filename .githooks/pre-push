@@ -1,0 +1,25 @@
+#!/bin/sh
+# Heavy gate: full CI suite plus optional staticcheck/govulncheck. Mirrors
+# the CI workflow so a green pre-push means a green PR (modulo OS matrix).
+# Bypass with `git push --no-verify` if you really need to.
+
+set -eu
+
+echo "pre-push: running 'make ci' (build + vet + test + audit + parity)"
+make ci
+
+if command -v staticcheck >/dev/null 2>&1; then
+    echo "==> staticcheck"
+    staticcheck ./...
+else
+    echo "pre-push: staticcheck not installed; skipping (CI will run it)" >&2
+fi
+
+if command -v govulncheck >/dev/null 2>&1; then
+    echo "==> govulncheck"
+    govulncheck ./...
+else
+    echo "pre-push: govulncheck not installed; skipping (CI will run it)" >&2
+fi
+
+echo "pre-push: passed"

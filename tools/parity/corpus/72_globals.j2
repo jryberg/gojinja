@@ -1,0 +1,12 @@
+{# range / dict / namespace globals #}
+{{ range(5)|list }}
+{{ range(2, 5)|list }}
+{{ range(0, 10, 2)|list }}
+{{ range(10, 0, -2)|list }}
+{{ dict(a=1, b=2)|items|list }}
+{# cycler #}
+{% set c = cycler(1, 2, 3) -%}
+{{ c.next() }}|{{ c.next() }}|{{ c.next() }}|{{ c.next() }}|{{ c.current }}
+{# joiner #}
+{% set comma = joiner(', ') -%}
+{% for x in xs %}{{ comma() }}{{ x }}{% endfor %}
