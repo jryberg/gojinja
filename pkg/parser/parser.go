@@ -20,13 +20,12 @@ type ExtensionFunc func(*Parser) (ast.Node, error)
 
 // Parser walks a token stream and produces an AST.
 type Parser struct {
-	stream         *lexer.TokenStream
-	name           string
-	filename       string
-	extensions     map[string]ExtensionFunc
-	tagStack       []string
-	endTokenStack  [][]string
-	lastIdentifier int
+	stream        *lexer.TokenStream
+	name          string
+	filename      string
+	extensions    map[string]ExtensionFunc
+	tagStack      []string
+	endTokenStack [][]string
 }
 
 // New constructs a parser over stream. Extensions can be registered later

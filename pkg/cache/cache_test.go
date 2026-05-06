@@ -33,10 +33,13 @@ func TestSourceChecksumStable(t *testing.T) {
 }
 
 func TestCacheKeyDeterministic(t *testing.T) {
-	if CacheKey("a", "b") != CacheKey("a", "b") {
+	a := CacheKey("a", "b")
+	b := CacheKey("a", "b")
+	c := CacheKey("a", "c")
+	if a != b {
 		t.Fatal("non-deterministic key")
 	}
-	if CacheKey("a", "b") == CacheKey("a", "c") {
+	if a == c {
 		t.Fatal("filename ignored")
 	}
 }
