@@ -128,3 +128,23 @@ jobs:
           else
             mike deploy --push --update-aliases "$LABEL"
           fi
+
+      - name: mike set-default
+        working-directory: docs/site
+        env:
+          LABEL: ${{ steps.labels.outputs.label }}
+        run: |
+          set -euo pipefail
+          # Without set-default, gh-pages has no root index.html and
+          # '/gojinja/' 404s. Prefer 'stable' once a release ships;
+          # otherwise pin root to whatever was just deployed.
+          if mike list -j 2>/dev/null | python3 -c '
+          import json, sys
+          versions = json.load(sys.stdin)
+          sys.exit(0 if any("stable" in v.get("aliases", []) for v in versions) else 1)
+          '; then
+            target=stable
+          else
+            target="$LABEL"
+          fi
+          mike set-default --push "$target"
