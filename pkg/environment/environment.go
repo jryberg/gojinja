@@ -782,6 +782,14 @@ func (e *Environment) Call(ctx *runtime.Context, callee any, args []any, kwargs 
 	case func(args []any, kwargs map[string]any) (any, error):
 		return fn(args, kwargs)
 	}
+	// Calling an Undefined produces a descriptive error that names the
+	// missing variable / attribute, not the bare Go type. Without this
+	// branch the fall-through below would emit the unhelpful
+	// `value of type runtime.Undefined is not callable`, leaving the
+	// operator no clue which name was missing.
+	if u, ok := callee.(runtime.Undefined); ok {
+		return nil, u.Fail()
+	}
 	// Unwrap *PyList args before reflect dispatch — registered Go
 	// funcs expect []any/string/etc. concrete types, not the in-template
 	// mutable list wrapper.
