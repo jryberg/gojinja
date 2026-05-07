@@ -19,11 +19,20 @@ func applyBinop(op string, a, b any) (any, error) {
 				return as + bs, nil
 			}
 		}
-		if al, ok := a.([]any); ok {
-			if bl, ok := b.([]any); ok {
+		if al, ok := asAnyList(a); ok {
+			if bl, ok := asAnyList(b); ok {
 				out := make([]any, 0, len(al)+len(bl))
 				out = append(out, al...)
 				out = append(out, bl...)
+				// If either operand was a *PyList, the result keeps
+				// list-mutability so downstream `{% do x.append %}`
+				// works on the concatenation.
+				if _, ok := a.(*runtime.PyList); ok {
+					return runtime.NewPyList(out), nil
+				}
+				if _, ok := b.(*runtime.PyList); ok {
+					return runtime.NewPyList(out), nil
+				}
 				return out, nil
 			}
 		}
@@ -159,6 +168,11 @@ func inValue(needle, haystack any) (bool, error) {
 		return strings.Contains(col, s), nil
 	case []any:
 		return containsAny(needle, col), nil
+	case *runtime.PyList:
+		if col == nil {
+			return false, nil
+		}
+		return containsAny(needle, col.Items()), nil
 	case runtime.Tuple:
 		return containsAny(needle, []any(col)), nil
 	case map[string]any:
@@ -196,6 +210,25 @@ func containsAny(needle any, col []any) bool {
 		}
 	}
 	return false
+}
+
+// asAnyList unwraps the underlying []any view of list-like values:
+// plain slices, *runtime.PyList, runtime.Tuple. Returns (nil, false)
+// for everything else. Centralising the unwrap keeps in-template
+// PyLists transparent to op evaluators that only need a slice view.
+func asAnyList(v any) ([]any, bool) {
+	switch x := v.(type) {
+	case []any:
+		return x, true
+	case *runtime.PyList:
+		if x == nil {
+			return nil, false
+		}
+		return x.Items(), true
+	case runtime.Tuple:
+		return []any(x), true
+	}
+	return nil, false
 }
 
 // ------------------------------------------------------------ numeric helpers

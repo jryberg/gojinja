@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
 // stringMethod returns a synthetic Go callable mirroring Python's str
@@ -370,6 +372,16 @@ func matchAffix(prefix any, s string, fn func(string, string) bool) bool {
 			}
 		}
 		return false
+	case *runtime.PyList:
+		if p == nil {
+			return false
+		}
+		for _, it := range p.Items() {
+			if str, ok := it.(string); ok && fn(s, str) {
+				return true
+			}
+		}
+		return false
 	}
 	return false
 }
@@ -481,6 +493,16 @@ func iterToStrings(v any) ([]string, error) {
 	case []any:
 		out := make([]string, len(x))
 		for i, it := range x {
+			out[i] = stringifyKey(it)
+		}
+		return out, nil
+	case *runtime.PyList:
+		if x == nil {
+			return nil, nil
+		}
+		items := x.Items()
+		out := make([]string, len(items))
+		for i, it := range items {
 			out[i] = stringifyKey(it)
 		}
 		return out, nil

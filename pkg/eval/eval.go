@@ -1045,6 +1045,8 @@ func truthy(v any) bool {
 		return len(x) != 0
 	case []any:
 		return len(x) != 0
+	case *runtime.PyList:
+		return x.Len() != 0
 	case map[any]any:
 		return len(x) != 0
 	case map[string]any:
@@ -1067,6 +1069,10 @@ func toIterable(v any) ([]any, error) {
 		return []any(x), nil
 	case []any:
 		return x, nil
+	case *runtime.PyList:
+		// In-template lists carry mutating methods, but iteration just
+		// needs the underlying slice view.
+		return x.Items(), nil
 	case []string:
 		out := make([]any, len(x))
 		for i, s := range x {
