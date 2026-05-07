@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.0](https://github.com/jryberg/gojinja/compare/v0.0.2...v0.1.0) (2026-05-07)
+
+
+### Features
+
+* **runtime:** mutating dict methods on in-template dicts ([bac842e](https://github.com/jryberg/gojinja/commit/bac842ec8268c2338bd670bba163f97d021ba74d))
+* **runtime:** mutating list methods on in-template lists ([b6254f3](https://github.com/jryberg/gojinja/commit/b6254f3340feeb294cb44bd91c33eef649162521))
+
+
+### Bug Fixes
+
+* **environment:** name the missing identifier on Undefined-as-callee ([bfaf5c4](https://github.com/jryberg/gojinja/commit/bfaf5c44e8234b4afc9883cb056b10c801bad0fd))
+* **parity:** surface Close error when writing fetched tar files ([c16d9b8](https://github.com/jryberg/gojinja/commit/c16d9b8912bb022ac81bd76b7eb5fe63475a3a9f))
+
 ## [0.0.2](https://github.com/jryberg/gojinja/compare/v0.0.1...v0.0.2) (2026-05-06)
 
 
