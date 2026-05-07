@@ -87,6 +87,49 @@ func dictMethod(m any, attr string) any {
 			return nil
 		}
 	}
+	// Mutating methods are only exposed on *OrderedDict (in-template
+	// dict literals). Caller-supplied map[string]any / map[any]any
+	// stay immutable — host data is the sandbox boundary.
+	if od, ok := m.(*runtime.OrderedDict); ok {
+		switch attr {
+		case "update":
+			return func(args ...any) (any, error) {
+				if len(args) == 0 {
+					return nil, nil
+				}
+				if err := od.Update(args[0]); err != nil {
+					return nil, err
+				}
+				return nil, nil
+			}
+		case "pop":
+			return func(args ...any) (any, error) {
+				if len(args) == 0 {
+					return nil, fmt.Errorf("pop expected at least 1 argument, got 0")
+				}
+				if len(args) >= 2 {
+					return od.Pop(args[0], args[1], true)
+				}
+				return od.Pop(args[0], nil, false)
+			}
+		case "setdefault":
+			return func(args ...any) (any, error) {
+				if len(args) == 0 {
+					return nil, fmt.Errorf("setdefault expected at least 1 argument, got 0")
+				}
+				var def any
+				if len(args) >= 2 {
+					def = args[1]
+				}
+				return od.SetDefault(args[0], def), nil
+			}
+		case "clear":
+			return func() any {
+				od.Clear()
+				return nil
+			}
+		}
+	}
 	return nil
 }
 
