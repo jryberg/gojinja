@@ -667,8 +667,8 @@ func TestDebugExtensionDumpsContextFiltersTests(t *testing.T) {
 		"Hello", "Goodbye",
 		"'context'", "'filters'", "'tests'",
 		"'who'", `"world"`,
-		"'abs'",  // a sample filter
-		"'in'",   // a sample test
+		"'abs'", // a sample filter
+		"'in'",  // a sample test
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("debug output missing %q\nfull output: %s", want, out)

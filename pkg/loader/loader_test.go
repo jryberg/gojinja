@@ -32,11 +32,11 @@ func TestSplitPathRejectsTraversal(t *testing.T) {
 
 func TestSplitPathAccepts(t *testing.T) {
 	cases := map[string][]string{
-		"foo.html":             {"foo.html"},
-		"a/b/c.html":           {"a", "b", "c.html"},
-		"./a.html":             {"a.html"},
-		"a//b.html":            {"a", "b.html"},
-		"./a/./b.html":         {"a", "b.html"},
+		"foo.html":     {"foo.html"},
+		"a/b/c.html":   {"a", "b", "c.html"},
+		"./a.html":     {"a.html"},
+		"a//b.html":    {"a", "b.html"},
+		"./a/./b.html": {"a", "b.html"},
 	}
 	for in, want := range cases {
 		got, err := SplitPath(in)
