@@ -1,0 +1,75 @@
+{
+  "customername": "acme",
+  "devicename": "site-01",
+  "device_id": "6cf4ab18-4903-4e5d-941f-884e518045ab",
+  "template": {
+    "containers": {
+      "telegraf": {
+        "image": "telegraf",
+        "tag": "1.30",
+        "environments": {
+          "GREETING": "hello",
+          "FLAG": "TRUE"
+        },
+        "networks": ["mon-net"],
+        "restart": "always"
+      },
+      "janitor": {
+        "image": "janitor",
+        "tag": "v2",
+        "environments": {
+          "MODE": "auto",
+          "ENABLED": "false"
+        },
+        "networks": ["mon-net"],
+        "restart": "on-failure"
+      },
+      "nginx-proxy": {
+        "image": "nginx",
+        "tag": "1.27",
+        "environments": {
+          "WORKER_PROC": "auto"
+        },
+        "ports": ["80:80", "443:443"],
+        "networks": ["app-net", "mon-net"],
+        "depends_on": ["fluent-kinesis"],
+        "cap_add": ["NET_ADMIN"],
+        "extra_hosts": ["registry:127.0.0.1"],
+        "volumes": ["/var/run/docker.sock:/var/run/docker.sock"],
+        "ulimits": {
+          "nofile": {
+            "soft": 65536,
+            "hard": 65536
+          },
+          "nproc": 4096
+        },
+        "restart": "always"
+      },
+      "fluent-kinesis": {
+        "image": "fluent",
+        "tag": "1.18",
+        "enabled": "TRUE",
+        "mode": "JSON",
+        "environments": {
+          "AWS_REGION": "eu-north-1"
+        },
+        "networks": ["mon-net"]
+      },
+      "manager": {
+        "image": "manager",
+        "tag": "v9"
+      }
+    },
+    "networks": {
+      "mon-net": {
+        "driver": "bridge"
+      },
+      "app-net": {
+        "driver": "bridge",
+        "driver_opts": {
+          "com.docker.network.bridge.name": "br-app"
+        }
+      }
+    }
+  }
+}
