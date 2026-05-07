@@ -1,5 +1,7 @@
 package runtime
 
+import "fmt"
+
 // OrderedDict is an insertion-ordered map[any]any — the runtime
 // representation of dicts built inside templates (`{a: 1, b: 2}`,
 // `dict(a=1, b=2)`). Python 3.7+ guarantees dict insertion order; we
@@ -107,4 +109,141 @@ func (d *OrderedDict) AsMap() map[any]any {
 		out[k] = v
 	}
 	return out
+}
+
+// Delete removes key. Returns true if it existed.
+func (d *OrderedDict) Delete(key any) bool {
+	if d == nil {
+		return false
+	}
+	if _, ok := d.vals[key]; !ok {
+		return false
+	}
+	delete(d.vals, key)
+	for i, k := range d.keys {
+		if k == key {
+			d.keys = append(d.keys[:i], d.keys[i+1:]...)
+			break
+		}
+	}
+	return true
+}
+
+// Update mirrors Python's dict.update: merge another mapping into d,
+// overwriting existing keys. Accepts *OrderedDict, map[string]any,
+// map[any]any, or a sequence of (k, v) pairs.
+func (d *OrderedDict) Update(other any) error {
+	if d == nil {
+		return fmt.Errorf("update on nil dict")
+	}
+	switch x := other.(type) {
+	case nil:
+		return nil
+	case *OrderedDict:
+		if x == nil {
+			return nil
+		}
+		for _, k := range x.keys {
+			d.Set(k, x.vals[k])
+		}
+		return nil
+	case map[string]any:
+		for k, v := range x {
+			d.Set(k, v)
+		}
+		return nil
+	case map[any]any:
+		for k, v := range x {
+			d.Set(k, v)
+		}
+		return nil
+	case []any:
+		// Accept a sequence of 2-element pairs, mirroring
+		// `dict.update([(k, v), ...])`.
+		for _, pair := range x {
+			pk, pv, ok := pairKV(pair)
+			if !ok {
+				return fmt.Errorf("dict update sequence element is not a 2-tuple")
+			}
+			d.Set(pk, pv)
+		}
+		return nil
+	}
+	if l, ok := other.(Lister); ok {
+		for _, pair := range l.Items() {
+			pk, pv, ok := pairKV(pair)
+			if !ok {
+				return fmt.Errorf("dict update sequence element is not a 2-tuple")
+			}
+			d.Set(pk, pv)
+		}
+		return nil
+	}
+	return fmt.Errorf("dict.update: unsupported source type %T", other)
+}
+
+// Pop removes and returns the value for key. With a default arg,
+// returns the default when key is absent; without one, returns an
+// error.
+func (d *OrderedDict) Pop(key any, def any, hasDef bool) (any, error) {
+	if d == nil || d.vals == nil {
+		if hasDef {
+			return def, nil
+		}
+		return nil, fmt.Errorf("pop from empty dict")
+	}
+	if v, ok := d.vals[key]; ok {
+		d.Delete(key)
+		return v, nil
+	}
+	if hasDef {
+		return def, nil
+	}
+	return nil, fmt.Errorf("KeyError: %v", key)
+}
+
+// SetDefault returns d[key] if present; otherwise inserts and returns
+// def.
+func (d *OrderedDict) SetDefault(key any, def any) any {
+	if d == nil {
+		return def
+	}
+	if v, ok := d.vals[key]; ok {
+		return v
+	}
+	d.Set(key, def)
+	return def
+}
+
+// Clear empties the dict in place.
+func (d *OrderedDict) Clear() {
+	if d == nil {
+		return
+	}
+	d.keys = d.keys[:0]
+	d.vals = map[any]any{}
+}
+
+// pairKV unpacks a (key, value) pair from a Tuple, []any, or
+// *PyList of length 2. Used by OrderedDict.Update when the source is
+// a sequence-of-pairs rather than another mapping.
+func pairKV(pair any) (any, any, bool) {
+	switch p := pair.(type) {
+	case Tuple:
+		if len(p) == 2 {
+			return p[0], p[1], true
+		}
+	case []any:
+		if len(p) == 2 {
+			return p[0], p[1], true
+		}
+	case *PyList:
+		if p != nil {
+			items := p.Items()
+			if len(items) == 2 {
+				return items[0], items[1], true
+			}
+		}
+	}
+	return nil, nil, false
 }
