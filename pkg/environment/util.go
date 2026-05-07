@@ -92,6 +92,16 @@ func jsonPrep(v any) any {
 			out[i] = jsonPrep(it)
 		}
 		return out
+	case *runtime.PyList:
+		if x == nil {
+			return []any{}
+		}
+		items := x.Items()
+		out := make([]any, len(items))
+		for i, it := range items {
+			out[i] = jsonPrep(it)
+		}
+		return out
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, val := range x {

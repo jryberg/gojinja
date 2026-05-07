@@ -39,6 +39,12 @@ func (e *evaluator) evalExprAny(n ast.Expr, ctx *runtime.Context) (any, error) {
 		}
 		return out, nil
 	case *ast.List:
+		// In-template list literals produce a *runtime.PyList so they
+		// expose Python-parity mutating methods (append, extend, etc.)
+		// when the `do` extension is used. Caller-supplied []any from
+		// the render context keeps its bare type and stays immutable —
+		// the sandbox boundary is "values created inside the template
+		// can be mutated; host data cannot".
 		out := make([]any, 0, len(x.Items))
 		for _, it := range x.Items {
 			v, err := e.evalExprAny(it, ctx)
@@ -47,7 +53,7 @@ func (e *evaluator) evalExprAny(n ast.Expr, ctx *runtime.Context) (any, error) {
 			}
 			out = append(out, v)
 		}
-		return out, nil
+		return runtime.NewPyList(out), nil
 	case *ast.Dict:
 		// Insertion-order parity with Python 3.7+: dict literals built
 		// in templates iterate in declaration order. Plain map[any]any

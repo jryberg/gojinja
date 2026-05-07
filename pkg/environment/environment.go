@@ -32,7 +32,6 @@ import (
 // driven by the registered [Filter.Pass] field.
 type FilterFunc func(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error)
 
-
 // Filter is a registered filter with its dispatch hint.
 type Filter struct {
 	Pass runtime.PassArg
@@ -74,8 +73,8 @@ type Environment struct {
 	sandboxed bool
 
 	// Bounded resources — never -1.
-	maxRange   int
-	maxCache   int
+	maxRange      int
+	maxCache      int
 	maxParseDepth int
 
 	// Template AST cache, keyed by name. The in-memory map is the
@@ -673,11 +672,21 @@ func asTemplateSyntaxError(err error, target **gjerrors.TemplateSyntaxError) boo
 // =========================================================== Engine impl
 
 // CallFilter looks up name in the filter registry and invokes it.
+//
+// In-template *runtime.PyList values are unwrapped to their underlying
+// []any view (both the input value and any list-typed args/kwargs)
+// before dispatch so existing filters — which exhaustively switch on
+// []any — work unchanged. Filters do not mutate input lists, so the
+// unwrap loses nothing: any subsequent attribute access on the same
+// template binding still sees the original *PyList.
 func (e *Environment) CallFilter(name string, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	f, ok := e.filters[name]
 	if !ok {
 		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("no filter named %q", name))
 	}
+	value = unwrapPyList(value)
+	args = unwrapPyListArgs(args)
+	kwargs = unwrapPyListKwargs(kwargs)
 	return f.Func(e, ctx, value, args, kwargs)
 }
 
@@ -687,7 +696,59 @@ func (e *Environment) CallTest(name string, ctx *runtime.Context, value any, arg
 	if !ok {
 		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("no test named %q", name))
 	}
+	value = unwrapPyList(value)
+	args = unwrapPyListArgs(args)
+	kwargs = unwrapPyListKwargs(kwargs)
 	return t.Func(e, ctx, value, args, kwargs)
+}
+
+// unwrapPyList returns the underlying []any view if v is a *PyList;
+// otherwise v itself. Centralises the dispatch-boundary unwrap so
+// filters/tests don't need exhaustive *PyList cases.
+func unwrapPyList(v any) any {
+	if pl, ok := v.(*runtime.PyList); ok && pl != nil {
+		return pl.Items()
+	}
+	return v
+}
+
+// unwrapPyListArgs returns args with any top-level *PyList replaced by
+// its []any view. Allocates a new slice only when at least one element
+// needs unwrapping — common case (no PyList args) is zero-cost.
+func unwrapPyListArgs(args []any) []any {
+	for i, a := range args {
+		if pl, ok := a.(*runtime.PyList); ok && pl != nil {
+			out := make([]any, len(args))
+			copy(out, args)
+			out[i] = pl.Items()
+			for j := i + 1; j < len(out); j++ {
+				if pl2, ok := out[j].(*runtime.PyList); ok && pl2 != nil {
+					out[j] = pl2.Items()
+				}
+			}
+			return out
+		}
+	}
+	return args
+}
+
+// unwrapPyListKwargs is the kwargs analogue.
+func unwrapPyListKwargs(kw map[string]any) map[string]any {
+	for _, v := range kw {
+		if pl, ok := v.(*runtime.PyList); ok && pl != nil {
+			out := make(map[string]any, len(kw))
+			for k, v := range kw {
+				if pl2, ok := v.(*runtime.PyList); ok && pl2 != nil {
+					out[k] = pl2.Items()
+				} else {
+					out[k] = v
+				}
+			}
+			_ = pl
+			return out
+		}
+	}
+	return kw
 }
 
 // KwargsCallable is the signature globals / filters / tests use when
@@ -721,6 +782,11 @@ func (e *Environment) Call(ctx *runtime.Context, callee any, args []any, kwargs 
 	case func(args []any, kwargs map[string]any) (any, error):
 		return fn(args, kwargs)
 	}
+	// Unwrap *PyList args before reflect dispatch — registered Go
+	// funcs expect []any/string/etc. concrete types, not the in-template
+	// mutable list wrapper.
+	args = unwrapPyListArgs(args)
+	kwargs = unwrapPyListKwargs(kwargs)
 	// Handle native Go funcs.
 	v := reflect.ValueOf(callee)
 	if v.Kind() != reflect.Func {
@@ -826,6 +892,13 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 		if m := listMethod(x, attr); m != nil {
 			return m, nil
 		}
+	case *runtime.PyList:
+		// In-template lists expose mutating methods (append, extend,
+		// insert, pop, remove, clear, reverse, sort) plus the same
+		// non-mutating ones the bare-slice path offers.
+		if m := pyListMethod(x, attr); m != nil {
+			return m, nil
+		}
 	}
 	if u, ok := obj.(runtime.Undefiner); ok && u.IsUndefined() {
 		// Calling .x on Undefined: chainable returns self; others fail.
@@ -918,6 +991,22 @@ func (e *Environment) GetItem(obj any, arg any) (any, error) {
 			return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
 		}
 		return x[idx], nil
+	case *runtime.PyList:
+		items := x.Items()
+		if sv, ok := arg.(ast.SliceVal); ok {
+			return sliceList(items, sv), nil
+		}
+		idx, ok := asInt(arg)
+		if !ok {
+			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("list indices must be integers, not %T", arg))
+		}
+		if idx < 0 {
+			idx += len(items)
+		}
+		if idx < 0 || idx >= len(items) {
+			return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
+		}
+		return items[idx], nil
 	case runtime.Tuple:
 		if sv, ok := arg.(ast.SliceVal); ok {
 			out := sliceList([]any(x), sv)
@@ -1104,4 +1193,3 @@ func normaliseSlice(n int, sv ast.SliceVal) (int, int, int) {
 	}
 	return start, stop, step
 }
-
