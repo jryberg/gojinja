@@ -175,10 +175,13 @@ func writeTarFile(tr io.Reader, path string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	// Cap individual file size at 16 MiB — anything larger isn't a template.
-	_, err = io.Copy(f, io.LimitReader(tr, 16<<20))
-	return err
+	_, copyErr := io.Copy(f, io.LimitReader(tr, 16<<20))
+	closeErr := f.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }
 
 func stripTopDir(p string) string {
