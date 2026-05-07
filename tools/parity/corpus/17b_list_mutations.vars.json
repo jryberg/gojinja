@@ -1,0 +1,9 @@
+{
+  "items": ["one", "two", "three"],
+  "containers": {
+    "telegraf": {},
+    "janitor": {},
+    "skipme": {},
+    "manager": {}
+  }
+}

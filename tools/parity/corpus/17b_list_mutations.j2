@@ -1,0 +1,52 @@
+{# list.append + iteration #}
+{%- set xs = [] -%}
+{%- for x in items -%}
+{%- do xs.append(x) -%}
+{%- endfor %}
+append: {{ xs|join(',') }}
+
+{# list.extend with another list literal #}
+{%- set ys = [1, 2] -%}
+{%- do ys.extend([3, 4, 5]) %}
+extend: {{ ys|join(',') }}
+
+{# list.insert with positive and negative indices #}
+{%- set zs = ['a', 'c'] -%}
+{%- do zs.insert(1, 'b') -%}
+{%- do zs.insert(-1, 'pre-tail') %}
+insert: {{ zs|join(',') }}
+
+{# list.pop default and indexed #}
+{%- set ps = ['a', 'b', 'c', 'd'] -%}
+{%- set tail = ps.pop() -%}
+{%- set head = ps.pop(0) %}
+pop: head={{ head }} tail={{ tail }} rest={{ ps|join(',') }}
+
+{# list.remove first match #}
+{%- set rs = ['a', 'b', 'a', 'c'] -%}
+{%- do rs.remove('a') %}
+remove: {{ rs|join(',') }}
+
+{# list.reverse + sort in place #}
+{%- set ws = [3, 1, 2] -%}
+{%- do ws.reverse() %}
+reverse: {{ ws|join(',') }}
+{%- do ws.sort() %}
+sort: {{ ws|join(',') }}
+{%- do ws.sort(reverse=True) %}
+sort_desc: {{ ws|join(',') }}
+
+{# list.clear + length tests #}
+{%- set cs = [10, 20, 30] -%}
+{%- do cs.clear() %}
+clear_len: {{ cs|length }}
+
+{# Real CTS-generic pattern: build comma-joined names from a dict iter #}
+{%- set names = [] -%}
+{%- for container_name in containers -%}
+{%- if container_name == "skipme" -%}
+{%- continue -%}
+{%- endif -%}
+{%- do names.append(container_name) -%}
+{%- endfor %}
+cts_pattern: {{ names|sort|join(',') }}

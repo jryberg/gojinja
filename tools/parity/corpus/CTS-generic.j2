@@ -1,0 +1,389 @@
+{%- macro get_environments(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'environments' in config and config['environments']|length > 0 -%}
+    environment:
+          {%- if 'telegraf' in name -%}
+            {%- set names = [] -%}
+            {%- for container_name in template['containers'] -%}
+              {%- if container_name == "fluent-kinesis" -%}
+                {%- if 'containers' in template and 'fluent-kinesis' in template['containers'] and 'enabled' in template['containers']['fluent-kinesis'] and template['containers']['fluent-kinesis']['enabled']|upper == "TRUE" -%}
+                  {%- do names.append(container_name) -%}
+                {%- endif -%}
+              {%- else -%}
+                {%- do names.append(container_name) -%}
+              {%- endif -%}
+            {%- endfor %}
+      TELEGRAF_CONTAINERS: "{{ names|join(',') }}"
+          {%- endif -%}
+          {%- if 'janitor' in name -%}
+            {%- set names = [] -%}
+            {%- for container_name in template['containers'] -%}
+              {%- if container_name == "fluent-kinesis" -%}
+                {%- if 'containers' in template and 'fluent-kinesis' in template['containers'] and 'enabled' in template['containers']['fluent-kinesis'] and template['containers']['fluent-kinesis']['enabled']|upper == "TRUE" -%}
+                  {%- do names.append(container_name) -%}
+                {%- endif -%}
+              {%- else -%}
+                {%- do names.append(container_name) -%}
+              {%- endif -%}
+            {%- endfor %}
+      JANITOR_CONTAINERS: "{{ names|join(',') }}"
+          {%- endif -%}
+          {%- set envs = config['environments'] -%}
+          {%- for k, v in envs.items()|sort -%}
+            {%- if '{{ ' in v|string and ' }}' in v|string -%}
+              {# If we are here then no definition was found for the system variable, ignoring that entry #}
+              {%- continue -%}
+            {%- elif v|lower == 'true' or v|lower == 'false' -%}
+              {# Looks like a bool, making sure we are using lower case for conformity #}
+      {{ k }}: "{{ v|lower }}"
+            {%- else -%}
+              {# Simple key - value definition, write is as is #}
+      {{ k }}: "{{ v|replace('\"','\\"') }}"
+            {%- endif -%}
+          {%- endfor -%}
+        {%- else -%}
+    # environment:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_volumes(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'volumes' in config and config['volumes']|length > 0 -%}
+    volumes:
+          {%- set vols = config['volumes'] -%}
+          {%- for k in vols|sort %}
+      - {{ k }}
+          {%- endfor -%}
+        {%- else -%}
+    # volumes:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_devices(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'devices' in config and config['devices']|length > 0 -%}
+    devices:
+          {%- set devices = config['devices'] -%}
+          {%- for k in devices|sort %}
+      - {{ k }}
+          {%- endfor -%}
+        {%- else -%}
+    # devices:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_cap_add(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'cap_add' in config and config['cap_add']|length > 0 -%}
+    cap_add:
+          {%- set cap_add = config['cap_add'] -%}
+          {%- for k in cap_add|sort %}
+      - {{ k }}
+          {%- endfor -%}
+        {%- else -%}
+    # cap_add:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_links(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'links' in config and config['links']|length > 0 -%}
+    links:
+          {%- set links = config['links'] -%}
+          {%- for k in links|sort %}
+      - {{ k }}
+          {%- endfor -%}
+        {%- else -%}
+    # links:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_depends_on(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'depends_on' in config and config['depends_on']|length > 0 -%}
+    depends_on:
+          {%- set depends_on = config['depends_on'] -%}
+          {%- for k in depends_on|sort %}
+      - {{ k }}
+          {%- endfor -%}
+        {%- else -%}
+    # depends_on:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_networks(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'networks' in config and config['networks']|length > 0 -%}
+    networks:
+          {%- set networks = config['networks'] -%}
+          {%- for network in networks|sort %}
+      - {{ network }}
+          {%- endfor -%}
+        {%- else -%}
+    network_mode: "host"
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_restart(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'restart' in config and config['restart']|length > 0 -%}
+    restart: {{ config['restart'] }}
+        {%- else -%}
+    restart: always
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_entrypoint(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'entrypoint' in config and config['entrypoint']|length > 0 -%}
+    entrypoint: {{ config['entrypoint'] }}
+        {%- else -%}
+    # entrypoint:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_hostname(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'hostname' in config and config['entrypoint']|length > 0 -%}
+    hostname: {{ config['hostname'] }}
+        {%- else -%}
+    # hostname:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_privileged(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'privileged' in config and config['privileged']|string|length > 0 -%}
+    privileged: {{ config['privileged'] }}
+        {%- else -%}
+    # privileged:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_command(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'command' in config and config['command']|length > 0 -%}
+    command: "{{ config['command'] }}"
+        {%- else -%}
+    # command:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_ulimits(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'ulimits' in config and config['ulimits']|length > 0 -%}
+    ulimits:
+        {%- for ulimit, data in config['ulimits'].items() -%}
+          {%- if data is string or data is number %}
+      {{ ulimit }}: {{ data }}
+          {%- elif data is iterable %}
+      {{ ulimit }}:
+            {%- for k, v in data.items() %}
+        {{ k  }}: {{ v  }}
+            {%- endfor -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- else -%}
+    # ulimits:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_extra_hosts(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'extra_hosts' in config and config['extra_hosts']|length > 0 -%}
+    extra_hosts:
+          {%- set extra_hosts = config['extra_hosts'] -%}
+          {%- for k in extra_hosts|sort %}
+      - {{ k }}
+          {%- endfor -%}
+        {%- else -%}
+    # extra_hosts:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro get_ports(name) -%}
+  {%- if template -%}
+    {%- if 'containers' in template -%}
+      {%- if name in template['containers'] -%}
+        {%- set config = template['containers'][name] -%}
+        {%- if 'ports' in config and config['ports']|length > 0 -%}
+    ports:
+          {%- set ports = config['ports'] -%}
+          {%- for k in ports|sort %}
+      - "{{ k }}"
+          {%- endfor -%}
+        {%- else -%}
+    # ports:
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro log_to_fluentd(custname, dev_id) -%}
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: localhost:24224
+        tag: "cts.{{ custname }}.{{ dev_id }}"
+        labels: "device_id,customername,devicename,com.docker.compose.service"
+        fluentd-async-connect: "true"
+{%- endmacro -%}
+{%- macro log_to_json() -%}
+    logging:
+      driver: "json-file"
+      options:
+        labels: "device_id,customername,devicename,com.docker.compose.service,fluentd_tag,container_name"
+{%- endmacro -%}
+{%- macro container_footer(name) -%}
+    labels:
+      customername: "{{ customername }}"
+      devicename: "{{ devicename }}"
+      device_id: "{{ device_id }}"
+      fluentd_tag: "cts.{{ customername }}.{{ device_id }}"
+      container_name: "/{{ name }}"
+{%- if 'containers' in template and 'fluent-kinesis' in template['containers'] and 'enabled' in template['containers']['fluent-kinesis'] and template['containers']['fluent-kinesis']['enabled']|upper == "TRUE" -%}
+  {%- if 'mode' in template['containers']['fluent-kinesis'] and template['containers']['fluent-kinesis']['mode']|upper == "JSON" %}
+    {{ log_to_json() }}
+  {% else %}
+    {{ log_to_fluentd(customername, device_id) }}
+  {% endif %}
+{%- else %}
+    {{ log_to_json() }}
+{%- endif %}
+{%- endmacro -%}
+{%- macro define_networks() -%}
+{%- set networks = [] -%}
+{%- if 'containers' in template -%}
+  {%- for container, items in template['containers'].items() -%}
+    {%- if 'networks' in items and items['networks']|length > 0 -%}
+      {%- for network in items['networks'] -%}
+{%- do networks.append(network) -%}
+      {%- endfor -%}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endif -%}
+{%- if networks|length > 0 %}
+networks:
+  {%- for network in networks|unique|sort %}
+  {{ network }}:
+    {%- if 'networks' in template -%}
+      {%- if network in template['networks'] -%}
+        {%- if 'driver_opts' in template['networks'][network] -%}
+          {%- set driver_opts = template['networks'][network]['driver_opts'] -%}
+          {%- if driver_opts|length >0 %}
+    driver_opts:
+            {%- for k,v in driver_opts.items() %}
+      {{ k }}: {{ v }}
+            {%- endfor -%}
+          {%- endif -%}
+        {%- endif -%}
+        {%- if 'driver' in template['networks'][network] -%}
+    driver: {{ template['networks'][network]['driver'] }}
+        {%- else %}
+    driver: bridge
+        {%- endif -%}
+      {%- endif -%}
+    {%- else %}
+    driver: bridge
+    {%- endif -%}
+  {%- endfor -%}
+{%- endif -%}
+{%- endmacro -%}
+services:
+{%- if 'containers' in template -%}
+  {%- for container, items in template['containers'].items()|sort -%}
+    {%- if not ('manager' == container or 'fluent-kinesis' == container) %}
+  {{ container }}:
+    image: {{ items['image'] }}:{{ items['tag'] }}
+    container_name: {{ container }}
+    {{ get_entrypoint(container) }}
+    {{ get_command(container) }}
+    {{ get_restart(container) }}
+    {{ get_hostname(container) }}
+    {{ get_privileged(container) }}
+    {{ get_networks(container) }}
+    {{ get_cap_add(container) }}
+    {{ get_ulimits(container) }}
+    {{ get_extra_hosts(container) }}
+    {{ get_environments(container) }}
+    {{ get_ports(container) }}
+    {{ get_depends_on(container) }}
+    {{ get_links(container) }}
+    {{ get_devices(container) }}
+    {{ get_volumes(container) }}
+    {{ container_footer(container) }}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endif -%}
+{{ define_networks() }}
+

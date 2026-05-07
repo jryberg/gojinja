@@ -1,0 +1,26 @@
+{# dict.update from another dict literal #}
+{%- set d = {'a': 1, 'b': 2} -%}
+{%- do d.update({'b': 20, 'c': 3}) %}
+{%- for k in d.keys()|sort %}
+update[{{ k }}] = {{ d[k] }}
+{%- endfor %}
+
+{# dict.setdefault: existing key returns existing value, new key inserts #}
+{%- set s = {'x': 1} -%}
+{%- set xv = s.setdefault('x', 99) -%}
+{%- set yv = s.setdefault('y', 42) %}
+setdefault: x_returned={{ xv }} y_returned={{ yv }} y_in={{ s['y'] }}
+
+{# dict.pop: existing key returns and removes; missing with default #}
+{%- set p = {'a': 1, 'b': 2, 'c': 3} -%}
+{%- set b = p.pop('b') -%}
+{%- set z = p.pop('zzz', 'fallback') %}
+pop: b={{ b }} z={{ z }}
+{%- for k in p.keys()|sort %}
+remaining[{{ k }}] = {{ p[k] }}
+{%- endfor %}
+
+{# dict.clear: empties in place #}
+{%- set c = {'a': 1, 'b': 2} -%}
+{%- do c.clear() %}
+clear_len: {{ c|length }}
