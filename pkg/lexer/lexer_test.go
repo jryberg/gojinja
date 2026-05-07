@@ -260,14 +260,14 @@ func TestTrailingNewline(t *testing.T) {
 
 func TestIntegerLiterals(t *testing.T) {
 	cases := map[string]string{
-		"0":          "0",
-		"42":         "42",
-		"1_000":      "1000",
-		"0b1010":     "10",
-		"0o17":       "15",
-		"0xff":       "255",
-		"0xFF":       "255",
-		"0b1_0_1_0":  "10",
+		"0":         "0",
+		"42":        "42",
+		"1_000":     "1000",
+		"0b1010":    "10",
+		"0o17":      "15",
+		"0xff":      "255",
+		"0xFF":      "255",
+		"0b1_0_1_0": "10",
 	}
 	for src, want := range cases {
 		toks := values(t, "{{ "+src+" }}")
@@ -309,14 +309,14 @@ func TestFloatLiterals(t *testing.T) {
 func TestStringEscapeSequences(t *testing.T) {
 	// Mirrors test_string_escapes minus the \N{NAME} case (deliberate divergence — see docs/divergences.md).
 	cases := map[string]string{
-		`'a\nb'`:        "a\nb",
-		`'\t'`:          "\t",
-		`'\x41'`:        "A",
-		`'♨'`:      "♨",
-		`'\U00002668'`:  "♨",
-		`'\\'`:          "\\",
-		`"\""`:          `"`,
-		`'\''`:          `'`,
+		`'a\nb'`:       "a\nb",
+		`'\t'`:         "\t",
+		`'\x41'`:       "A",
+		`'♨'`:          "♨",
+		`'\U00002668'`: "♨",
+		`'\\'`:         "\\",
+		`"\""`:         `"`,
+		`'\''`:         `'`,
 	}
 	for src, want := range cases {
 		toks := values(t, "{{ "+src+" }}")

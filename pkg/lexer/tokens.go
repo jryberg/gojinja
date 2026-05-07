@@ -292,8 +292,8 @@ var ignoredKinds = map[TokenKind]bool{
 // ignoreIfEmpty are kinds that, when their match value is empty, are
 // dropped. Mirrors lexer.py:ignore_if_empty.
 var ignoreIfEmpty = map[TokenKind]bool{
-	TokenWhitespace: true,
-	TokenData:       true,
-	TokenComment:    true,
+	TokenWhitespace:  true,
+	TokenData:        true,
+	TokenComment:     true,
 	TokenLineComment: true,
 }

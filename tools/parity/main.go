@@ -112,8 +112,8 @@ func discover(dir string) ([]string, error) {
 // caseLayout resolves a case name to its template path, vars path, and
 // the optional sibling-template directory (for multi-file cases).
 type caseLayout struct {
-	tmplPath string
-	varsPath string
+	tmplPath  string
+	varsPath  string
 	loaderDir string // empty for flat cases
 }
 

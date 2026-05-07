@@ -166,10 +166,9 @@ func cmdRender(args []string) error {
 // rootList implements flag.Value for repeatable --root flags.
 type rootList []string
 
-func (r *rootList) String() string         { return "" }
-func (r *rootList) Set(v string) error     { *r = append(*r, v); return nil }
-func (r rootList) Get() any                { return []string(r) }
-
+func (r *rootList) String() string     { return "" }
+func (r *rootList) Set(v string) error { *r = append(*r, v); return nil }
+func (r rootList) Get() any            { return []string(r) }
 
 // normalizeJSON walks a decoded JSON value and converts json.Number to
 // int64 / float64 so templates can do arithmetic on it.

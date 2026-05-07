@@ -48,4 +48,3 @@ func TestAutoescapeFacade(t *testing.T) {
 		t.Fatalf("autoescape not applied: %q", out)
 	}
 }
-

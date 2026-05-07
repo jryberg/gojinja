@@ -21,7 +21,7 @@ func FuzzLexerNoPanic(f *testing.F) {
 		"{{ 'hello\\nworld' }}",
 		"{{ obj.attr.nested }}",
 		"{{ a, b, c }}",
-		"{{",      // unterminated
+		"{{",       // unterminated
 		"{% raw %", // unterminated
 		"{# unfinished",
 		"{{ '\\u00ff' }}",

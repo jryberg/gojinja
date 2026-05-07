@@ -30,14 +30,14 @@ const DefaultMaxNestingDepth = 200
 // `jinja2.defaults`).
 func DefaultOptions() Options {
 	return Options{
-		BlockStart:          "{%",
-		BlockEnd:            "%}",
-		VariableStart:       "{{",
-		VariableEnd:         "}}",
-		CommentStart:        "{#",
-		CommentEnd:          "#}",
-		NewlineSequence:     "\n",
-		MaxNestingDepth:     DefaultMaxNestingDepth,
+		BlockStart:      "{%",
+		BlockEnd:        "%}",
+		VariableStart:   "{{",
+		VariableEnd:     "}}",
+		CommentStart:    "{#",
+		CommentEnd:      "#}",
+		NewlineSequence: "\n",
+		MaxNestingDepth: DefaultMaxNestingDepth,
 	}
 }
 
