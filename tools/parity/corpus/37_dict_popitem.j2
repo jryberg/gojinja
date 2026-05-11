@@ -1,0 +1,6 @@
+{# popitem returns the last-inserted (k, v) tuple (Python 3.7+ LIFO) #}
+{% set d = {'a': 1, 'b': 2, 'c': 3} %}
+{{ d.popitem() }}
+{{ d.popitem() }}
+remaining: {% for k, v in d.items() %}{{ k }}={{ v }} {% endfor %}
+size: {{ d|length }}

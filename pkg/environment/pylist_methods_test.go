@@ -163,6 +163,28 @@ func TestDictCopyOnCallerMap(t *testing.T) {
 	}
 }
 
+func TestOrderedDictPopitem(t *testing.T) {
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
+	// LIFO: 'c' popped first, then 'b'. Remaining contains 'a' only.
+	src := `{%- set d = {'a': 1, 'b': 2, 'c': 3} -%}` +
+		`{{ d.popitem() }}|{{ d.popitem() }}|len={{ d|length }}|left=` +
+		`{%- for k, v in d.items() -%}{{ k }}={{ v }}{%- endfor -%}`
+	if got := render(t, e, src, nil); got != "('c', 3)|('b', 2)|len=1|left=a=1" {
+		t.Fatalf("popitem: got %q", got)
+	}
+}
+
+func TestOrderedDictPopitemEmpty(t *testing.T) {
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
+	tpl, err := e.FromString(`{%- set d = {} -%}{{ d.popitem() }}`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if _, err := tpl.RenderContext(context.Background(), nil); err == nil {
+		t.Fatalf("expected error on popitem of empty dict, got nil")
+	}
+}
+
 func TestOrderedDictClear(t *testing.T) {
 	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
 	src := `{%- set d = {'a': 1, 'b': 2} -%}{%- do d.clear() -%}{{ d|length }}`

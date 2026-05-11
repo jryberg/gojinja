@@ -148,6 +148,10 @@ func dictMethod(m any, attr string) any {
 				od.Clear()
 				return nil
 			}
+		case "popitem":
+			return func() (any, error) {
+				return od.PopItem()
+			}
 		}
 	}
 	return nil

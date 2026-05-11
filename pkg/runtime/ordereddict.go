@@ -215,6 +215,21 @@ func (d *OrderedDict) SetDefault(key any, def any) any {
 	return def
 }
 
+// PopItem removes and returns the last-inserted entry as a Tuple of
+// (key, value), matching Python 3.7+ LIFO semantics. Returns an error
+// when d is empty.
+func (d *OrderedDict) PopItem() (Tuple, error) {
+	if d == nil || len(d.keys) == 0 {
+		return nil, fmt.Errorf("popitem(): dictionary is empty")
+	}
+	last := len(d.keys) - 1
+	k := d.keys[last]
+	v := d.vals[k]
+	d.keys = d.keys[:last]
+	delete(d.vals, k)
+	return Tuple{k, v}, nil
+}
+
 // Copy returns a shallow copy of d preserving insertion order.
 // Keys and values are not deep-copied; nested containers are shared.
 func (d *OrderedDict) Copy() *OrderedDict {
