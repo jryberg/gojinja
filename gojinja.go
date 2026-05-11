@@ -39,6 +39,7 @@ import (
 	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/loader"
 	"github.com/jryberg/gojinja/pkg/runtime"
+	"github.com/jryberg/gojinja/pkg/varsutil"
 )
 
 // =============================================================== Environment
@@ -185,3 +186,19 @@ type Namespace = runtime.Namespace
 // here for advanced cases (custom filters, embedding rendered HTML in
 // data structures, etc.).
 type Markup = escape.Markup
+
+// =============================================================== JSON vars
+
+// JSONVars decodes JSON bytes into a map[string]any with Python-aligned
+// numeric types — integer literals become int64, fractional / exponent
+// literals become float64. Use this in preference to encoding/json when
+// feeding variables to a template; vanilla json.Unmarshal collapses all
+// numbers to float64, which causes `{{ x }}` of an integer to render as
+// "1.0" instead of "1" and silently breaks parity with Python Jinja2.
+var JSONVars = varsutil.JSONVars
+
+// NormalizeJSONNumbers walks a value decoded with json.Decoder +
+// UseNumber and converts every json.Number to int64 or float64 (mirroring
+// Python's json.loads). Use this when you drive the JSON decoder
+// yourself; otherwise reach for [JSONVars].
+var NormalizeJSONNumbers = varsutil.NormalizeJSONNumbers

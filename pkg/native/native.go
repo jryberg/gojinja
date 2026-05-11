@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/jryberg/gojinja/pkg/environment"
+	"github.com/jryberg/gojinja/pkg/varsutil"
 )
 
 // Render produces a typed Go value for tpl.
@@ -67,33 +68,7 @@ func Concat(s string) any {
 	dec.UseNumber()
 	if err := dec.Decode(&v); err == nil {
 		// json.Number → int64/float64 for ergonomics.
-		return normalize(v)
+		return varsutil.NormalizeJSONNumbers(v)
 	}
 	return s
-}
-
-func normalize(v any) any {
-	switch x := v.(type) {
-	case json.Number:
-		if i, err := x.Int64(); err == nil {
-			return i
-		}
-		if f, err := x.Float64(); err == nil {
-			return f
-		}
-		return x.String()
-	case []any:
-		out := make([]any, len(x))
-		for i, it := range x {
-			out[i] = normalize(it)
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]any, len(x))
-		for k, vv := range x {
-			out[k] = normalize(vv)
-		}
-		return out
-	}
-	return v
 }

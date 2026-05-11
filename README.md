@@ -37,6 +37,7 @@ out, _ := tpl.Render(map[string]any{"name": "World"})
 - [Common use cases](#common-use-cases)
   - [Render a string template](#render-a-string-template)
   - [Render with autoescape](#render-with-autoescape)
+  - [Load JSON-shaped variables](#load-json-shaped-variables)
   - [Load templates from disk](#load-templates-from-disk)
   - [Embed templates in the binary](#embed-templates-in-the-binary)
   - [Read host environment variables](#read-host-environment-variables)
@@ -140,6 +141,31 @@ out, _ := tpl.Render(map[string]any{"user_input": "<script>alert(1)</script>"})
 tpl2, _ := env.FromString(`<p>{{ html_blob|safe }}</p>`)
 out2, _ := tpl2.Render(map[string]any{"html_blob": "<em>OK</em>"})
 // out2 == "<p><em>OK</em></p>"
+```
+
+### Load JSON-shaped variables
+
+If your template variables come from JSON, decode them with `gojinja.JSONVars` (or `gojinja.NormalizeJSONNumbers` if you already drive `json.Decoder` yourself). Vanilla `encoding/json.Unmarshal` collapses every JSON number to `float64`, while Python's `json.loads` preserves the int/float distinction — and `{{ x }}` renders the two differently (`"130000"` vs `"130000.0"`). Skipping this step silently breaks parity with Python Jinja2 for templates you share between the two engines.
+
+```go
+raw, _ := os.ReadFile("vars.json") // e.g. {"port": 130000, "rate": 1.5}
+
+// Recommended:
+vars, _ := gj.JSONVars(raw)
+
+tpl, _ := env.FromString("{{ port }} {{ rate }}")
+out, _ := tpl.Render(vars)
+// → "130000 1.5"   (matches Python; vanilla json.Unmarshal would emit "130000.0 1.5")
+```
+
+If you already drive the decoder yourself:
+
+```go
+dec := json.NewDecoder(r)
+dec.UseNumber()
+var v map[string]any
+_ = dec.Decode(&v)
+vars := gj.NormalizeJSONNumbers(v).(map[string]any)
 ```
 
 ### Load templates from disk

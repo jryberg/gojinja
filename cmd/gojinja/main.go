@@ -13,7 +13,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/jryberg/gojinja/pkg/environment"
 	"github.com/jryberg/gojinja/pkg/loader"
+	"github.com/jryberg/gojinja/pkg/varsutil"
 )
 
 // Build-time metadata. Overridden via -X ldflags by GoReleaser.
@@ -102,18 +102,14 @@ func cmdRender(args []string) error {
 
 	vars := map[string]any{}
 	if varsPath != "" {
-		f, err := os.Open(varsPath)
+		raw, err := os.ReadFile(varsPath)
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-		dec := json.NewDecoder(f)
-		dec.UseNumber()
-		if err := dec.Decode(&vars); err != nil {
+		vars, err = varsutil.JSONVars(raw)
+		if err != nil {
 			return fmt.Errorf("parsing %s: %w", varsPath, err)
 		}
-		// Convert json.Number values to int64 / float64 for templates.
-		vars = normalizeJSON(vars).(map[string]any)
 	}
 
 	opts := []environment.Option{
@@ -169,31 +165,3 @@ type rootList []string
 func (r *rootList) String() string     { return "" }
 func (r *rootList) Set(v string) error { *r = append(*r, v); return nil }
 func (r rootList) Get() any            { return []string(r) }
-
-// normalizeJSON walks a decoded JSON value and converts json.Number to
-// int64 / float64 so templates can do arithmetic on it.
-func normalizeJSON(v any) any {
-	switch x := v.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(x))
-		for k, val := range x {
-			out[k] = normalizeJSON(val)
-		}
-		return out
-	case []any:
-		out := make([]any, len(x))
-		for i, val := range x {
-			out[i] = normalizeJSON(val)
-		}
-		return out
-	case json.Number:
-		if i, err := x.Int64(); err == nil {
-			return i
-		}
-		if f, err := x.Float64(); err == nil {
-			return f
-		}
-		return x.String()
-	}
-	return v
-}
