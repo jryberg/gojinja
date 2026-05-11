@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.0](https://github.com/jryberg/gojinja/compare/v0.1.0...v1.0.0) (2026-05-11)
+
+
+### Features
+
+* **api:** expose NormalizeJSONNumbers and JSONVars for Python-aligned JSON ingestion ([270f94e](https://github.com/jryberg/gojinja/commit/270f94e0bcc790a84865d338c9278c85d5ce7bd7))
+* **dict:** implement dict.copy() method dispatch ([93cc077](https://github.com/jryberg/gojinja/commit/93cc077061a0f44e2b405f7e0aacf3df8bffd41d))
+* **dict:** implement dict.popitem() method dispatch ([cba9487](https://github.com/jryberg/gojinja/commit/cba948703def06cecac493b8fd1559402af469f9))
+
+
+### Chores
+
+* cut 1.0.0 release ([d1acfc8](https://github.com/jryberg/gojinja/commit/d1acfc81aca88ea1bc0aca59f45e9f7dcba010ed))
+
 ## [0.1.0](https://github.com/jryberg/gojinja/compare/v0.0.2...v0.1.0) (2026-05-07)
 
 
