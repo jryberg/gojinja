@@ -58,6 +58,26 @@ func dictMethod(m any, attr string) any {
 			}
 			return out
 		}
+	case "copy":
+		return func() any {
+			switch x := m.(type) {
+			case *runtime.OrderedDict:
+				return x.Copy()
+			case map[string]any:
+				out := make(map[string]any, len(x))
+				for k, v := range x {
+					out[k] = v
+				}
+				return out
+			case map[any]any:
+				out := make(map[any]any, len(x))
+				for k, v := range x {
+					out[k] = v
+				}
+				return out
+			}
+			return m
+		}
 	case "get":
 		return func(args ...any) any {
 			if len(args) < 1 {

@@ -136,6 +136,33 @@ func TestOrderedDictSetdefault(t *testing.T) {
 	}
 }
 
+func TestOrderedDictCopy(t *testing.T) {
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
+	// Mutating the copy must not affect the original; insertion order
+	// is preserved through the copy.
+	src := `{%- set d = {'b': 2, 'a': 1} -%}` +
+		`{%- set c = d.copy() -%}` +
+		`{%- do c.update({'c': 3}) -%}` +
+		`d=` +
+		`{%- for k in d.keys() -%}{{ k }}{%- endfor -%}` +
+		`|c=` +
+		`{%- for k in c.keys() -%}{{ k }}{%- endfor -%}`
+	if got := render(t, e, src, nil); got != "d=ba|c=bac" {
+		t.Fatalf("copy: got %q", got)
+	}
+}
+
+func TestDictCopyOnCallerMap(t *testing.T) {
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
+	// copy() on a caller-supplied map returns a working dict the
+	// template can subscript and iterate.
+	src := `{%- set c = d.copy() -%}{{ c['name'] }}|{{ c|length }}`
+	got := render(t, e, src, map[string]any{"d": map[string]any{"name": "Alice", "age": int64(30)}})
+	if got != "Alice|2" {
+		t.Fatalf("copy on caller map: got %q", got)
+	}
+}
+
 func TestOrderedDictClear(t *testing.T) {
 	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
 	src := `{%- set d = {'a': 1, 'b': 2} -%}{%- do d.clear() -%}{{ d|length }}`

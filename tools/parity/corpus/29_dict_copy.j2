@@ -1,0 +1,11 @@
+{# Copy of a caller-supplied dict #}
+{{ user.copy()['name'] }}
+{# Template-built dict: copy preserves insertion order #}
+{% set d = {'b': 2, 'a': 1} %}
+{% set c = d.copy() %}
+{% for k, v in c.items() %}{{ k }}={{ v }}
+{% endfor %}
+{# Mutating the copy must not touch the original #}
+{% set ok = c.update({'c': 3}) %}
+d-keys: {% for k in d.keys() %}{{ k }} {% endfor %}
+c-keys: {% for k in c.keys() %}{{ k }} {% endfor %}

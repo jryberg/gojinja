@@ -215,6 +215,22 @@ func (d *OrderedDict) SetDefault(key any, def any) any {
 	return def
 }
 
+// Copy returns a shallow copy of d preserving insertion order.
+// Keys and values are not deep-copied; nested containers are shared.
+func (d *OrderedDict) Copy() *OrderedDict {
+	if d == nil {
+		return NewOrderedDict()
+	}
+	out := &OrderedDict{
+		keys: append([]any(nil), d.keys...),
+		vals: make(map[any]any, len(d.vals)),
+	}
+	for k, v := range d.vals {
+		out.vals[k] = v
+	}
+	return out
+}
+
 // Clear empties the dict in place.
 func (d *OrderedDict) Clear() {
 	if d == nil {
