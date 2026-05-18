@@ -1501,7 +1501,7 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <tr>
 <td><code>JSONVars</code></td>
 <td>var</td>
-<td>JSONVars decodes JSON bytes into a map[string]any with Python-aligned</td>
+<td>JSONVars decodes JSON bytes into an [OrderedDict] whose keys appear</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja@dev#JSONVars">pkg.go.dev</a></td>
 </tr>
 <tr>
@@ -1565,6 +1565,12 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja@dev#NewMemoryCache">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>NewOrderedDict</code></td>
+<td>var</td>
+<td>NewOrderedDict constructs an empty OrderedDict. Insert with</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja@dev#NewOrderedDict">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>NormalizeJSONNumbers</code></td>
 <td>var</td>
 <td>NormalizeJSONNumbers walks a value decoded with json.Decoder +</td>
@@ -1575,6 +1581,12 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td>type</td>
 <td>Option configures an [Environment] at construction.</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja@dev#Option">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>OrderedDict</code></td>
+<td>type</td>
+<td>OrderedDict is an insertion-ordered map matching Python's dict</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja@dev#OrderedDict">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>PrefixLoader</code></td>
@@ -2904,6 +2916,12 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td>type</td>
 <td>OrderedDict is an insertion-ordered map[any]any — the runtime</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#OrderedDict">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>OrderedDictFromMap</code></td>
+<td>func</td>
+<td>OrderedDictFromMap returns a new OrderedDict containing m's entries in</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#OrderedDictFromMap">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>PassArg</code></td>
