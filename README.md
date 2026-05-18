@@ -145,17 +145,31 @@ out2, _ := tpl2.Render(map[string]any{"html_blob": "<em>OK</em>"})
 
 ### Load JSON-shaped variables
 
-If your template variables come from JSON, decode them with `gojinja.JSONVars` (or `gojinja.NormalizeJSONNumbers` if you already drive `json.Decoder` yourself). Vanilla `encoding/json.Unmarshal` collapses every JSON number to `float64`, while Python's `json.loads` preserves the int/float distinction — and `{{ x }}` renders the two differently (`"130000"` vs `"130000.0"`). Skipping this step silently breaks parity with Python Jinja2 for templates you share between the two engines.
+If your template variables come from JSON, decode them with `gojinja.JSONVars` (or `gojinja.NormalizeJSONNumbers` if you already drive `json.Decoder` yourself). It solves two silent parity divergences from Python Jinja2 in one call:
+
+- **Number types.** Vanilla `encoding/json.Unmarshal` collapses every JSON number to `float64`, while Python's `json.loads` preserves the int/float distinction — `{{ x }}` renders the two differently (`"130000"` vs `"130000.0"`).
+- **Dict insertion order.** Python dicts (and `json.loads`' output) iterate in source order; Go's `map[string]any` iteration is randomised per run. A template doing `{% for k in mydict %}` over a JSON-loaded dict would emit keys in a different order on every render. `JSONVars` returns an `*OrderedDict` at every nesting level so iteration matches Python byte-for-byte.
 
 ```go
 raw, _ := os.ReadFile("vars.json") // e.g. {"port": 130000, "rate": 1.5}
 
-// Recommended:
+// Recommended (returns *gojinja.OrderedDict, accepted directly by Render):
 vars, _ := gj.JSONVars(raw)
 
 tpl, _ := env.FromString("{{ port }} {{ rate }}")
 out, _ := tpl.Render(vars)
 // → "130000 1.5"   (matches Python; vanilla json.Unmarshal would emit "130000.0 1.5")
+```
+
+If you build vars in Go and need Python-matching iteration order without a JSON round-trip, construct an `OrderedDict` directly:
+
+```go
+d := gj.NewOrderedDict()
+d.Set("zeta", 1)
+d.Set("alpha", 2)
+tpl, _ := env.FromString("{% for k in d %}{{ k }} {% endfor %}")
+out, _ := tpl.Render(map[string]any{"d": d})
+// → "zeta alpha " (insertion order; a plain map[string]any would emit "alpha zeta ", lex-sorted)
 ```
 
 If you already drive the decoder yourself:
