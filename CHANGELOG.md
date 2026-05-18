@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/jryberg/gojinja/compare/v1.0.0...v1.0.1) (2026-05-18)
+
+
+### Bug Fixes
+
+* **api:** preserve dict insertion order end-to-end ([ea8127a](https://github.com/jryberg/gojinja/commit/ea8127af5e3eb9cfb3708b527388f86357b87ed3))
+
 ## [1.0.0](https://github.com/jryberg/gojinja/compare/v0.1.0...v1.0.0) (2026-05-11)
 
 
