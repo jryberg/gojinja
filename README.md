@@ -148,7 +148,7 @@ out2, _ := tpl2.Render(map[string]any{"html_blob": "<em>OK</em>"})
 If your template variables come from JSON, decode them with `gojinja.JSONVars` (or `gojinja.NormalizeJSONNumbers` if you already drive `json.Decoder` yourself). It solves two silent parity divergences from Python Jinja2 in one call:
 
 - **Number types.** Vanilla `encoding/json.Unmarshal` collapses every JSON number to `float64`, while Python's `json.loads` preserves the int/float distinction — `{{ x }}` renders the two differently (`"130000"` vs `"130000.0"`).
-- **Dict insertion order.** Python dicts (and `json.loads`' output) iterate in source order; Go's `map[string]any` iteration is randomised per run. A template doing `{% for k in mydict %}` over a JSON-loaded dict would emit keys in a different order on every render. `JSONVars` returns an `*OrderedDict` at every nesting level so iteration matches Python byte-for-byte.
+- **Dict insertion order.** Python dicts (and `json.loads`' output) iterate in source order; Go's `map[string]any` iteration is randomised per run. gojinja always renders deterministically — every Go map you pass to `Render` is normalised to an `*OrderedDict` at the boundary (top-level **and** nested, at any depth) with keys in lex-sorted order, so `{% for k in mydict %}` produces the same bytes on every render of the same input. `JSONVars` goes one step further: it returns an `*OrderedDict` whose keys are in the JSON source order at every nesting level, so iteration matches Python byte-for-byte.
 
 ```go
 raw, _ := os.ReadFile("vars.json") // e.g. {"port": 130000, "rate": 1.5}
@@ -161,7 +161,7 @@ out, _ := tpl.Render(vars)
 // → "130000 1.5"   (matches Python; vanilla json.Unmarshal would emit "130000.0 1.5")
 ```
 
-If you build vars in Go and need Python-matching iteration order without a JSON round-trip, construct an `OrderedDict` directly:
+If you build vars in Go and need *true* Python insertion order (not lex-sorted), construct an `OrderedDict` directly. A plain `map[string]any` is still accepted and still deterministic — its keys come out lex-sorted because Go's runtime does not carry the order you wrote them in.
 
 ```go
 d := gj.NewOrderedDict()

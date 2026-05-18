@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jryberg/gojinja/pkg/ext"
+	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
 func mustEnv(t *testing.T, opts ...Option) *Environment {
@@ -326,6 +327,44 @@ func TestItemsFilter(t *testing.T) {
 		map[string]any{"d": map[string]any{"x": 1, "y": 2}})
 	if got != "x:1;y:2;" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// TestRenderContextNormalizesNestedGoMaps proves the boundary normalizer
+// converts a nested map[string]any to an OrderedDict with lex-sorted keys
+// so the same template renders deterministically regardless of how the
+// caller built the input. Without normalization the nested map would
+// iterate via the lex-sort path at each call site, but only at iteration
+// time; with normalization it is one uniform *OrderedDict from the
+// moment vars enter the engine.
+func TestRenderContextNormalizesNestedGoMaps(t *testing.T) {
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
+	got := render(t, e,
+		`{% for k, v in outer.inner.items() %}{{ k }}={{ v }};{% endfor %}`,
+		map[string]any{
+			"outer": map[string]any{
+				"inner": map[string]any{"z": 1, "a": 2, "m": 3},
+			},
+		})
+	if got != "a=2;m=3;z=1;" {
+		t.Fatalf("nested Go map did not iterate in lex order: got %q", got)
+	}
+}
+
+// TestRenderContextOrderedDictKeepsInsertionOrder proves an OrderedDict
+// supplied by the caller retains its insertion order through render — the
+// normalizer only walks values, never reorders OrderedDict keys.
+func TestRenderContextOrderedDictKeepsInsertionOrder(t *testing.T) {
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
+	d := runtime.NewOrderedDict()
+	d.Set("zeta", 1)
+	d.Set("alpha", 2)
+	d.Set("middle", 3)
+	got := render(t, e,
+		`{% for k, v in d.items() %}{{ k }}={{ v }};{% endfor %}`,
+		map[string]any{"d": d})
+	if got != "zeta=1;alpha=2;middle=3;" {
+		t.Fatalf("OrderedDict insertion order lost: got %q", got)
 	}
 }
 

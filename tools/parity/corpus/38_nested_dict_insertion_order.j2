@@ -1,0 +1,6 @@
+{% for k, v in outer.inner.items() %}{{ k }}={{ v }}
+{% endfor %}---
+{% for k, v in outer.deep.level2.level3.items() %}{{ k }}={{ v }}
+{% endfor %}---
+{% for entry in outer.list %}{% for k, v in entry.items() %}{{ k }}={{ v }};{% endfor %}
+{% endfor %}
