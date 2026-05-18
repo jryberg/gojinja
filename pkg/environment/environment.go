@@ -589,16 +589,30 @@ func (t *Template) Render(vars any) (string, error) {
 // accepted vars types. Inheritance is resolved before evaluation: any
 // `{% extends %}` chain whose parent names are constants is followed
 // statically so block overrides are layered correctly.
+//
+// Variables are normalized at the boundary via
+// [runtime.NormalizeForTemplate]: every Go map in the value graph
+// (top-level and nested) becomes an [*runtime.OrderedDict] so iteration
+// order is uniform regardless of how the caller built the input. For
+// `map[string]any` input — at any depth — keys are lex-sorted as the
+// deterministic substitute for the insertion order Python preserves but
+// Go's runtime cannot carry. Inputs that were already insertion-ordered
+// (OrderedDicts, JSONVars output) keep their original key order.
 func (t *Template) RenderContext(ctx context.Context, vars any) (string, error) {
 	parent := runtime.NewOrderedDict()
-	parent.MergeMap(t.env.globals)
+	// Globals are normalized too so any nested map a caller registered
+	// via WithGlobal iterates deterministically. Functions and other
+	// non-map values pass through NormalizeForTemplate unchanged.
+	if g, ok := runtime.NormalizeForTemplate(t.env.globals).(*runtime.OrderedDict); ok {
+		parent.MergeOrderedDict(g)
+	}
 	switch v := vars.(type) {
 	case nil:
 		// no vars to merge
 	case *runtime.OrderedDict:
-		parent.MergeOrderedDict(v)
+		parent.MergeOrderedDict(runtime.NormalizeForTemplate(v).(*runtime.OrderedDict))
 	case map[string]any:
-		parent.MergeMap(v)
+		parent.MergeOrderedDict(runtime.NormalizeForTemplate(v).(*runtime.OrderedDict))
 	default:
 		return "", fmt.Errorf("RenderContext: vars must be nil, map[string]any, or *runtime.OrderedDict, got %T", vars)
 	}

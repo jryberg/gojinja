@@ -1115,8 +1115,24 @@ func filterItems(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 //	{% for k, v in {'b': 2, 'a': 1} | dictsort %}{{ k }}={{ v }} {% endfor %}
 //	→  a=1 b=2
 func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	m, ok := value.(map[string]any)
-	if !ok {
+	type entry struct{ K, V any }
+	var es []entry
+	switch m := value.(type) {
+	case map[string]any:
+		es = make([]entry, 0, len(m))
+		for k, v := range m {
+			es = append(es, entry{k, v})
+		}
+	case *runtime.OrderedDict:
+		if m == nil {
+			return []any{}, nil
+		}
+		es = make([]entry, 0, m.Len())
+		for _, k := range m.Keys() {
+			v, _ := m.Get(k)
+			es = append(es, entry{k, v})
+		}
+	default:
 		return nil, gjerrors.NewFilterArgumentError("dictsort requires a mapping")
 	}
 	caseSensitive := false
@@ -1132,11 +1148,6 @@ func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, _
 	reverse := false
 	if len(args) > 2 {
 		reverse, _ = args[2].(bool)
-	}
-	type entry struct{ K, V any }
-	es := make([]entry, 0, len(m))
-	for k, v := range m {
-		es = append(es, entry{k, v})
 	}
 	sort.SliceStable(es, func(i, j int) bool {
 		var a, b any
