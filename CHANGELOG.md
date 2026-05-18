@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.2](https://github.com/jryberg/gojinja/compare/v1.0.1...v1.0.2) (2026-05-18)
+
+
+### Bug Fixes
+
+* **api:** normalize nested maps to OrderedDict at the render boundary ([#11](https://github.com/jryberg/gojinja/issues/11)) ([ceff118](https://github.com/jryberg/gojinja/commit/ceff1186c33c131f2c15d356917d54154f9759cb))
+
+
+### Documentation
+
+* **readme:** document insertion-order parity in JSONVars ([f6748c9](https://github.com/jryberg/gojinja/commit/f6748c94a150f9053c347e7439ffc9eef086838b))
+
 ## [1.0.1](https://github.com/jryberg/gojinja/compare/v1.0.0...v1.0.1) (2026-05-18)
 
 
