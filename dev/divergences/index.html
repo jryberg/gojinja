@@ -1273,6 +1273,12 @@ requires explicit maintainer approval.</p>
 <td><strong>Not supported.</strong> Strings using <code>\N{LATIN SMALL LETTER A}</code> raise a <code>TemplateSyntaxError</code>. All other Python string escapes (<code>\n</code>, <code>\t</code>, <code>\xNN</code>, <code>\uNNNN</code>, <code>\UNNNNNNNN</code>, <code>\NNN</code> octal) are supported.</td>
 <td>Requires shipping a 32K-entry Unicode names table for marginal template-engine value. Can revisit.</td>
 </tr>
+<tr>
+<td>Iteration order of dicts passed as a raw Go <code>map[string]any</code></td>
+<td>Python dicts preserve insertion order; <code>json.loads</code> honors source order.</td>
+<td>All user-supplied values are normalised at the <code>RenderContext</code> boundary: every <code>map[string]any</code> / <code>map[any]any</code> — top-level <strong>and</strong> nested at every depth — becomes a <code>*runtime.OrderedDict</code> with <strong>lex-sorted</strong> keys. <code>*OrderedDict</code> inputs (and <code>JSONVars</code> output) keep their original insertion order. The same input therefore always renders to the same bytes, but a Go map literal cannot produce Python's "as you wrote it" order — Go's runtime does not carry it. Pass <code>JSONVars</code> output or build an <code>OrderedDict</code> directly when Python-matching source order is required.</td>
+<td>Go maps are randomised; pure lex sort is the closest deterministic substitute.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="reference">Reference<a class="headerlink" href="#reference" title="Permanent link">&para;</a></h2>
