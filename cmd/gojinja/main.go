@@ -100,7 +100,7 @@ func cmdRender(args []string) error {
 		return errors.New("--template is required")
 	}
 
-	vars := map[string]any{}
+	var vars any
 	if varsPath != "" {
 		raw, err := os.ReadFile(varsPath)
 		if err != nil {

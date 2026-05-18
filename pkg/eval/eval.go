@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/jryberg/gojinja/pkg/ast"
@@ -591,13 +592,11 @@ func (e *evaluator) evalInclude(n *ast.Include, ctx *runtime.Context) error {
 		// Python: `without context` strips the caller's vars but
 		// keeps env globals visible. We rebuild a fresh parent from
 		// the engine's globals snapshot.
-		globals := map[string]any{}
+		parent := runtime.NewOrderedDict()
 		if g, ok := e.eng.(globalsProvider); ok {
-			for k, v := range g.Globals() {
-				globals[k] = v
-			}
+			parent.MergeMap(g.Globals())
 		}
-		subCtx = runtime.NewContext(names[0], ctx.Env, globals, ctx.Eval)
+		subCtx = runtime.NewContext(names[0], ctx.Env, parent, ctx.Eval)
 	}
 	return e.evalBody(loaded.Body, subCtx)
 }
@@ -684,14 +683,14 @@ func (e *evaluator) runImportedBody(body []ast.Node, ctx *runtime.Context) error
 	return e.evalBody(body, ctx)
 }
 
-// importParent returns a globals-only parent map — used for `import` /
-// `from` without `with context`. Mirrors Python where imports are
-// isolated from the caller's render vars by default.
-func importParent(eng Engine) map[string]any {
+// importParent returns a globals-only parent OrderedDict — used for
+// `import` / `from` without `with context`. Mirrors Python where
+// imports are isolated from the caller's render vars by default.
+func importParent(eng Engine) *runtime.OrderedDict {
 	if g, ok := eng.(globalsProvider); ok {
-		return g.Globals()
+		return runtime.OrderedDictFromMap(g.Globals())
 	}
-	return map[string]any{}
+	return runtime.NewOrderedDict()
 }
 
 func (e *evaluator) evalFromImport(n *ast.FromImport, ctx *runtime.Context) error {
@@ -854,13 +853,9 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 	if defCtx == nil {
 		defCtx = ctx
 	}
-	parent := make(map[string]any, len(defCtx.Parent)+len(defCtx.Vars))
-	for k, v := range defCtx.Parent {
-		parent[k] = v
-	}
-	for k, v := range defCtx.Vars {
-		parent[k] = v
-	}
+	parent := runtime.NewOrderedDict()
+	parent.MergeOrderedDict(defCtx.Parent)
+	parent.MergeMap(defCtx.Vars)
 	frame := runtime.NewContext(ctx.Name, ctx.Env, parent, ctx.Eval)
 	// kwargs is mutated as we bind named parameters; copy so callers
 	// don't observe pops.
@@ -1086,15 +1081,39 @@ func toIterable(v any) ([]any, error) {
 		}
 		return out, nil
 	case map[string]any:
-		out := make([]any, 0, len(x))
+		// Go map iteration is randomised. Lex-sort for deterministic
+		// output — matches the policy used by `.items()/.keys()/.values()`
+		// in pkg/environment/dictmethods.go. Templates iterating a
+		// JSON-loaded dict get insertion order via *runtime.OrderedDict
+		// (see varsutil.JSONVars); raw map[string]any from Go callers
+		// can't carry insertion order, so this is the deterministic
+		// fallback.
+		keys := make([]string, 0, len(x))
 		for k := range x {
-			out = append(out, k)
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		out := make([]any, len(keys))
+		for i, k := range keys {
+			out[i] = k
 		}
 		return out, nil
 	case map[any]any:
-		out := make([]any, 0, len(x))
+		// Same rationale as map[string]any. Sort by the key's stringified
+		// form (mirrors dictmethods.dictStringKeys) while keeping the
+		// original any-typed key in the output slice.
+		type ks struct {
+			k any
+			s string
+		}
+		ksv := make([]ks, 0, len(x))
 		for k := range x {
-			out = append(out, k)
+			ksv = append(ksv, ks{k: k, s: fmt.Sprint(k)})
+		}
+		sort.Slice(ksv, func(i, j int) bool { return ksv[i].s < ksv[j].s })
+		out := make([]any, len(ksv))
+		for i, kv := range ksv {
+			out[i] = kv.k
 		}
 		return out, nil
 	case *runtime.OrderedDict:

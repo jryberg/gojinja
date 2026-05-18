@@ -177,6 +177,19 @@ type Undefined = runtime.Undefined
 // Namespace is the runtime container for `{% set ns.attr = ... %}` writes.
 type Namespace = runtime.Namespace
 
+// OrderedDict is an insertion-ordered map matching Python's dict
+// semantics. Pass one as vars to [Template.Render] /
+// [Template.RenderContext] so `{% for k in mydict %}` iterates keys in
+// source order. The output of [JSONVars] is an OrderedDict at every
+// nesting level — for templates that just consume JSON input, you don't
+// need to construct one directly.
+type OrderedDict = runtime.OrderedDict
+
+// NewOrderedDict constructs an empty OrderedDict. Insert with
+// [OrderedDict.Set]; iterate in insertion order via [OrderedDict.Keys] /
+// [OrderedDict.Items].
+var NewOrderedDict = runtime.NewOrderedDict
+
 // =============================================================== Helpers
 
 // Markup re-exports [pkg/escape.Markup] for callers that want to mark
@@ -189,16 +202,23 @@ type Markup = escape.Markup
 
 // =============================================================== JSON vars
 
-// JSONVars decodes JSON bytes into a map[string]any with Python-aligned
-// numeric types — integer literals become int64, fractional / exponent
-// literals become float64. Use this in preference to encoding/json when
-// feeding variables to a template; vanilla json.Unmarshal collapses all
-// numbers to float64, which causes `{{ x }}` of an integer to render as
-// "1.0" instead of "1" and silently breaks parity with Python Jinja2.
+// JSONVars decodes JSON bytes into an [OrderedDict] whose keys appear
+// in source order at every nesting level, with Python-aligned numeric
+// types — integer literals become int64, fractional / exponent literals
+// become float64. Pass the result directly to [Template.Render] /
+// [Template.RenderContext] to preserve Python's insertion-order dict
+// semantics when templates iterate context dicts.
+//
+// Prefer this to encoding/json.Unmarshal when feeding variables to a
+// template: vanilla json.Unmarshal collapses every JSON number to
+// float64 ("1.0" instead of "1") and decodes objects into Go maps with
+// randomised iteration — both silent parity divergences from Python
+// Jinja2.
 var JSONVars = varsutil.JSONVars
 
 // NormalizeJSONNumbers walks a value decoded with json.Decoder +
 // UseNumber and converts every json.Number to int64 or float64 (mirroring
 // Python's json.loads). Use this when you drive the JSON decoder
-// yourself; otherwise reach for [JSONVars].
+// yourself; otherwise reach for [JSONVars], which also preserves dict
+// insertion order.
 var NormalizeJSONNumbers = varsutil.NormalizeJSONNumbers

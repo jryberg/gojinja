@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
 func TestNormalizeJSONNumbers_Scalars(t *testing.T) {
@@ -56,14 +58,19 @@ func TestJSONVars_PythonAligned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := got["n_int"]; v != int64(130000) {
+	if v, _ := got.Get("n_int"); v != int64(130000) {
 		t.Errorf("n_int: got %v (%T), want int64(130000)", v, v)
 	}
-	if v := got["n_float"]; v != 130000.0 {
+	if v, _ := got.Get("n_float"); v != 130000.0 {
 		t.Errorf("n_float: got %v (%T), want float64(130000)", v, v)
 	}
-	nested := got["nested"].(map[string]any)
-	items := nested["items"].([]any)
+	nestedAny, _ := got.Get("nested")
+	nested, ok := nestedAny.(*runtime.OrderedDict)
+	if !ok {
+		t.Fatalf("nested: got %T, want *runtime.OrderedDict", nestedAny)
+	}
+	itemsAny, _ := nested.Get("items")
+	items := itemsAny.([]any)
 	if items[0] != int64(1) {
 		t.Errorf("items[0]: got %v (%T), want int64(1)", items[0], items[0])
 	}
@@ -81,5 +88,35 @@ func TestJSONVars_NonObjectErrors(t *testing.T) {
 	}
 	if _, err := JSONVars([]byte(`{nope`)); err == nil {
 		t.Fatal("expected error for malformed JSON")
+	}
+}
+
+func TestJSONVars_PreservesInsertionOrder(t *testing.T) {
+	raw := []byte(`{
+        "zeta":  1,
+        "alpha": 2,
+        "mu":    3,
+        "nested": {
+            "z_first":  "a",
+            "a_second": "b",
+            "m_third":  "c"
+        }
+    }`)
+	got, err := JSONVars(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTop := []any{"zeta", "alpha", "mu", "nested"}
+	if !reflect.DeepEqual(got.Keys(), wantTop) {
+		t.Errorf("top-level keys: got %v, want %v (insertion order, not lex)", got.Keys(), wantTop)
+	}
+	nestedAny, _ := got.Get("nested")
+	nested, ok := nestedAny.(*runtime.OrderedDict)
+	if !ok {
+		t.Fatalf("nested: got %T, want *runtime.OrderedDict", nestedAny)
+	}
+	wantNested := []any{"z_first", "a_second", "m_third"}
+	if !reflect.DeepEqual(nested.Keys(), wantNested) {
+		t.Errorf("nested keys: got %v, want %v (insertion order)", nested.Keys(), wantNested)
 	}
 }

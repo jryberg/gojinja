@@ -575,21 +575,32 @@ func (t *Template) Name() string { return t.name }
 
 // Render renders the template with the given variables and returns the
 // output as a string. Equivalent to RenderContext(context.Background(), vars).
-func (t *Template) Render(vars map[string]any) (string, error) {
+//
+// vars may be nil, a map[string]any, or a *runtime.OrderedDict. Pass an
+// OrderedDict (typically from varsutil.JSONVars) to preserve Python
+// insertion-order semantics when templates iterate context dicts; raw
+// maps are inserted in lex-sorted order for determinism (Go map
+// iteration is randomised and can't carry a "source order").
+func (t *Template) Render(vars any) (string, error) {
 	return t.RenderContext(context.Background(), vars)
 }
 
-// RenderContext renders with cancellation support. Inheritance is
-// resolved before evaluation: any `{% extends %}` chain whose parent
-// names are constants is followed statically so block overrides are
-// layered correctly.
-func (t *Template) RenderContext(ctx context.Context, vars map[string]any) (string, error) {
-	parent := make(map[string]any, len(t.env.globals)+len(vars))
-	for k, v := range t.env.globals {
-		parent[k] = v
-	}
-	for k, v := range vars {
-		parent[k] = v
+// RenderContext renders with cancellation support. See Render for the
+// accepted vars types. Inheritance is resolved before evaluation: any
+// `{% extends %}` chain whose parent names are constants is followed
+// statically so block overrides are layered correctly.
+func (t *Template) RenderContext(ctx context.Context, vars any) (string, error) {
+	parent := runtime.NewOrderedDict()
+	parent.MergeMap(t.env.globals)
+	switch v := vars.(type) {
+	case nil:
+		// no vars to merge
+	case *runtime.OrderedDict:
+		parent.MergeOrderedDict(v)
+	case map[string]any:
+		parent.MergeMap(v)
+	default:
+		return "", fmt.Errorf("RenderContext: vars must be nil, map[string]any, or *runtime.OrderedDict, got %T", vars)
 	}
 	ec := runtime.NewEvalContext(t.env, t.name)
 	rctx := runtime.NewContext(t.name, t.env, parent, ec)

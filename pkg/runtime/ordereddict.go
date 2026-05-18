@@ -1,6 +1,9 @@
 package runtime
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // OrderedDict is an insertion-ordered map[any]any — the runtime
 // representation of dicts built inside templates (`{a: 1, b: 2}`,
@@ -148,8 +151,16 @@ func (d *OrderedDict) Update(other any) error {
 		}
 		return nil
 	case map[string]any:
-		for k, v := range x {
-			d.Set(k, v)
+		// Go map iteration is randomised; sort for deterministic
+		// insertion order so two updates of the same map produce the
+		// same OrderedDict layout.
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			d.Set(k, x[k])
 		}
 		return nil
 	case map[any]any:
@@ -253,6 +264,47 @@ func (d *OrderedDict) Clear() {
 	}
 	d.keys = d.keys[:0]
 	d.vals = map[any]any{}
+}
+
+// MergeMap appends entries from m into d in lex-sorted key order.
+// Existing keys keep their slot; new keys append. Use when merging a Go
+// map into an OrderedDict where deterministic iteration is required
+// (Go's `range` over a map is randomised, so the sort substitutes for
+// the insertion order Python preserves but Go doesn't carry).
+func (d *OrderedDict) MergeMap(m map[string]any) {
+	if d == nil || len(m) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		d.Set(k, m[k])
+	}
+}
+
+// MergeOrderedDict appends entries from src into d in src's key order.
+// Existing keys keep their slot; new keys append.
+func (d *OrderedDict) MergeOrderedDict(src *OrderedDict) {
+	if d == nil || src == nil {
+		return
+	}
+	for _, k := range src.Keys() {
+		v, _ := src.Get(k)
+		d.Set(k, v)
+	}
+}
+
+// OrderedDictFromMap returns a new OrderedDict containing m's entries in
+// lex-sorted key order. Equivalent to NewOrderedDict followed by
+// MergeMap; provided as a convenience for the common one-shot
+// conversion.
+func OrderedDictFromMap(m map[string]any) *OrderedDict {
+	out := NewOrderedDict()
+	out.MergeMap(m)
+	return out
 }
 
 // pairKV unpacks a (key, value) pair from a Tuple, []any, or

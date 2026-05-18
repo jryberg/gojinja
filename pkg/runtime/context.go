@@ -1,5 +1,7 @@
 package runtime
 
+import "sort"
+
 // Context carries the per-render variable bindings and inheritance state.
 // It mirrors jinja2.runtime.Context: a layered name lookup (Vars → Parent),
 // plus an EvalContext, plus the block stack used for template inheritance.
@@ -9,7 +11,9 @@ package runtime
 // by Env, but Context never mutates the env.
 type Context struct {
 	// Parent is the immutable base scope (env globals + render args).
-	Parent map[string]any
+	// An OrderedDict so iteration matches Python's insertion-ordered
+	// dict semantics — see NewOrderedDict / OrderedDict.
+	Parent *OrderedDict
 	// Vars is the mutable scope filled by `{% set %}` and `{% for %}`.
 	Vars map[string]any
 	// Eval carries the eval-time autoescape / volatile flags.
@@ -38,8 +42,12 @@ type BlockRenderFunc func(*Context) (string, error)
 type CallerFunc func(args []any, kwargs map[string]any) (any, error)
 
 // NewContext constructs a Context with the supplied parent globals and a
-// freshly allocated empty Vars map.
-func NewContext(name string, env any, parent map[string]any, eval *EvalContext) *Context {
+// freshly allocated empty Vars map. parent may be nil (treated as
+// empty).
+func NewContext(name string, env any, parent *OrderedDict, eval *EvalContext) *Context {
+	if parent == nil {
+		parent = NewOrderedDict()
+	}
 	return &Context{
 		Parent:   parent,
 		Vars:     map[string]any{},
@@ -58,7 +66,7 @@ func (c *Context) Resolve(name string) (any, bool) {
 	if v, ok := c.Vars[name]; ok {
 		return v, true
 	}
-	if v, ok := c.Parent[name]; ok {
+	if v, ok := c.Parent.Get(name); ok {
 		return v, true
 	}
 	return nil, false
@@ -78,17 +86,21 @@ func (c *Context) ResolveOrUndefined(name string, factory UndefinedFactory) any 
 }
 
 // Derived returns a child context that inherits parent + vars but allows
-// independent mutation. Used by includes/macros.
+// independent mutation. Used by includes/macros. The merged Parent keeps
+// insertion order: existing keys retain their slot, new keys append.
 func (c *Context) Derived(locals map[string]any) *Context {
-	merged := make(map[string]any, len(c.Parent)+len(c.Vars)+len(locals))
-	for k, v := range c.Parent {
-		merged[k] = v
+	merged := NewOrderedDict()
+	if c.Parent != nil {
+		for _, k := range c.Parent.Keys() {
+			v, _ := c.Parent.Get(k)
+			merged.Set(k, v)
+		}
 	}
 	for k, v := range c.Vars {
-		merged[k] = v
+		merged.Set(k, v)
 	}
 	for k, v := range locals {
-		merged[k] = v
+		merged.Set(k, v)
 	}
 	return &Context{
 		Parent:   merged,
@@ -112,14 +124,50 @@ func (c *Context) Export(name string) {
 }
 
 // All returns a merged snapshot of Parent ∪ Vars. Vars wins on collision.
-// The result is a copy — callers can mutate safely.
+// The result is a copy — callers can mutate safely. Order is not
+// preserved (the return type is a Go map); use [Context.AllOrdered] if
+// you need insertion-order iteration.
 func (c *Context) All() map[string]any {
-	out := make(map[string]any, len(c.Parent)+len(c.Vars))
-	for k, v := range c.Parent {
-		out[k] = v
+	parentLen := 0
+	if c.Parent != nil {
+		parentLen = c.Parent.Len()
+	}
+	out := make(map[string]any, parentLen+len(c.Vars))
+	if c.Parent != nil {
+		for _, k := range c.Parent.Keys() {
+			ks, ok := k.(string)
+			if !ok {
+				continue
+			}
+			v, _ := c.Parent.Get(k)
+			out[ks] = v
+		}
 	}
 	for k, v := range c.Vars {
 		out[k] = v
+	}
+	return out
+}
+
+// AllOrdered returns a merged snapshot of Parent ∪ Vars as an
+// insertion-ordered dict: Parent keys first in their existing order,
+// then Vars keys (sorted lexicographically because Go map iteration is
+// randomized). Vars wins on collision and keeps the Parent slot.
+func (c *Context) AllOrdered() *OrderedDict {
+	out := NewOrderedDict()
+	if c.Parent != nil {
+		for _, k := range c.Parent.Keys() {
+			v, _ := c.Parent.Get(k)
+			out.Set(k, v)
+		}
+	}
+	keys := make([]string, 0, len(c.Vars))
+	for k := range c.Vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		out.Set(k, c.Vars[k])
 	}
 	return out
 }

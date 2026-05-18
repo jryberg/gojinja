@@ -2,8 +2,11 @@
 //
 // For each `name.j2` + `name.vars.json` pair under ./corpus/, it renders
 // the template with gojinja, runs ./parity.py against the same inputs,
-// and diffs the two outputs byte-by-byte. A non-zero exit code signals
-// at least one diff or harness error.
+// and diffs the two outputs byte-by-byte. Each case is also rendered
+// multiple times via gojinja (`-stability` flag) to assert
+// non-determinism never sneaks back in — Go's randomised map iteration
+// has historically leaked into rendered output when a template iterates
+// a context dict, and the stability loop is a regression gate.
 //
 // Usage from the repo root:
 //
@@ -18,7 +21,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -30,6 +32,7 @@ import (
 	gj "github.com/jryberg/gojinja"
 	"github.com/jryberg/gojinja/pkg/lexer"
 	"github.com/jryberg/gojinja/pkg/runtime"
+	"github.com/jryberg/gojinja/pkg/varsutil"
 )
 
 func main() {
@@ -37,6 +40,7 @@ func main() {
 	pyScript := flag.String("py", "tools/parity/parity.py", "path to the Python parity script")
 	filter := flag.String("filter", "", "only run cases whose basename contains this substring")
 	verbose := flag.Bool("v", false, "log per-case status")
+	stability := flag.Int("stability", 3, "render each case this many times with gojinja and fail if the outputs differ across runs (1 disables the check)")
 	flag.Parse()
 
 	cases, err := discover(*corpus)
@@ -50,7 +54,7 @@ func main() {
 		if *filter != "" && !strings.Contains(name, *filter) {
 			continue
 		}
-		ok, err := runCase(*corpus, name, *pyScript)
+		ok, err := runCase(*corpus, name, *pyScript, *stability)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", name, err))
 			fmt.Printf("FAIL %s: %v\n", name, err)
@@ -133,10 +137,12 @@ func resolveCase(dir, name string) caseLayout {
 }
 
 // runCase renders one case with gojinja and Python, comparing the
-// outputs byte-by-byte. Returns (true, nil) on parity, (false, nil) when
-// the outputs differ (a diff is printed), or an error for harness
-// failures (e.g. missing python3).
-func runCase(dir, name, pyScript string) (bool, error) {
+// outputs byte-by-byte. Also re-renders with gojinja `stability` times
+// (when ≥2) to assert determinism — Go's map iteration is randomised,
+// and historic bugs have leaked that into template output.
+// Returns (true, nil) on parity + stability, (false, nil) when outputs
+// differ (a diff is printed), or an error for harness failures.
+func runCase(dir, name, pyScript string, stability int) (bool, error) {
 	c := resolveCase(dir, name)
 	src, err := os.ReadFile(c.tmplPath)
 	if err != nil {
@@ -146,25 +152,29 @@ func runCase(dir, name, pyScript string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	root, err := decodeOrdered(rawVars)
+	vars, err := varsutil.JSONVars(rawVars)
 	if err != nil {
 		return false, fmt.Errorf("vars.json: %w", err)
-	}
-	od, ok := root.(*runtime.OrderedDict)
-	if !ok {
-		return false, fmt.Errorf("vars.json: top-level must be an object, got %T", root)
-	}
-	vars := make(map[string]any, od.Len())
-	for _, k := range od.Keys() {
-		ks := k.(string)
-		v, _ := od.Get(k)
-		vars[ks] = v
 	}
 
 	goOut, err := renderGo(string(src), vars, c.loaderDir)
 	if err != nil {
 		return false, fmt.Errorf("gojinja render: %w", err)
 	}
+	// Stability check: re-render with the same vars; fail on any drift.
+	for i := 1; i < stability; i++ {
+		out, err := renderGo(string(src), vars, c.loaderDir)
+		if err != nil {
+			return false, fmt.Errorf("gojinja render (rerun %d): %w", i, err)
+		}
+		if out != goOut {
+			fmt.Printf("NON-DETERMINISTIC %s (rerun %d)\n", name, i)
+			fmt.Printf("--- run 0\n%s\n--- run %d\n%s\n---\n",
+				quote(goOut), i, quote(out))
+			return false, nil
+		}
+	}
+
 	pyOut, err := renderPython(pyScript, c.tmplPath, c.varsPath, c.loaderDir)
 	if err != nil {
 		return false, fmt.Errorf("python render: %w", err)
@@ -178,7 +188,7 @@ func runCase(dir, name, pyScript string) (bool, error) {
 	return false, nil
 }
 
-func renderGo(src string, vars map[string]any, loaderDir string) (string, error) {
+func renderGo(src string, vars *runtime.OrderedDict, loaderDir string) (string, error) {
 	lexOpts := lexer.DefaultOptions()
 	lexOpts.KeepTrailingNewline = true
 	opts := []gj.Option{
@@ -256,94 +266,6 @@ func renderPython(script, tmpl, vars, loaderDir string) (string, error) {
 		return "", fmt.Errorf("%v: %s", err, stderr.String())
 	}
 	return stdout.String(), nil
-}
-
-// decodeOrdered parses raw JSON, preserving object key order — Python's
-// json.loads does this since 3.7, so to match dict-iteration semantics
-// the parity harness must too. We use json.Decoder with UseNumber to
-// keep numeric precision, then walk the token stream manually.
-func decodeOrdered(raw []byte) (any, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	tok, err := dec.Token()
-	if err != nil {
-		return nil, err
-	}
-	return decodeValue(dec, tok)
-}
-
-func decodeValue(dec *json.Decoder, tok json.Token) (any, error) {
-	switch t := tok.(type) {
-	case json.Delim:
-		switch t {
-		case '{':
-			return decodeObject(dec)
-		case '[':
-			return decodeArray(dec)
-		}
-		return nil, fmt.Errorf("unexpected delim %v", t)
-	case string, bool, nil:
-		return t, nil
-	case json.Number:
-		// Match Python: integer literals stay int64; fractional → float64.
-		if i, err := t.Int64(); err == nil {
-			return i, nil
-		}
-		f, err := t.Float64()
-		if err != nil {
-			return nil, err
-		}
-		return f, nil
-	}
-	return nil, fmt.Errorf("unexpected token %T", tok)
-}
-
-func decodeObject(dec *json.Decoder) (*runtime.OrderedDict, error) {
-	out := runtime.NewOrderedDict()
-	for dec.More() {
-		keyTok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		key, ok := keyTok.(string)
-		if !ok {
-			return nil, fmt.Errorf("non-string object key %T", keyTok)
-		}
-		valTok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		val, err := decodeValue(dec, valTok)
-		if err != nil {
-			return nil, err
-		}
-		out.Set(key, val)
-	}
-	// Consume the closing '}'.
-	if _, err := dec.Token(); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func decodeArray(dec *json.Decoder) ([]any, error) {
-	out := []any{}
-	for dec.More() {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		v, err := decodeValue(dec, tok)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, v)
-	}
-	// Consume the closing ']'.
-	if _, err := dec.Token(); err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func quote(s string) string {
