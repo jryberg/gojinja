@@ -30,7 +30,7 @@ short version:
 |---|---|---|
 | Sandbox | off (opt-in to `SandboxedEnvironment`) | **on** (opt-out via `WithUnsafe()`) |
 | Autoescape | off | **on** |
-| Host env access | none (you wire `os.environ`) | none (you wire `WithHostEnv()`) |
+| Host env access | none (you wire `os.environ`) | none (you wire `WithHostEnvMap()` or `WithHostEnv()`) |
 | `range` cap | unbounded (sandbox: 100k) | **always bounded** (configurable) |
 | Cache `-1` | unbounded | **rejected** |
 | `FileSystemLoader` | lenient | **allowlisted root, symlink-rejecting** |
@@ -61,9 +61,10 @@ short version:
 3. If your templates rendered with autoescape **off**, pass
    `gj.WithAutoescape(gj.AutoescapeNever{})` — or, better, audit each
    template for places that needed `safe` and remove them.
-4. If you used `os.environ` from inside templates, wire
-   `gj.WithHostEnv()`. Resist enabling it for templates supplied by
-   untrusted users.
+4. If you passed `os.environ` into templates, wire
+   `gj.WithHostEnvMap()`: it registers `env` as the same mapping, so
+   `env['X']` and `env.get('X', d)` keep working. Resist enabling it for
+   templates supplied by untrusted users.
 5. Replace `register_filter(...)` Python calls with
    `gj.WithFilter("name", goFunc)` options at construction.
 6. If you used `range(0, 1_000_000)` anywhere, set

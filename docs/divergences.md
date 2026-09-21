@@ -13,7 +13,7 @@ requires explicit maintainer approval.
 |---|---|---|---|
 | Sandbox | `Environment` is unsandboxed; `SandboxedEnvironment` is opt-in. | The default `Environment` is sandboxed. An explicit `WithUnsafe()` option enables un-sandboxed access. | "Secure code before beauty." |
 | Autoescape | `autoescape=False` default. | `autoescape=true` default. Opt out via option. | Default safe HTML. |
-| Host environment access | None by default; users add it via globals. | Disallowed by default. An explicit option (e.g. `WithHostEnv()`) registers `os.Getenv` as a global. | Security-first. |
+| Host environment access | None by default; users add it via globals. | Disallowed by default. An explicit option registers it: `WithHostEnv()` adds an `env(name)` function backed by `os.Getenv`, `WithHostEnvMap()` adds an `os.environ`-style `env` mapping. | Security-first. |
 | Loaders | `FileSystemLoader(followlinks=False)` default but otherwise lenient. | `FileSystemLoader` validates against an allowlisted root; `followlinks` defaults False; symlink crossing the root is rejected. | Hardening. |
 | `range`/loop DoS | sandbox uses `safe_range(MAX_RANGE=100000)`; non-sandbox unbounded. | Always bounded. Limit is configurable. | Hardening. |
 | Cache size | `cache_size=400` default; `-1` allows unbounded. | Hard upper bound enforced; `-1` rejected. | Hardening. |

@@ -21,6 +21,7 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `FileSystemLoader` | type | FileSystemLoader reads templates from one or more allowlisted directories. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#FileSystemLoader) |
 | `FilesystemCache` | type | FilesystemCache is an on-disk AST cache (atomic writes, magic+checksum). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#FilesystemCache) |
 | `FuncLoader` | type | FuncLoader wraps an arbitrary fetch function. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#FuncLoader) |
+| `JSONVars` | var | JSONVars decodes JSON bytes into an [OrderedDict] whose keys appear | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#JSONVars) |
 | `Loader` | type | Loader is the contract a template-source provider implements (env-side). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#Loader) |
 | `Markup` | type | Markup re-exports [pkg/escape.Markup] for callers that want to mark | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#Markup) |
 | `MemoryCache` | type | MemoryCache is an in-process LRU-bounded AST cache. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#MemoryCache) |
@@ -31,7 +32,10 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `NewFileSystemLoader` | var | NewFileSystemLoader builds a [FileSystemLoader] over the given roots. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#NewFileSystemLoader) |
 | `NewFilesystemCache` | var | NewFilesystemCache constructs a FilesystemCache rooted at dir. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#NewFilesystemCache) |
 | `NewMemoryCache` | var | NewMemoryCache constructs a MemoryCache. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#NewMemoryCache) |
+| `NewOrderedDict` | var | NewOrderedDict constructs an empty OrderedDict. Insert with | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#NewOrderedDict) |
+| `NormalizeJSONNumbers` | var | NormalizeJSONNumbers walks a value decoded with json.Decoder + | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#NormalizeJSONNumbers) |
 | `Option` | type | Option configures an [Environment] at construction. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#Option) |
+| `OrderedDict` | type | OrderedDict is an insertion-ordered map matching Python's dict | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#OrderedDict) |
 | `PrefixLoader` | type | PrefixLoader routes templates by name prefix to sub-loaders. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#PrefixLoader) |
 | `Source` | type | Source is a loaded template's source text plus metadata. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#Source) |
 | `Template` | type | Template is a compiled template ready to render. Returned by | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#Template) |
@@ -42,6 +46,7 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `WithFilter` | var | WithFilter registers a filter under a name. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#WithFilter) |
 | `WithGlobal` | var | WithGlobal registers (or replaces) a global by name. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#WithGlobal) |
 | `WithHostEnv` | var | WithHostEnv permits host environment-variable access. Off by default. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#WithHostEnv) |
+| `WithHostEnvMap` | var | WithHostEnvMap exposes the host environment as the `env` mapping, like | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#WithHostEnvMap) |
 | `WithLexerOptions` | var | WithLexerOptions tweaks lexer-level settings (block markers, whitespace, etc.). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#WithLexerOptions) |
 | `WithLoader` | var | WithLoader installs a [Loader]. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#WithLoader) |
 | `WithRangeLimit` | var | WithRangeLimit caps the size of any single `range()` call. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja#WithRangeLimit) |
@@ -171,6 +176,7 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `WithFilter` | func | WithFilter registers a filter under name. Pass=PassNone means the | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/environment#WithFilter) |
 | `WithGlobal` | func | WithGlobal registers (or replaces) a global by name. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/environment#WithGlobal) |
 | `WithHostEnv` | func | WithHostEnv registers `env` as a global function that returns the | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/environment#WithHostEnv) |
+| `WithHostEnvMap` | func | WithHostEnvMap registers `env` as a mapping of the host process's | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/environment#WithHostEnvMap) |
 | `WithI18NExtension` | func | WithI18NExtension enables `&#123;% trans %}` / `&#123;% pluralize %}` / | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/environment#WithI18NExtension) |
 | `WithLexerOptions` | func | WithLexerOptions overrides lexer settings (block markers, whitespace, etc.). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/environment#WithLexerOptions) |
 | `WithLoader` | func | WithLoader sets the template loader. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/environment#WithLoader) |
@@ -212,6 +218,14 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `NullTranslator` | type | NullTranslator is the passthrough [Translator]: returns messages | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/ext#NullTranslator) |
 | `Translator` | type | Translator is the gettext-style backend the i18n extension calls into. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/ext#Translator) |
 | `TranslatorGlobals` | func | TranslatorGlobals returns the gettext-family functions backed by t. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/ext#TranslatorGlobals) |
+
+## `github.com/jryberg/gojinja/pkg/filters`
+
+| Symbol | Kind | Synopsis | Reference |
+|---|---|---|---|
+| `Base64Decode` | var | Base64Decode is the `base64decode` filter: decode a base64 string and | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/filters#Base64Decode) |
+| `Lookup` | func | Lookup returns the opt-in filter registered under name. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/filters#Lookup) |
+| `Names` | func | Names returns the names of all opt-in filters, sorted. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/filters#Names) |
 
 ## `github.com/jryberg/gojinja/pkg/loader`
 
@@ -261,6 +275,7 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `IsMissing` | func | IsMissing returns true iff v is the [Missing] sentinel. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#IsMissing) |
 | `IsUndefined` | func | IsUndefined reports whether v is an Undefined value (any mode). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#IsUndefined) |
 | `Joiner` | type | Joiner emits a separator on every call but the first. Mirrors | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Joiner) |
+| `Lister` | type | Lister is satisfied by any list-like value whose elements can be | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Lister) |
 | `LoopContext` | type | LoopContext is the value the Jinja `loop` variable holds inside a `&#123;% for %}` | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#LoopContext) |
 | `Namespace` | type | Namespace is a mutable container of named values, equivalent to Jinja2's | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Namespace) |
 | `NamespaceEntry` | type | NamespaceEntry is a (name, value) pair returned by [Namespace.Items]. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NamespaceEntry) |
@@ -275,9 +290,13 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `NewNamespace` | func | NewNamespace constructs a Namespace seeded from the given map. The map | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewNamespace) |
 | `NewOrderedDict` | func | NewOrderedDict returns an empty OrderedDict ready for Set. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewOrderedDict) |
 | `NewOrderedDictFromPairs` | func | NewOrderedDictFromPairs builds an OrderedDict from a sequence of | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewOrderedDictFromPairs) |
+| `NewPyList` | func | NewPyList wraps an existing []any. The slice is adopted, not copied — | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewPyList) |
 | `NewStrict` | func | NewStrict returns a ModeStrict Undefined. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewStrict) |
+| `NormalizeForTemplate` | func | NormalizeForTemplate walks v and rewrites every Go map it encounters | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NormalizeForTemplate) |
 | `OrderedDict` | type | OrderedDict is an insertion-ordered map[any]any — the runtime | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#OrderedDict) |
+| `OrderedDictFromMap` | func | OrderedDictFromMap returns a new OrderedDict containing m's entries in | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#OrderedDictFromMap) |
 | `PassArg` | type | PassArg names the categories of "first-arg injection" that filters and | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#PassArg) |
+| `PyList` | type | PyList is the runtime representation of a list literal built inside a | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#PyList) |
 | `Tuple` | type | Tuple is a fixed-size ordered sequence — gojinja's runtime | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Tuple) |
 | `Undefined` | type | Undefined is gojinja's representation of "no value at this name". It | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Undefined) |
 | `UndefinedFactory` | type | UndefinedFactory is the constructor signature an Environment registers | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#UndefinedFactory) |

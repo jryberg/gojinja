@@ -231,6 +231,14 @@ out, _ := tpl.Render(nil)
 
 Missing variables return `""` (matching `os.Getenv`). Pair with `default('...', true)` to substitute a fallback when the variable is unset *or* empty. The opt-in exposes every variable in the host process's environment to the template — don't enable it for templates supplied by untrusted users.
 
+Templates written for Python's `os.environ` (`env['HOME']`, `env.get('PORT', '80')`) use `WithHostEnvMap()` instead, which registers `env` as a mapping snapshot of the environment. A missing key is undefined, exactly as with a Python dict:
+
+```go
+env, _ := gj.New(gj.WithHostEnvMap())
+tpl, _ := env.FromString(`port: {{ env.get('PORT', '8080') }}, db: {{ env['DATABASE_URL'] or 'sqlite://local.db' }}`)
+out, _ := tpl.Render(nil)
+```
+
 ### Inheritance with `extends` / `block` / `super`
 
 ```go
@@ -416,6 +424,7 @@ Opt-in globals (registered when their option is set):
 | Global | Option | Purpose |
 |---|---|---|
 | `env(name)` | `WithHostEnv()` | Returns `os.Getenv(name)`. Empty string for unset. |
+| `env[name]`, `env.get(name, default)` | `WithHostEnvMap()` | Mapping of the host environment, like Python's `os.environ`. Missing keys are undefined. |
 
 ### Loaders (7)
 
@@ -474,7 +483,7 @@ These aren't divergences in *capability* — gojinja can do everything Python do
 |---|---|---|---|
 | Sandbox | off | **on** | `gj.WithUnsafe()` |
 | Autoescape | off | **on** (`AutoescapeAlways{}`) | `gj.WithAutoescape(gj.AutoescapeNever{})` |
-| Host environment access | available via globals | **off** | `gj.WithHostEnv()` |
+| Host environment access | available via globals | **off** | `gj.WithHostEnv()` / `gj.WithHostEnvMap()` |
 | `range` size limit | unbounded (sandbox: 100k) | **always bounded** (default 100k) | `gj.WithRangeLimit(n)` |
 | Template cache size | 400 (with `-1` = unbounded) | **always bounded** (`-1` rejected) | `gj.WithCacheSize(n)` |
 | Context cancellation | not exposed | **`RenderContext(ctx, vars)`** | n/a — always present |
@@ -510,7 +519,7 @@ gj.New(
     gj.WithExternalCache(fsCache),            // persist parsed AST to disk
     gj.WithLexerOptions(lexerOpts),           // change block markers, line statements, etc.
     gj.WithUnsafe(),                          // turn off sandbox (audit before use!)
-    gj.WithHostEnv(),                         // expose os.Getenv as the `env` global
+    gj.WithHostEnv(),                         // expose os.Getenv as the `env` global (or WithHostEnvMap for an os.environ-style mapping)
 )
 ```
 
@@ -564,22 +573,27 @@ gojinja render \
     --template path/to/template.html \
     --vars     path/to/vars.json \
     --out      result.html
+
+# Render a config template from stdin against the host environment
+gojinja render --template - --env-mapping --no-autoescape < app.conf.j2 > app.conf
 ```
 
 Flags:
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--template` | (required) | Path to the entry template. |
+| `--template` | (required) | Path to the entry template, or `-` to read it from stdin. A stdin template gets a loader only when `--root` is given. |
 | `--vars` | `""` | JSON file with the render context. |
 | `--out` | `-` (stdout) | Output path. |
 | `--root` | (template's dir) | Allow-listed loader root. Repeatable. |
 | `--unsafe` | false | Turn off the sandbox. |
 | `--no-autoescape` | false | Turn off autoescape. |
 | `--host-env` | false | Register the `env()` global, backed by `os.Getenv`. |
+| `--env-mapping` | false | Register `env` as a mapping of the host environment, like Python's `os.environ`. Can't be combined with `--host-env`. |
+| `--filter` | (none) | Enable an opt-in filter that isn't part of Jinja2. Repeatable. Available: `base64decode`. |
 | `--max-range` | 100000 | Override the range cap. |
 
-Sandbox, autoescape, and host-env access default to safe; opt-out is always explicit.
+Sandbox, autoescape, host-env access and non-Jinja2 filters default to safe; opt-out is always explicit.
 
 ---
 
