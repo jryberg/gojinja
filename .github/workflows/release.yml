@@ -1,9 +1,24 @@
 name: release
 
+# Tags created by release-please are pushed with GITHUB_TOKEN, which does
+# not trigger `push: tags`, so release-please.yml calls this workflow
+# directly. workflow_dispatch rebuilds the binaries for an existing tag.
 on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v1.1.0)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)publish binaries for (e.g. v1.0.2)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -12,13 +27,20 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      - name: validate tag
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "invalid tag: $TAG" >&2; exit 1; }
       - uses: actions/checkout@v6
         with:
+          ref: refs/tags/${{ env.TAG }}
           fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: '1.26.x'
       - name: install syft (for SBOM generation)
         uses: anchore/sbom-action/download-syft@v0
       - uses: goreleaser/goreleaser-action@v7
@@ -28,3 +50,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ env.TAG }}
