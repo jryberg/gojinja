@@ -1,0 +1,6 @@
+{# Lists built inside the template render like Python lists #}
+{% set urls = [] %}urls = {{ urls }}
+{% do urls.append('http://a:9273/metrics') %}{% do urls.append("http://{0}:9430/metrics".format(host)) %}urls = {{ urls }}
+{{ urls|string }}|{{ urls|length }}|{{ urls|join(',') }}|{{ urls|first }}
+{% set nested = [urls, [1, 2.0, none, true], ('t',)] %}{{ nested }}
+{% set d = {'k': []} %}{% do d['k'].append('v') %}{{ d }}

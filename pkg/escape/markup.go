@@ -134,6 +134,8 @@ func SoftStr(v any) string {
 		return pyDictStr(x)
 	case orderedDictRepr:
 		return pyOrderedDictStr(x)
+	case listRepr:
+		return pyListStr(x.Items())
 	case fmt.Stringer:
 		return x.String()
 	default:
@@ -145,6 +147,14 @@ func SoftStr(v any) string {
 // without an import on pkg/runtime to avoid a cycle.
 type tupleRepr interface {
 	Iter() []any
+}
+
+// listRepr is the duck-typing interface for runtime.PyList (lists built
+// inside a template) — kept without an import on pkg/runtime to avoid a
+// cycle. It is matched after orderedDictRepr, whose Items() also returns
+// []any.
+type listRepr interface {
+	Items() []any
 }
 
 // pyTupleStr renders a tuple Python-style: `(1,)` for a singleton (with
@@ -229,6 +239,8 @@ func pyRepr(v any) string {
 		return pyDictStr(x)
 	case orderedDictRepr:
 		return pyOrderedDictStr(x)
+	case listRepr:
+		return pyListStr(x.Items())
 	case fmt.Stringer:
 		return x.String()
 	}

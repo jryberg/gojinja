@@ -6,9 +6,26 @@ updates:
       interval: weekly
       day: monday
       time: "06:00"
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: chore
       include: scope
     groups:
       actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /docs/site
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      docs:
         patterns: ["*"]
