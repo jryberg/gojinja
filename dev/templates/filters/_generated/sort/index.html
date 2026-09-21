@@ -1158,7 +1158,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Sort a sequence.</p>
 <p><strong>Signature:</strong> <code>sort(value, reverse=False, case_sensitive=False, attribute=None)</code></p>
-<p>Sort is <strong>stable</strong>. With <code>attribute</code>, sorts by the named attribute of
+<p>Accepts any iterable, like Python's <code>sorted()</code>; a dict sorts its keys.
+Sort is <strong>stable</strong>. With <code>attribute</code>, sorts by the named attribute of
 each element (dotted paths and integer indices both supported via
 [lookupDottedAttr]). String comparisons are case-insensitive by default.</p>
 <p><strong>Example:</strong></p>

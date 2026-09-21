@@ -1204,7 +1204,7 @@ requires explicit maintainer approval.</p>
 <tr>
 <td>Host environment access</td>
 <td>None by default; users add it via globals.</td>
-<td>Disallowed by default. An explicit option (e.g. <code>WithHostEnv()</code>) registers <code>os.Getenv</code> as a global.</td>
+<td>Disallowed by default. An explicit option registers it: <code>WithHostEnv()</code> adds an <code>env(name)</code> function backed by <code>os.Getenv</code>, <code>WithHostEnvMap()</code> adds an <code>os.environ</code>-style <code>env</code> mapping.</td>
 <td>Security-first.</td>
 </tr>
 <tr>

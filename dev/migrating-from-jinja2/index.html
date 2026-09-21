@@ -1343,7 +1343,7 @@ short version:</p>
 <tr>
 <td>Host env access</td>
 <td>none (you wire <code>os.environ</code>)</td>
-<td>none (you wire <code>WithHostEnv()</code>)</td>
+<td>none (you wire <code>WithHostEnvMap()</code> or <code>WithHostEnv()</code>)</td>
 </tr>
 <tr>
 <td><code>range</code> cap</td>
@@ -1388,9 +1388,10 @@ short version:</p>
 <li>If your templates rendered with autoescape <strong>off</strong>, pass
    <code>gj.WithAutoescape(gj.AutoescapeNever{})</code> — or, better, audit each
    template for places that needed <code>safe</code> and remove them.</li>
-<li>If you used <code>os.environ</code> from inside templates, wire
-   <code>gj.WithHostEnv()</code>. Resist enabling it for templates supplied by
-   untrusted users.</li>
+<li>If you passed <code>os.environ</code> into templates, wire
+   <code>gj.WithHostEnvMap()</code>: it registers <code>env</code> as the same mapping, so
+   <code>env['X']</code> and <code>env.get('X', d)</code> keep working. Resist enabling it for
+   templates supplied by untrusted users.</li>
 <li>Replace <code>register_filter(...)</code> Python calls with
    <code>gj.WithFilter("name", goFunc)</code> options at construction.</li>
 <li>If you used <code>range(0, 1_000_000)</code> anywhere, set

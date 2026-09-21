@@ -1158,10 +1158,11 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Convert a value to a list.</p>
 <p><strong>Signature:</strong> <code>list(value)</code></p>
-<p>Lists pass through. Strings are split into single-rune strings (matching
-Python's <code>list("abc")</code> → <code>['a', 'b', 'c']</code>).</p>
+<p>Lists pass through. Other iterables convert the way Python's <code>list()</code>
+does: strings split into single-rune strings, dicts yield their keys.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ &quot;abc&quot;  | list }}  →  [&#39;a&#39;, &#39;b&#39;, &#39;c&#39;]
+{{ {&#39;a&#39;: 1, &#39;b&#39;: 2} | list }}  →  [&#39;a&#39;, &#39;b&#39;]
 </code></pre></div>
 
 
