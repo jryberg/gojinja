@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.0](https://github.com/jryberg/gojinja/compare/v1.0.2...v1.1.0) (2026-09-21)
+
+
+### Features
+
+* **cli:** read templates from stdin, add --env-mapping and --filter ([d130503](https://github.com/jryberg/gojinja/commit/d1305033ca42cc01ef63ac13dfde4df667d1c434))
+* **environment:** add WithHostEnvMap for os.environ-style env ([09bb0fd](https://github.com/jryberg/gojinja/commit/09bb0fd052435f1981fcbe819107b778ea83a684))
+* **filters:** add opt-in base64decode filter ([5375676](https://github.com/jryberg/gojinja/commit/5375676ed09d9b516554690d6aa85e3fcaa3ad13))
+
+
+### Bug Fixes
+
+* **filters:** accept any iterable in sort and list ([0911ddb](https://github.com/jryberg/gojinja/commit/0911ddbaaab729a88161d72294f6d537528b1608))
+
+
+### Documentation
+
+* document env mapping, opt-in filters and cli flags ([40885e4](https://github.com/jryberg/gojinja/commit/40885e4e6d1f7c691b2ebc63de2f7407e896e4f2))
+
 ## [1.0.2](https://github.com/jryberg/gojinja/compare/v1.0.1...v1.0.2) (2026-05-18)
 
 
