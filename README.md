@@ -73,7 +73,7 @@ out, _ := tpl.Render(map[string]any{"name": "World"})
 go get github.com/jryberg/gojinja@latest
 ```
 
-Requires Go 1.22 or newer. No external Go dependencies.
+Requires Go 1.26 or newer. No external Go dependencies.
 
 ## Quick start
 

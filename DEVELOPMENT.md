@@ -42,7 +42,7 @@ make hooks-install   # opt in to .githooks/ (DCO sign-off + lint)
 ```
 
 Requirements:
-- Go 1.22+
+- Go 1.26+
 - For the parity harness: `python3` with `jinja2` installed on `$PATH` (`python3 -m pip install jinja2`).
 - Optional: `staticcheck` for `make lint` and the pre-commit hook.
 

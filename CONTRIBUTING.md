@@ -110,7 +110,7 @@ gap), but to run the same suite CI runs you'll want all of these on your
 
 | Tool | Install | Used by |
 |---|---|---|
-| Go 1.22+ (`go`, `gofmt`, `go vet`, `go test`) | <https://go.dev/dl/> | every hook |
+| Go 1.26+ (`go`, `gofmt`, `go vet`, `go test`) | <https://go.dev/dl/> | every hook |
 | `staticcheck` | `go install honnef.co/go/tools/cmd/staticcheck@2025.1.1` | pre-commit, pre-push |
 | `govulncheck` | `go install golang.org/x/vuln/cmd/govulncheck@v1.1.4` | pre-push |
 | Python 3 + Jinja2 (for the parity harness) | `python3 -m pip install jinja2` | pre-push (`make parity`) |
