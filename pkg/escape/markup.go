@@ -206,6 +206,16 @@ type orderedDictRepr interface {
 	Get(any) (any, bool)
 }
 
+// Repr returns Python's repr() of v: strings single-quoted with
+// backslash escapes, None/True/False capitalised, Markup as
+// `Markup('...')`, and containers recursing into their items.
+//
+// Example:
+//
+//	escape.Repr("it's")          →  "it's"   (double-quoted, as Python)
+//	escape.Repr([]any{1, "a"})   →  [1, 'a']
+func Repr(v any) string { return pyRepr(v) }
+
 // pyRepr returns Python's repr() of v — used inside container reprs.
 // Strings get single-quoted with backslash-escaped specials; numbers
 // and bools use their str() form; nil → None; nested containers

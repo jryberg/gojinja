@@ -944,15 +944,25 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 			return v, nil
 		}
 	case string:
+		if m := e.strFormatMethod(x, attr); m != nil {
+			return m, nil
+		}
 		if m := stringMethod(x, attr); m != nil {
 			return m, nil
 		}
 	case escape.Markup:
+		if m := e.strFormatMethod(x, attr); m != nil {
+			return m, nil
+		}
 		if m := stringMethod(string(x), attr); m != nil {
 			return m, nil
 		}
 	case []any:
 		if m := listMethod(x, attr); m != nil {
+			return m, nil
+		}
+	case runtime.Tuple:
+		if m := listMethod([]any(x), attr); m != nil {
 			return m, nil
 		}
 	case *runtime.PyList:

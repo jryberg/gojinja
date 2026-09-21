@@ -189,7 +189,7 @@ func filterPprint(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 //
 //	{{ ['rock', 'paper', 'scissors'] | random }}
 func filterRandom(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	x, ok := value.([]any)
+	x, ok := asAnySlice(value)
 	if !ok || len(x) == 0 {
 		return runtime.NewBase("", "random", value, nil), nil
 	}

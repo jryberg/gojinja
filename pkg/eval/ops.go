@@ -19,8 +19,13 @@ func applyBinop(op string, a, b any) (any, error) {
 				return as + bs, nil
 			}
 		}
+		_, at := a.(runtime.Tuple)
+		_, bt := b.(runtime.Tuple)
 		if al, ok := asAnyList(a); ok {
 			if bl, ok := asAnyList(b); ok {
+				if at != bt {
+					return nil, fmt.Errorf("can only concatenate %s (not %q) to %s", seqTypeName(a), seqTypeName(b), seqTypeName(a))
+				}
 				out := make([]any, 0, len(al)+len(bl))
 				out = append(out, al...)
 				out = append(out, bl...)
@@ -32,6 +37,9 @@ func applyBinop(op string, a, b any) (any, error) {
 				}
 				if _, ok := b.(*runtime.PyList); ok {
 					return runtime.NewPyList(out), nil
+				}
+				if at {
+					return runtime.Tuple(out), nil
 				}
 				return out, nil
 			}
@@ -52,6 +60,16 @@ func applyBinop(op string, a, b any) (any, error) {
 					return "", nil
 				}
 				return strings.Repeat(s, n), nil
+			}
+		}
+		if n, ok := asInt(b); ok {
+			if out, ok := repeatSeq(a, n); ok {
+				return out, nil
+			}
+		}
+		if n, ok := asInt(a); ok {
+			if out, ok := repeatSeq(b, n); ok {
+				return out, nil
 			}
 		}
 	}
@@ -85,6 +103,39 @@ func applyBinop(op string, a, b any) (any, error) {
 		return numPow(la, lb), nil
 	}
 	return nil, fmt.Errorf("unknown binary operator %q", op)
+}
+
+// repeatSeq implements Python's `seq * n` for lists and tuples, keeping
+// the operand's type. Reports false when seq is not list-like.
+func repeatSeq(seq any, n int) (any, bool) {
+	items, ok := asAnyList(seq)
+	if !ok {
+		return nil, false
+	}
+	var out []any
+	if n > 0 {
+		out = make([]any, 0, len(items)*n)
+		for i := 0; i < n; i++ {
+			out = append(out, items...)
+		}
+	} else {
+		out = []any{}
+	}
+	switch seq.(type) {
+	case runtime.Tuple:
+		return runtime.Tuple(out), true
+	case *runtime.PyList:
+		return runtime.NewPyList(out), true
+	}
+	return out, true
+}
+
+// seqTypeName is the Python type name of a list-like operand.
+func seqTypeName(v any) string {
+	if _, ok := v.(runtime.Tuple); ok {
+		return "tuple"
+	}
+	return "list"
 }
 
 func negate(v any) (any, error) {

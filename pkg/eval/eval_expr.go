@@ -37,7 +37,7 @@ func (e *evaluator) evalExprAny(n ast.Expr, ctx *runtime.Context) (any, error) {
 			}
 			out = append(out, v)
 		}
-		return out, nil
+		return runtime.Tuple(out), nil
 	case *ast.List:
 		// In-template list literals produce a *runtime.PyList so they
 		// expose Python-parity mutating methods (append, extend, etc.)
@@ -220,7 +220,7 @@ func (e *evaluator) evalCondExpr(n *ast.CondExpr, ctx *runtime.Context) (any, er
 	if err != nil {
 		return nil, err
 	}
-	if truthy(tv) {
+	if Truthy(tv) {
 		return e.evalExprAny(n.Expr1, ctx)
 	}
 	if n.Expr2 != nil {
@@ -311,7 +311,7 @@ func (e *evaluator) evalBinUnaryOp(n ast.Expr, ctx *runtime.Context) (any, error
 		if err != nil {
 			return nil, err
 		}
-		if !truthy(lv) {
+		if !Truthy(lv) {
 			return lv, nil
 		}
 		return e.evalExprAny(x.Right, ctx)
@@ -320,7 +320,7 @@ func (e *evaluator) evalBinUnaryOp(n ast.Expr, ctx *runtime.Context) (any, error
 		if err != nil {
 			return nil, err
 		}
-		if truthy(lv) {
+		if Truthy(lv) {
 			return lv, nil
 		}
 		return e.evalExprAny(x.Right, ctx)
@@ -329,7 +329,7 @@ func (e *evaluator) evalBinUnaryOp(n ast.Expr, ctx *runtime.Context) (any, error
 		if err != nil {
 			return nil, err
 		}
-		return !truthy(v), nil
+		return !Truthy(v), nil
 	case *ast.Neg:
 		v, err := e.evalExprAny(x.Node, ctx)
 		if err != nil {

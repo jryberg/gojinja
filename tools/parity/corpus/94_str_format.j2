@@ -1,0 +1,8 @@
+{# str.format / format_map follow Python's format-string and format-spec rules #}
+{{ "http://{0}:{1}/metrics".format(host, port) }}|{{ "{}-{}".format("a", "b") }}|{{ "{name}@{host}".format(name="svc", host=host) }}|{{ "{{literal}} {0}".format(1) }}
+{{ "{:>8}|{:<8}|{:^8}|{:*^9}|{:.3s}".format("ab", "ab", "ab", "ab", "abcdef") }}
+{{ "{:5d}|{:+d}|{:,}|{:_}|{:09,}|{:#x}|{:X}|{:#b}|{:=+6}".format(port, port, big, big, 1234, 255, 255, 5, 42) }}
+{{ "{:.2f}|{:08.3f}|{:e}|{:g}|{:.3g}|{:.1%}|{:,.2f}|{}|{:.2}".format(ratio, ratio, ratio, ratio, ratio, 0.25, 1234567.891, ratio, 10.0) }}
+{{ "{0[name]} runs {0[jobs][0]}".format(svc) }}|{{ "{svc[name]}:{port}".format_map({"svc": svc, "port": port}) }}
+{{ "{!r}|{!s}".format("it's", 1.0) }}|{{ "{0:>{1}}".format("x", 4) }}
+{{ ("<b>{}</b>{}"|safe).format("<i>", "<u>"|safe) }}

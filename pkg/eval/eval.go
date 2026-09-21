@@ -195,7 +195,7 @@ func (e *evaluator) evalIf(n *ast.If, ctx *runtime.Context) error {
 	if err != nil {
 		return err
 	}
-	if truthy(v) {
+	if Truthy(v) {
 		return e.evalBody(n.Body, ctx)
 	}
 	for _, elif := range n.Elif {
@@ -203,7 +203,7 @@ func (e *evaluator) evalIf(n *ast.If, ctx *runtime.Context) error {
 		if err != nil {
 			return err
 		}
-		if truthy(v) {
+		if Truthy(v) {
 			return e.evalBody(elif.Body, ctx)
 		}
 	}
@@ -262,7 +262,7 @@ func (e *evaluator) evalFor(n *ast.For, ctx *runtime.Context) error {
 			if err != nil {
 				return err
 			}
-			if truthy(tv) {
+			if Truthy(tv) {
 				filtered = append(filtered, it)
 			}
 		}
@@ -556,7 +556,7 @@ func (e *evaluator) evalECM(n *ast.EvalContextModifier, ctx *runtime.Context) er
 
 func applyEvalOption(ec *runtime.EvalContext, key string, v any) {
 	if key == "autoescape" {
-		ec.Autoescape = truthy(v)
+		ec.Autoescape = Truthy(v)
 	}
 }
 
@@ -915,7 +915,7 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 		if len(args) > len(mv.Args) {
 			extra = append(extra, args[len(mv.Args):]...)
 		}
-		frame.Set("varargs", extra)
+		frame.Set("varargs", runtime.Tuple(extra))
 	} else if len(args) > len(mv.Args) {
 		return nil, fmt.Errorf("macro %q takes not more than %d argument(s)", mv.Name, len(mv.Args))
 	}
@@ -1023,8 +1023,9 @@ func (c callerOnce) fn() runtime.CallerFunc {
 
 // =============================================================== helpers
 
-// truthy mirrors ast.truthy without importing it (avoids cycle).
-func truthy(v any) bool {
+// Truthy reports Python truthiness: empty strings, sequences and
+// mappings, zero numbers, None and Undefined are false.
+func Truthy(v any) bool {
 	switch x := v.(type) {
 	case nil:
 		return false
@@ -1038,9 +1039,15 @@ func truthy(v any) bool {
 		return x != 0
 	case string:
 		return len(x) != 0
+	case escape.Markup:
+		return len(x) != 0
 	case []any:
 		return len(x) != 0
+	case runtime.Tuple:
+		return len(x) != 0
 	case *runtime.PyList:
+		return x.Len() != 0
+	case *runtime.OrderedDict:
 		return x.Len() != 0
 	case map[any]any:
 		return len(x) != 0

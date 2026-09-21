@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
-
-	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
 // stringMethod returns a synthetic Go callable mirroring Python's str
@@ -147,10 +145,6 @@ func stringMethod(s, attr string) any {
 			newS := stringifyKey(new)
 			n := argInt(args, 0, -1)
 			return strings.Replace(s, oldS, newS, n)
-		}
-	case "format":
-		return func(args ...any) string {
-			return fmt.Sprintf(s, args...)
 		}
 	case "isdigit":
 		return func() bool {
@@ -362,26 +356,14 @@ func splitlines(s string, keep bool) []any {
 }
 
 func matchAffix(prefix any, s string, fn func(string, string) bool) bool {
-	switch p := prefix.(type) {
-	case string:
-		return fn(s, p)
-	case []any:
-		for _, it := range p {
-			if str, ok := it.(string); ok && fn(s, str) {
-				return true
-			}
+	if str, ok := prefix.(string); ok {
+		return fn(s, str)
+	}
+	items, _ := asAnySlice(prefix)
+	for _, it := range items {
+		if str, ok := it.(string); ok && fn(s, str) {
+			return true
 		}
-		return false
-	case *runtime.PyList:
-		if p == nil {
-			return false
-		}
-		for _, it := range p.Items() {
-			if str, ok := it.(string); ok && fn(s, str) {
-				return true
-			}
-		}
-		return false
 	}
 	return false
 }
@@ -489,27 +471,18 @@ func argBool(args []any, i int, def bool) bool {
 }
 
 func iterToStrings(v any) ([]string, error) {
-	switch x := v.(type) {
-	case []any:
-		out := make([]string, len(x))
-		for i, it := range x {
-			out[i] = stringifyKey(it)
-		}
-		return out, nil
-	case *runtime.PyList:
-		if x == nil {
-			return nil, nil
-		}
-		items := x.Items()
-		out := make([]string, len(items))
-		for i, it := range items {
-			out[i] = stringifyKey(it)
-		}
-		return out, nil
-	case []string:
+	if x, ok := v.([]string); ok {
 		out := make([]string, len(x))
 		copy(out, x)
 		return out, nil
 	}
-	return nil, fmt.Errorf("can only join an iterable of strings, got %T", v)
+	items, ok := asAnySlice(v)
+	if !ok {
+		return nil, fmt.Errorf("can only join an iterable of strings, got %T", v)
+	}
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = stringifyKey(it)
+	}
+	return out, nil
 }

@@ -1,0 +1,1 @@
+{"host": "fetcher-1", "port": 9430, "big": 1234567, "ratio": 3.14159, "svc": {"name": "api", "jobs": ["build", "test"]}}

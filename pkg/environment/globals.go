@@ -65,6 +65,7 @@ func globalRange(e *Environment) func(...int) ([]any, error) {
 // Three call shapes:
 //   - `dict(a=1, b=2)`: keyword arguments become entries.
 //   - `dict(mapping)`: shallow-copies an existing mapping.
+//   - `dict(pairs)`: builds from a sequence of (key, value) pairs.
 //   - `dict('a', 1, 'b', 2)`: alternating key/value pairs (string keys only).
 //
 // Returns a [runtime.OrderedDict]. kwargs are sorted alphabetically
@@ -90,6 +91,10 @@ func globalDict(args []any, kwargs map[string]any) (any, error) {
 		case map[any]any:
 			for k, v := range x {
 				out.Set(k, v)
+			}
+		case []any, runtime.Tuple, *runtime.PyList:
+			if err := out.Update(x); err != nil {
+				return nil, gjerrors.NewTemplateRuntimeError(err.Error())
 			}
 		default:
 			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("dict() argument must be a mapping or alternating pairs, got %T", x))

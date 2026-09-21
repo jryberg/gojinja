@@ -1,0 +1,6 @@
+{# Tuple literals render and behave like Python tuples #}
+{{ (1,) }}|{{ () }}|{{ ('a', 1, none, true) }}|{% set pair = 'k', 'v' %}{{ pair }}|{{ [('a', 1), ('b', 2)] }}
+{{ ('a', 'b')|length }}|{{ ('a', 'b')|first }}|{{ ('a', 'b')|last }}|{{ ('a', 'b')|join('-') }}|{{ ('b', 'a')|sort }}|{{ ('x',)|list }}
+{{ 'a' in ('a', 'b') }}|{{ (1,) + (2,) }}|{{ (1, 2) * 2 }}|{{ not () }}|{{ () is iterable }}|{{ (1, 2).index(2) }}|{{ (1, 2, 3)[1:] }}
+{% for k, v in [('a', 1), ('b', 2)] %}{{ k }}={{ v }};{% endfor %}|{{ dict([('a', 1)]) }}|{{ 'x.j2'.endswith(('.j2', '.jinja')) }}
+{% macro m() %}{{ varargs }}{% endmacro %}{{ m(1, 'two') }}

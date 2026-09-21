@@ -168,10 +168,14 @@ func (d *OrderedDict) Update(other any) error {
 			d.Set(k, v)
 		}
 		return nil
-	case []any:
+	case []any, Tuple:
 		// Accept a sequence of 2-element pairs, mirroring
 		// `dict.update([(k, v), ...])`.
-		for _, pair := range x {
+		items, _ := x.([]any)
+		if t, ok := x.(Tuple); ok {
+			items = []any(t)
+		}
+		for _, pair := range items {
 			pk, pv, ok := pairKV(pair)
 			if !ok {
 				return fmt.Errorf("dict update sequence element is not a 2-tuple")

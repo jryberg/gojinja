@@ -414,7 +414,7 @@ func filterDefault(_ *Environment, _ *runtime.Context, value any, args []any, _ 
 		return def, nil
 	}
 	if booleanMode {
-		if !truthy(value) {
+		if !eval.Truthy(value) {
 			return def, nil
 		}
 	}
@@ -543,10 +543,11 @@ func filterReverse(_ *Environment, _ *runtime.Context, value any, _ []any, _ map
 			runes[i], runes[j] = runes[j], runes[i]
 		}
 		return string(runes), nil
-	case []any:
-		out := make([]any, len(x))
-		for i, it := range x {
-			out[len(x)-1-i] = it
+	case []any, runtime.Tuple:
+		items, _ := asAnySlice(x)
+		out := make([]any, len(items))
+		for i, it := range items {
+			out[len(items)-1-i] = it
 		}
 		return out, nil
 	}
@@ -754,7 +755,7 @@ func filterList(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 //
 //	{{ [1, 2, 3]  | first }}  →  1
 func filterFirst(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	if x, ok := value.([]any); ok {
+	if x, ok := asAnySlice(value); ok {
 		if len(x) == 0 {
 			return runtime.NewBase("", "first", value, nil), nil
 		}
@@ -775,7 +776,7 @@ func filterFirst(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 //
 //	{{ [1, 2, 3]  | last }}  →  3
 func filterLast(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	if x, ok := value.([]any); ok {
+	if x, ok := asAnySlice(value); ok {
 		if len(x) == 0 {
 			return runtime.NewBase("", "last", value, nil), nil
 		}
@@ -969,7 +970,7 @@ func lookupDottedAttr(env *Environment, obj any, path string) (any, error) {
 //	{{ [3, 1, 2]   | min }}                       →  1
 //	{{ users       | min(attribute='age') }}      →  youngest user
 func filterMin(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	x, ok := value.([]any)
+	x, ok := asAnySlice(value)
 	if !ok || len(x) == 0 {
 		return runtime.NewBase("", "min", value, nil), nil
 	}
@@ -999,7 +1000,7 @@ func filterMin(env *Environment, _ *runtime.Context, value any, args []any, kwar
 //	{{ [3, 1, 2]   | max }}                       →  3
 //	{{ users       | max(attribute='score') }}    →  top-scoring user
 func filterMax(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	x, ok := value.([]any)
+	x, ok := asAnySlice(value)
 	if !ok || len(x) == 0 {
 		return runtime.NewBase("", "max", value, nil), nil
 	}
@@ -1192,7 +1193,7 @@ func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, _
 //	{{ [1, 2, 1, 3]            | unique }}  →  [1, 2, 3]
 //	{{ ['Foo', 'foo', 'BAR']   | unique }}  →  ['Foo', 'BAR']
 func filterUnique(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	x, ok := value.([]any)
+	x, ok := asAnySlice(value)
 	if !ok {
 		return nil, gjerrors.NewFilterArgumentError("unique requires a sequence")
 	}
@@ -1229,7 +1230,7 @@ func filterUnique(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 //	{{ [1, 2, 3, 4, 5]      | batch(2) }}     →  [[1, 2], [3, 4], [5]]
 //	{{ [1, 2, 3, 4, 5]      | batch(2, 0) }}  →  [[1, 2], [3, 4], [5, 0]]
 func filterBatch(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	x, ok := value.([]any)
+	x, ok := asAnySlice(value)
 	if !ok {
 		return nil, gjerrors.NewFilterArgumentError("batch requires a sequence")
 	}
@@ -1274,7 +1275,7 @@ func filterBatch(_ *Environment, _ *runtime.Context, value any, args []any, _ ma
 //
 //	{{ [1, 2, 3, 4, 5]   | slice(3) }}  →  [[1, 2], [3, 4], [5]]
 func filterSlice(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	x, ok := value.([]any)
+	x, ok := asAnySlice(value)
 	if !ok {
 		return nil, gjerrors.NewFilterArgumentError("slice requires a sequence")
 	}
@@ -1765,10 +1766,7 @@ func pythonFormat(format string, args []any) string {
 				b.WriteString(spec + string(verb))
 				continue
 			}
-			// Python's %r: repr() of the value. We have escape.pyRepr
-			// only inside the escape package; rebuild a minimal repr
-			// here for the common types.
-			b.WriteString(pythonRepr(args[argIdx]))
+			b.WriteString(escape.Repr(args[argIdx]))
 			argIdx++
 		default:
 			if argIdx >= len(args) {
@@ -1779,56 +1777,6 @@ func pythonFormat(format string, args []any) string {
 			argIdx++
 		}
 	}
-	return b.String()
-}
-
-// pythonRepr returns Python's repr() of v for the limited set of types
-// templates produce. Strings are single-quoted; other primitives use
-// their str() form (which matches Python repr for those types).
-func pythonRepr(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return "None"
-	case bool:
-		if x {
-			return "True"
-		}
-		return "False"
-	case string:
-		return pyStringRepr(x)
-	}
-	return escape.SoftStr(v)
-}
-
-// pyStringRepr is Python repr for a string: single-quoted, with `\'`
-// escape only when the string contains no double quotes.
-func pyStringRepr(s string) string {
-	hasSingle := strings.ContainsRune(s, '\'')
-	hasDouble := strings.ContainsRune(s, '"')
-	quote := byte('\'')
-	if hasSingle && !hasDouble {
-		quote = '"'
-	}
-	var b strings.Builder
-	b.WriteByte(quote)
-	for _, r := range s {
-		switch r {
-		case '\\':
-			b.WriteString(`\\`)
-		case '\n':
-			b.WriteString(`\n`)
-		case '\r':
-			b.WriteString(`\r`)
-		case '\t':
-			b.WriteString(`\t`)
-		case rune(quote):
-			b.WriteByte('\\')
-			b.WriteRune(r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte(quote)
 	return b.String()
 }
 
@@ -2012,7 +1960,7 @@ func selectReject(env *Environment, ctx *runtime.Context, value any, args []any,
 		}
 		var pass bool
 		if len(args) == 0 {
-			pass = truthy(probe)
+			pass = eval.Truthy(probe)
 		} else {
 			tname, ok := args[0].(string)
 			if !ok {
@@ -2223,11 +2171,11 @@ func testMapping(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 //
 // Signature: x is iterable
 //
-// Strings count as iterable (over runes). Tuples are not in the
-// iterable predicate set in Jinja2; we match that.
+// Lists, tuples, strings (over runes) and mappings are iterable,
+// matching Python's `iter(value)` succeeding.
 func testIterable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch value.(type) {
-	case []any, string, map[string]any, map[any]any, *runtime.OrderedDict:
+	case []any, runtime.Tuple, string, map[string]any, map[any]any, *runtime.OrderedDict:
 		return true, nil
 	}
 	return false, nil
@@ -2477,13 +2425,18 @@ func compareLess(a, b any) bool {
 	return false
 }
 
-// asAnySlice unwraps runtime.Tuple or []any to a flat []any view.
+// asAnySlice unwraps []any, runtime.Tuple or *runtime.PyList to a flat
+// []any view.
 func asAnySlice(v any) ([]any, bool) {
 	switch x := v.(type) {
 	case []any:
 		return x, true
 	case runtime.Tuple:
 		return []any(x), true
+	case *runtime.PyList:
+		if x != nil {
+			return x.Items(), true
+		}
 	}
 	return nil, false
 }
@@ -2498,27 +2451,4 @@ func numAsFloat(v any) (float64, bool) {
 		return x, true
 	}
 	return 0, false
-}
-
-func truthy(v any) bool {
-	switch x := v.(type) {
-	case nil:
-		return false
-	case bool:
-		return x
-	case int:
-		return x != 0
-	case int64:
-		return x != 0
-	case float64:
-		return x != 0
-	case string:
-		return len(x) != 0
-	case []any:
-		return len(x) != 0
-	}
-	if u, ok := v.(runtime.Undefiner); ok && u.IsUndefined() {
-		return false
-	}
-	return true
 }
