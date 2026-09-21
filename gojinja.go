@@ -20,7 +20,7 @@
 //   - The default Environment is sandboxed. Use [WithUnsafe] to opt out.
 //   - HTML autoescape is enabled by default.
 //   - Host environment access is disabled by default. Use [WithHostEnv]
-//     to opt in.
+//     or [WithHostEnvMap] to opt in.
 //   - [FileSystemLoader] requires an explicit allowlisted root and rejects
 //     symlink traversal that escapes the root.
 //   - The `range` global is bounded; the limit is configurable.
@@ -84,6 +84,10 @@ var WithUnsafe = environment.WithUnsafe
 
 // WithHostEnv permits host environment-variable access. Off by default.
 var WithHostEnv = environment.WithHostEnv
+
+// WithHostEnvMap exposes the host environment as the `env` mapping, like
+// Python's os.environ. Off by default.
+var WithHostEnvMap = environment.WithHostEnvMap
 
 // WithRangeLimit caps the size of any single `range()` call.
 var WithRangeLimit = environment.WithRangeLimit

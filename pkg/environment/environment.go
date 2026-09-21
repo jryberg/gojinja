@@ -192,6 +192,36 @@ func WithHostEnv() Option {
 	}
 }
 
+// WithHostEnvMap registers `env` as a mapping of the host process's
+// environment variables, like Python's `os.environ`: `env['HOME']`,
+// `env.get('PORT', '80')`, and a missing key renders as undefined. The
+// mapping is a snapshot taken when the option is applied. It is host
+// data, so templates cannot mutate it (no `pop`/`update`), and its keys
+// iterate in sorted order. Off by default and exposes every variable in
+// the host environment, so do not enable for templates supplied by
+// untrusted users. It replaces the function form registered by
+// [WithHostEnv].
+func WithHostEnvMap() Option {
+	return func(e *Environment) {
+		m := map[string]any{}
+		for _, kv := range os.Environ() {
+			if kv == "" {
+				continue
+			}
+			// Search from index 1 so Windows' "=C:=C:\" entries keep their key.
+			i := strings.IndexByte(kv[1:], '=') + 1
+			if i == 0 {
+				continue
+			}
+			if _, seen := m[kv[:i]]; seen {
+				continue
+			}
+			m[kv[:i]] = kv[i+1:]
+		}
+		e.globals["env"] = m
+	}
+}
+
 // WithRangeLimit sets the maximum range size. Default 100000.
 func WithRangeLimit(n int) Option { return func(e *Environment) { e.maxRange = n } }
 

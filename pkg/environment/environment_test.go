@@ -1025,6 +1025,89 @@ func TestHostEnvMissingReturnsEmpty(t *testing.T) {
 	}
 }
 
+// TestHostEnvMapDisabledByDefault confirms `env['X']` fails like any
+// subscript on an undefined name unless WithHostEnvMap() is supplied.
+func TestHostEnvMapDisabledByDefault(t *testing.T) {
+	t.Setenv("GOJINJA_TEST_VAR", "shouldNotBeRead")
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
+	tpl, err := e.FromString("{{ env['GOJINJA_TEST_VAR'] }}")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if _, err := tpl.RenderContext(context.Background(), nil); err == nil {
+		t.Fatal("expected error subscripting env without WithHostEnvMap()")
+	}
+}
+
+// TestHostEnvMapLookups covers the os.environ access patterns templates
+// use: subscript, get() with and without a default, `or` fallbacks on a
+// missing key, `is defined`, membership and filters on the value.
+func TestHostEnvMapLookups(t *testing.T) {
+	t.Setenv("GOJINJA_TEST_VAR", "hello")
+	t.Setenv("GOJINJA_TEST_PORT", "8080")
+	t.Setenv("GOJINJA_TEST_EMPTY", "")
+	os.Unsetenv("GOJINJA_DEFINITELY_MISSING")
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}), WithHostEnvMap())
+	cases := []struct{ src, want string }{
+		{"{{ env['GOJINJA_TEST_VAR'] }}", "hello"},
+		{"{{ env.get('GOJINJA_TEST_VAR') }}", "hello"},
+		{"{{ env.get('GOJINJA_DEFINITELY_MISSING', 'dflt') }}", "dflt"},
+		{"[{{ env.get('GOJINJA_DEFINITELY_MISSING') }}]", "[None]"},
+		{"[{{ env['GOJINJA_DEFINITELY_MISSING'] }}]", "[]"},
+		{"{{ env['GOJINJA_DEFINITELY_MISSING'] or 'fallback' }}", "fallback"},
+		{"{{ env['GOJINJA_TEST_EMPTY'] or 'fallback' }}", "fallback"},
+		{"{{ env['GOJINJA_DEFINITELY_MISSING']|default('fallback') }}", "fallback"},
+		{"{{ env['GOJINJA_TEST_VAR'] is defined }}", "True"},
+		{"{{ env['GOJINJA_DEFINITELY_MISSING'] is defined }}", "False"},
+		{"{{ 'GOJINJA_TEST_VAR' in env }}", "True"},
+		{"{{ env['GOJINJA_TEST_PORT']|int + 1 }}", "8081"},
+		{"{{ env['GOJINJA_TEST_VAR']|upper }}", "HELLO"},
+	}
+	for _, c := range cases {
+		if got := render(t, e, c.src, nil); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.src, got, c.want)
+		}
+	}
+}
+
+// TestHostEnvMapSnapshot confirms the mapping reflects the environment at
+// construction time, like os.environ built at interpreter start.
+func TestHostEnvMapSnapshot(t *testing.T) {
+	t.Setenv("GOJINJA_TEST_VAR", "before")
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}), WithHostEnvMap())
+	t.Setenv("GOJINJA_TEST_VAR", "after")
+	if got := render(t, e, "{{ env['GOJINJA_TEST_VAR'] }}", nil); got != "before" {
+		t.Fatalf("got %q, want %q", got, "before")
+	}
+}
+
+// TestHostEnvMapIsImmutable confirms templates cannot change the shared
+// env mapping: it is host data, so later renders see the original
+// snapshot.
+func TestHostEnvMapIsImmutable(t *testing.T) {
+	t.Setenv("GOJINJA_TEST_VAR", "orig")
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}), WithHostEnvMap())
+	tpl, err := e.FromString("{% do env.pop('GOJINJA_TEST_VAR') %}{% do env.update({'GOJINJA_INJECTED': 'x'}) %}")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	_, _ = tpl.RenderContext(context.Background(), nil)
+	got := render(t, e, "[{{ env.get('GOJINJA_TEST_VAR') }}|{{ env.get('GOJINJA_INJECTED') }}]", nil)
+	if got != "[orig|None]" {
+		t.Fatalf("got %q, want %q", got, "[orig|None]")
+	}
+}
+
+// TestHostEnvMapValueWithEquals confirms only the first '=' separates the
+// name from the value.
+func TestHostEnvMapValueWithEquals(t *testing.T) {
+	t.Setenv("GOJINJA_TEST_VAR", "a=b=c")
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}), WithHostEnvMap())
+	if got := render(t, e, "{{ env['GOJINJA_TEST_VAR'] }}", nil); got != "a=b=c" {
+		t.Fatalf("got %q, want %q", got, "a=b=c")
+	}
+}
+
 // TestSortAndListIterables mirrors Python's sorted()/list(): any iterable
 // is accepted, a dict yields its keys, and None is a type error.
 func TestSortAndListIterables(t *testing.T) {
