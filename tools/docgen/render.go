@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"go/doc"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
@@ -131,20 +129,15 @@ func wipeGenerated(dir string) error {
 // loadPackageDocs reads every Go file under dir and returns go/doc data
 // for the package — used to look up a func's godoc by identifier.
 func loadPackageDocs(dir string) (*doc.Package, error) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
+	fset, pkgs, err := parsePackageFiles(dir)
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range pkgs {
-		// `Package` may panic on synthetic test packages; skip names that
-		// end in "_test".
-		if strings.HasSuffix(p.Name, "_test") {
+	for _, name := range sortedPackageNames(pkgs) {
+		if strings.HasSuffix(name, "_test") {
 			continue
 		}
-		return doc.New(p, "github.com/jryberg/gojinja/pkg/environment", doc.AllDecls), nil
+		return doc.NewFromFiles(fset, pkgs[name], "github.com/jryberg/gojinja/pkg/environment", doc.AllDecls)
 	}
 	return nil, fmt.Errorf("no non-test package found under %s", dir)
 }

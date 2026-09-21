@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"go/doc"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
@@ -39,6 +37,7 @@ func runSymbols(repoRoot, outPath string) error {
 		"pkg/escape",
 		"pkg/native",
 		"pkg/ext",
+		"pkg/filters",
 		"pkg/meta",
 		"pkg/ast",
 	}
@@ -125,21 +124,15 @@ func runSymbols(repoRoot, outPath string) error {
 }
 
 func loadDocPackage(dir, importPath string) (*doc.Package, error) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
+	fset, pkgs, err := parsePackageFiles(dir)
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range pkgs {
-		if strings.HasSuffix(p.Name, "_test") {
+	for _, name := range sortedPackageNames(pkgs) {
+		if strings.HasSuffix(name, "_test") || name == "main" {
 			continue
 		}
-		if p.Name == "main" {
-			continue
-		}
-		return doc.New(p, importPath, doc.AllDecls), nil
+		return doc.NewFromFiles(fset, pkgs[name], importPath, doc.AllDecls)
 	}
 	return nil, fmt.Errorf("no Go package under %s", dir)
 }
