@@ -183,8 +183,6 @@ Before requesting review:
       sandbox, you walked the relevant section of
       `docs/security-audit-checklist.md` and recorded findings in your PR
       description.
-- [ ] You did not edit `CHANGELOG.md` by hand. Release-please regenerates it
-      on each release; manual edits will be overwritten.
 
 ## Reviews & merging
 

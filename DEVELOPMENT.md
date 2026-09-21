@@ -278,7 +278,6 @@ For an opt-in extension, mirror the pattern of `pkg/ext/debug.go` and `pkg/ext/i
 |---|---|
 | `README.md` | End-user documentation. Install, use cases, supported features, API. |
 | `DEVELOPMENT.md` | This file — contributor documentation. |
-| `CHANGELOG.md` | User-facing release notes. |
 | `docs/divergences.md` | The hard parity rule and the deliberate-divergences table. The exhaustive list of cases where gojinja's output may differ from canonical Python Jinja2. |
 | `docs/architecture.md` | ASCII data-flow diagram + per-package ownership table. |
 | `docs/security-audit-checklist.md` | The 10-section audit run before each release. |
@@ -291,44 +290,38 @@ When picking up the codebase in a fresh session, the recommended reading order i
 
 ## Release process
 
-Releases are automated via [release-please](https://github.com/googleapis/release-please)
-and [GoReleaser](https://goreleaser.com).
+A release is cut by pushing a `vX.Y.Z` tag. There is no release PR and no
+changelog file; the GitHub Release notes are the record.
 
-The flow:
+1. Walk `docs/security-audit-checklist.md` end-to-end, save the result as
+   `docs/security-audit-vX.Y.Z.md` with file/line citations, and commit it.
+2. Run the full local suite: `make ci` (build + vet + test + audit + parity).
+3. Pick the version from the commits since the last tag:
 
-1. Contributors merge PRs into `main`. Each PR has a Conventional Commits
-   title; release-please reads those titles to compute the next version and
-   build the changelog block.
-2. Release-please opens (or updates) a single open PR titled
-   `chore(main): release X.Y.Z`. The PR body shows the next version and the
-   generated changelog entry.
-3. When the maintainer is ready to ship, they:
-   1. Walk `docs/security-audit-checklist.md` end-to-end.
-   2. Save the result as `docs/security-audit-vX.Y.Z.md` with file/line
-      citations and commit it (one extra commit on `main`, which becomes the
-      last commit before the release-please PR is merged).
-   3. Run the full local suite: `make ci` (build + vet + test + audit +
-      parity).
-   4. Merge the release-please PR.
-4. Merging the release-please PR causes release-please to:
-   - Update `CHANGELOG.md` and `.release-please-manifest.json` on `main`.
-   - Tag `vX.Y.Z`.
-   - Create the GitHub Release with the generated notes.
-5. The tag push triggers `.github/workflows/release.yml`, which runs
-   GoReleaser to build the `gojinja` CLI for linux/darwin/windows ×
-   amd64/arm64 and uploads the archives + checksums + SBOM to the release.
+   ```sh
+   git log "$(git describe --tags --abbrev=0)"..HEAD --oneline
+   ```
 
-The maintainer never edits `CHANGELOG.md` by hand; it is fully derived from
-the merged commit history.
+   A `!` after the type or a `BREAKING CHANGE:` footer means a major bump,
+   any `feat` a minor bump, anything else a patch bump.
+4. Tag and push:
 
-### First release
+   ```sh
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
 
-The repo starts with no tags. The first commits that land on `main` after
-the release automation is enabled (CI files, docs rewrites, etc.) are
-collected by release-please into the first release PR. Merging that PR
-cuts `v0.1.0` if any `feat:` commits are in the window (otherwise
-`v0.0.1`), creates the `CHANGELOG.md`, and triggers the GoReleaser
-workflow that builds and uploads the CLI binaries.
+The tag push runs two workflows:
+
+- `.github/workflows/release.yml` runs [GoReleaser](https://goreleaser.com),
+  which builds the `gojinja` CLI for linux/darwin/windows × amd64/arm64,
+  uploads the archives, checksums and SBOM, and creates the GitHub Release
+  with notes grouped from the Conventional Commits subjects.
+- `.github/workflows/docs.yml` publishes the versioned docs and points the
+  `stable` alias at them (prerelease tags skip the alias).
+
+To rebuild the binaries for an existing tag, run the `release` workflow
+manually with that tag.
 
 ## Reference repo
 

@@ -34,7 +34,6 @@ archives:
     files:
       - LICENSE
       - README.md
-      - CHANGELOG*
 
 checksum:
   name_template: "checksums.txt"
@@ -48,7 +47,30 @@ snapshot:
   version_template: "{{ incpatch .Version }}-snapshot+{{ .ShortCommit }}"
 
 changelog:
-  disable: true
+  use: git
+  sort: asc
+  abbrev: 7
+  groups:
+    - title: Breaking changes
+      regexp: '^(\w+ )?\w+(\(.+\))?!:'
+      order: 0
+    - title: Features
+      regexp: '^(\w+ )?feat(\(.+\))?:'
+      order: 1
+    - title: Bug fixes
+      regexp: '^(\w+ )?fix(\(.+\))?:'
+      order: 2
+    - title: Performance
+      regexp: '^(\w+ )?perf(\(.+\))?:'
+      order: 3
+    - title: Documentation
+      regexp: '^(\w+ )?docs(\(.+\))?:'
+      order: 4
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^(\w+ )?(test|ci|chore|build|style|refactor)(\(.+\))?:'
 
 release:
   github:
@@ -56,4 +78,3 @@ release:
     name: gojinja
   draft: false
   prerelease: auto
-  mode: append

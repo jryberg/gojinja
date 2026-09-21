@@ -33,5 +33,5 @@ the sandbox):
 
 ## Breaking changes
 
-<!-- Mark "None" or describe. If breaking, the PR title must end in `!` so
-release-please picks it up as a major bump. -->
+<!-- Mark "None" or describe. If breaking, put `!` before the colon in the
+PR title (e.g. `feat(api)!: ...`) so the release notes flag it. -->

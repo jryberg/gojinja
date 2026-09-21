@@ -24,9 +24,9 @@ make docs-serve     # mkdocs serve at http://127.0.0.1:8000
   - `templates/{filters,tests,globals}/_generated/<name>.md` — written by
     `tools/docgen` from the godoc on the underlying Go func when no override
     exists. Gitignored — regenerated each build.
-  - Files like `architecture.md`, `divergences.md`, `security.md`, and
-    `changelog.md` are thin wrappers that transclude the canonical sources
-    in `docs/` (and `CHANGELOG.md`) via the `include-markdown` plugin.
+  - Files like `architecture.md`, `divergences.md`, and `security.md` are
+    thin wrappers that transclude the canonical sources in `docs/` via the
+    `include-markdown` plugin.
 
 ## Versioning
 

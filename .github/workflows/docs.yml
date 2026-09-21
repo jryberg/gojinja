@@ -4,9 +4,6 @@ on:
   push:
     branches: [main]
     tags: ['v*.*.*']
-  workflow_run:
-    workflows: ["release-please"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       version:
@@ -20,7 +17,6 @@ on:
 
 permissions:
   contents: write
-  actions: read
 
 concurrency:
   # Serialise on the actual shared resource (the gh-pages branch),
@@ -46,10 +42,6 @@ jobs:
           REF: ${{ github.ref }}
           INPUT_VERSION: ${{ github.event.inputs.version }}
           INPUT_ALIAS: ${{ github.event.inputs.alias }}
-          WR_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          WR_ID: ${{ github.event.workflow_run.id }}
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           skip=false
@@ -96,34 +88,6 @@ jobs:
                   exit 1
                 fi
                 alias="$INPUT_ALIAS"
-              fi
-              ;;
-            workflow_run)
-              # Triggered after release-please completes. Skip silently
-              # unless that run uploaded a release-marker artifact (i.e.
-              # actually tagged a release).
-              if [ "$WR_CONCLUSION" != "success" ]; then
-                echo "::notice::release-please run was not successful; skipping"
-                skip=true
-              elif ! gh api "repos/$GH_REPO/actions/runs/$WR_ID/artifacts" \
-                    --jq '.artifacts[].name' | grep -qx 'release-marker'; then
-                echo "::notice::release-please did not create a release; skipping"
-                skip=true
-              else
-                mkdir -p ./_rp
-                gh run download "$WR_ID" -n release-marker -D ./_rp -R "$GH_REPO"
-                tag="$(cat ./_rp/tag)"
-                if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$'; then
-                  echo "::error::tag $tag from release-please rejected: must match vMAJOR.MINOR.PATCH[-prerelease]"
-                  exit 1
-                fi
-                label="$tag"
-                ref="refs/tags/$tag"
-                if [[ "$tag" == *-* ]]; then
-                  alias=""
-                else
-                  alias="stable"
-                fi
               fi
               ;;
             *)

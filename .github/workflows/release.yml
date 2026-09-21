@@ -1,18 +1,11 @@
 name: release
 
-# Tags created by release-please are pushed with GITHUB_TOKEN, which does
-# not trigger `push: tags`, so release-please.yml calls this workflow
-# directly. workflow_dispatch rebuilds the binaries for an existing tag.
+# Pushing a vX.Y.Z tag publishes a release. workflow_dispatch rebuilds the
+# binaries for an existing tag.
 on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_call:
-    inputs:
-      tag:
-        description: "Tag to release (e.g. v1.1.0)"
-        required: true
-        type: string
   workflow_dispatch:
     inputs:
       tag:
