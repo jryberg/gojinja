@@ -1,0 +1,10 @@
+{# `env` as a mapping, the way --env-mapping exposes the host environment #}
+{{ env['HOST'] }}|{{ env.get('PORT') }}|{{ env.get('MISSING', 'dflt') }}|{{ env.get('MISSING') }}
+[{{ env['MISSING'] }}]|{{ env['MISSING'] or 'or-fallback' }}|{{ env['EMPTY'] or 'empty-fallback' }}
+{{ env['MISSING']|default('default-fallback') }}|{{ env['EMPTY']|default('kept') }}|{{ env['EMPTY']|default('bool-fallback', true) }}
+{{ env['HOST'] is defined }}|{{ env['MISSING'] is defined }}|{{ 'PORT' in env }}|{{ 'MISSING' not in env }}
+{{ env['PORT']|int + 1 }}|{{ env['FLAG']|lower == 'true' }}|{{ env['LIST'].split(',')|length }}
+{%- if env['FLAG']|upper == 'TRUE' %} flag-on{% endif %}
+{% for host in env['LIST'].split(',') %}{{ host|trim }}{% if not loop.last %};{% endif %}{% endfor %}
+{% for k in env|sort %}{{ k }}={{ env[k] }}{% if not loop.last %},{% endif %}{% endfor %}
+{{ env|list|length }}|{{ env|sort(reverse=true)|first }}|{{ 'cab'|sort|join }}

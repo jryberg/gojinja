@@ -10,6 +10,7 @@ import (
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
+	"github.com/jryberg/gojinja/pkg/eval"
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
@@ -722,24 +723,24 @@ func filterFloat(_ *Environment, _ *runtime.Context, value any, args []any, kwar
 //
 // Signature: list(value)
 //
-// Lists pass through. Strings are split into single-rune strings (matching
-// Python's `list("abc")` → `['a', 'b', 'c']`).
+// Lists pass through. Other iterables convert the way Python's `list()`
+// does: strings split into single-rune strings, dicts yield their keys.
 //
 // Example:
 //
 //	{{ "abc"  | list }}  →  ['a', 'b', 'c']
+//	{{ {'a': 1, 'b': 2} | list }}  →  ['a', 'b']
 func filterList(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	switch x := value.(type) {
-	case []any:
+	if x, ok := value.([]any); ok {
 		return x, nil
-	case string:
-		out := make([]any, 0, len(x))
-		for _, r := range x {
-			out = append(out, string(r))
-		}
-		return out, nil
 	}
-	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("list: cannot convert %T", value))
+	x, err := eval.ToIterable(value)
+	if err != nil || value == nil {
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("list: cannot convert %T", value))
+	}
+	out := make([]any, len(x))
+	copy(out, x)
+	return out, nil
 }
 
 // filterFirst implements the `first` filter: first item of a sequence.
@@ -787,6 +788,7 @@ func filterLast(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 //
 // Signature: sort(value, reverse=False, case_sensitive=False, attribute=None)
 //
+// Accepts any iterable, like Python's `sorted()`; a dict sorts its keys.
 // Sort is **stable**. With `attribute`, sorts by the named attribute of
 // each element (dotted paths and integer indices both supported via
 // [lookupDottedAttr]). String comparisons are case-insensitive by default.
@@ -797,8 +799,8 @@ func filterLast(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 //	{{ users           | sort(attribute='age') }}     →  sorted by age
 //	{{ users           | sort(reverse=true, attribute='name') }}
 func filterSort(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	x, ok := value.([]any)
-	if !ok {
+	x, err := eval.ToIterable(value)
+	if err != nil || value == nil {
 		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("sort: cannot sort %T", value))
 	}
 	out := make([]any, len(x))

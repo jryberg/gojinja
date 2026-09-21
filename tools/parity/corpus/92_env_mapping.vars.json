@@ -1,0 +1,9 @@
+{
+  "env": {
+    "HOST": "kafka",
+    "PORT": "9092",
+    "EMPTY": "",
+    "FLAG": "True",
+    "LIST": "a, b ,c"
+  }
+}

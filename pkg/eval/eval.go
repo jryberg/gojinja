@@ -224,7 +224,7 @@ func (e *evaluator) evalFor(n *ast.For, ctx *runtime.Context) error {
 	if err != nil {
 		return err
 	}
-	items, err := toIterable(iter)
+	items, err := ToIterable(iter)
 	if err != nil {
 		return err
 	}
@@ -383,7 +383,7 @@ func assignTarget(target ast.Node, value any, ctx *runtime.Context) error {
 		ns.Set(t.Attr, value)
 		return nil
 	case *ast.Tuple:
-		items, err := toIterable(value)
+		items, err := ToIterable(value)
 		if err != nil {
 			return err
 		}
@@ -1055,8 +1055,9 @@ func truthy(v any) bool {
 	return true
 }
 
-// toIterable coerces a value to []any for iteration.
-func toIterable(v any) ([]any, error) {
+// ToIterable coerces a value to []any the way `for` iterates it: dicts
+// yield their keys, strings their characters, Undefined nothing.
+func ToIterable(v any) ([]any, error) {
 	switch x := v.(type) {
 	case nil:
 		return nil, nil

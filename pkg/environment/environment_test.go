@@ -1024,3 +1024,30 @@ func TestHostEnvMissingReturnsEmpty(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, "[fallback]")
 	}
 }
+
+// TestSortAndListIterables mirrors Python's sorted()/list(): any iterable
+// is accepted, a dict yields its keys, and None is a type error.
+func TestSortAndListIterables(t *testing.T) {
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
+	vars := map[string]any{"d": runtime.NewOrderedDictFromPairs([2]any{"b", 1}, [2]any{"a", 2})}
+	cases := []struct{ src, want string }{
+		{"{{ d|sort|join(',') }}", "a,b"},
+		{"{{ d|list|join(',') }}", "b,a"},
+		{"{{ 'cab'|sort|join }}", "abc"},
+		{"{{ missing|list|length }}", "0"},
+	}
+	for _, c := range cases {
+		if got := render(t, e, c.src, vars); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.src, got, c.want)
+		}
+	}
+	for _, src := range []string{"{{ none|sort }}", "{{ none|list }}"} {
+		tpl, err := e.FromString(src)
+		if err != nil {
+			t.Fatalf("parse %s: %v", src, err)
+		}
+		if _, err := tpl.RenderContext(context.Background(), nil); err == nil {
+			t.Errorf("%s: expected a type error", src)
+		}
+	}
+}
