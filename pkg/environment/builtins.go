@@ -843,11 +843,10 @@ func filterSort(env *Environment, _ *runtime.Context, value any, args []any, kwa
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		ki, kj := keyFn(out[i]), keyFn(out[j])
-		less := compareLess(ki, kj)
 		if reverse {
-			return !less && !equalAny(ki, kj)
+			return compareLess(kj, ki)
 		}
-		return less
+		return compareLess(ki, kj)
 	})
 	return out, nil
 }
@@ -1167,11 +1166,10 @@ func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, _
 				b = strings.ToLower(bs)
 			}
 		}
-		less := compareLess(a, b)
 		if reverse {
-			return !less && !equalAny(a, b)
+			return compareLess(b, a)
 		}
-		return less
+		return compareLess(a, b)
 	})
 	out := make([]any, len(es))
 	for i, e := range es {
@@ -2223,7 +2221,7 @@ func testEq(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 	if len(args) < 1 {
 		return false, nil
 	}
-	return equalAny(value, args[0]), nil
+	return eval.ValuesEqual(value, args[0])
 }
 
 // testNe implements the `ne` / `!=` test: inequality comparison.
@@ -2233,7 +2231,8 @@ func testNe(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 	if len(args) < 1 {
 		return false, nil
 	}
-	return !equalAny(value, args[0]), nil
+	eq, err := eval.ValuesEqual(value, args[0])
+	return !eq, err
 }
 
 // testLt implements the `lt` / `lessthan` / `<` test: strict-less comparison.
@@ -2253,7 +2252,10 @@ func testLtEq(_ *Environment, _ *runtime.Context, value any, args []any, _ map[s
 	if len(args) < 1 {
 		return false, nil
 	}
-	return compareLess(value, args[0]) || equalAny(value, args[0]), nil
+	if compareLess(value, args[0]) {
+		return true, nil
+	}
+	return eval.ValuesEqual(value, args[0])
 }
 
 // testGt implements the `gt` / `greaterthan` / `>` test: strict-greater
@@ -2264,7 +2266,7 @@ func testGt(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 	if len(args) < 1 {
 		return false, nil
 	}
-	return !compareLess(value, args[0]) && !equalAny(value, args[0]), nil
+	return compareLess(args[0], value), nil
 }
 
 // testGtEq implements the `ge` / `>=` test: greater-or-equal comparison.
@@ -2291,42 +2293,45 @@ func testIn(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 	if len(args) < 1 {
 		return false, nil
 	}
-	switch col := args[0].(type) {
-	case []any:
-		for _, it := range col {
-			if equalAny(value, it) {
-				return true, nil
-			}
-		}
-		return false, nil
-	case string:
-		s, ok := value.(string)
-		if !ok {
-			return false, nil
-		}
-		return strings.Contains(col, s), nil
-	case map[string]any:
-		s, ok := value.(string)
-		if !ok {
-			return false, nil
-		}
-		_, ok = col[s]
-		return ok, nil
-	}
-	return false, nil
+	return eval.Contains(value, args[0])
 }
 
 // testSameAs implements the `sameas` test: identity comparison (`is`).
 //
 // Signature: x is sameas(other)
 //
-// Compares by Go's `==` on `any` — for pointers and interface-typed
-// values this is identity; for primitives it's value equality.
+// Python identity has no direct Go equivalent: comparable values (None,
+// bools, numbers, strings, pointers) compare with `==`; slices, maps and
+// funcs compare by the address they reference. An Undefined is never
+// the same as anything, because Python builds a fresh one per lookup.
 func testSameAs(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
 	}
-	return value == args[0], nil
+	return sameAs(value, args[0]), nil
+}
+
+func sameAs(a, b any) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	if runtime.IsUndefined(a) || runtime.IsUndefined(b) {
+		return false
+	}
+	ta, tb := reflect.TypeOf(a), reflect.TypeOf(b)
+	if ta != tb {
+		return false
+	}
+	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
+	switch ta.Kind() {
+	case reflect.Slice:
+		return va.Pointer() == vb.Pointer() && va.Len() == vb.Len()
+	case reflect.Map, reflect.Func:
+		return va.Pointer() == vb.Pointer()
+	}
+	// Value.Comparable also rejects structs holding uncomparable
+	// dynamic values, where `==` would panic.
+	return va.Comparable() && va.Equal(vb)
 }
 
 // testCallable implements the `callable` test: true when the value is
@@ -2379,15 +2384,6 @@ func testIsTest(env *Environment, _ *runtime.Context, value any, _ []any, _ map[
 }
 
 // ----------------- comparison helpers shared by filters and tests -----------------
-
-func equalAny(a, b any) bool {
-	if af, ok := numAsFloat(a); ok {
-		if bf, ok := numAsFloat(b); ok {
-			return af == bf
-		}
-	}
-	return a == b
-}
 
 func compareLess(a, b any) bool {
 	if af, ok := numAsFloat(a); ok {

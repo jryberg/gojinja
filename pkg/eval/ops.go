@@ -3,7 +3,6 @@ package eval
 import (
 	"fmt"
 	"math"
-	"reflect"
 	"strings"
 
 	"github.com/jryberg/gojinja/pkg/runtime"
@@ -154,9 +153,10 @@ func negate(v any) (any, error) {
 func compareValues(op string, a, b any) (bool, error) {
 	switch op {
 	case "eq":
-		return valuesEqual(a, b), nil
+		return ValuesEqual(a, b)
 	case "ne":
-		return !valuesEqual(a, b), nil
+		eq, err := ValuesEqual(a, b)
+		return !eq, err
 	case "lt", "lteq", "gt", "gteq":
 		return orderValues(op, a, b)
 	case "in":
@@ -166,15 +166,6 @@ func compareValues(op string, a, b any) (bool, error) {
 		return !ok, err
 	}
 	return false, fmt.Errorf("unknown compare op %q", op)
-}
-
-func valuesEqual(a, b any) bool {
-	if af, ok := numAsFloat(a); ok {
-		if bf, ok := numAsFloat(b); ok {
-			return af == bf
-		}
-	}
-	return reflect.DeepEqual(a, b)
 }
 
 func orderValues(op string, a, b any) (bool, error) {
@@ -218,14 +209,14 @@ func inValue(needle, haystack any) (bool, error) {
 		}
 		return strings.Contains(col, s), nil
 	case []any:
-		return containsAny(needle, col), nil
+		return containsAny(needle, col)
 	case *runtime.PyList:
 		if col == nil {
 			return false, nil
 		}
-		return containsAny(needle, col.Items()), nil
+		return containsAny(needle, col.Items())
 	case runtime.Tuple:
-		return containsAny(needle, []any(col)), nil
+		return containsAny(needle, []any(col))
 	case map[string]any:
 		s, ok := needle.(string)
 		if !ok {
@@ -254,13 +245,14 @@ func inValue(needle, haystack any) (bool, error) {
 	return false, fmt.Errorf("'in' on unsupported type %T", haystack)
 }
 
-func containsAny(needle any, col []any) bool {
+func containsAny(needle any, col []any) (bool, error) {
 	for _, it := range col {
-		if valuesEqual(needle, it) {
-			return true
+		eq, err := ValuesEqual(needle, it)
+		if err != nil || eq {
+			return eq, err
 		}
 	}
-	return false
+	return false, nil
 }
 
 // asAnyList unwraps the underlying []any view of list-like values:

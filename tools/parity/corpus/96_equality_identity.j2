@@ -1,0 +1,4 @@
+{{ true == 1 }}|{{ 1 is eq true }}|{{ (1, 2) == (1, 2.0) }}|{{ [1] == (1,) }}|{{ [1] == [1.0] }}
+{{ {'a': 1} == {'a': 1.0} }}|{{ cfg == {'port': 8080.0, 'tags': ['a']} }}|{{ [1] is in [[1]] }}|{{ 'a' is in {'a': 1} }}
+{{ q is sameas q }}|{{ [1] is sameas [1] }}|{% set l = [1] %}{{ l is sameas l }}|{{ flag is sameas false }}|{{ 0 is sameas false }}
+{{ [3, 1, 2]|sort(reverse=true) }}|{{ 2 is gt 1 }}|{{ 1 is le 1 }}
