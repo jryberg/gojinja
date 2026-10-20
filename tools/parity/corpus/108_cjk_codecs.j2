@@ -1,0 +1,4 @@
+{{ '日本語'.encode('shift_jis') }}|{{ '～￢'.encode('cp932') }}|{{ '¥‾'.encode('euc_jp') }}|{{ '中文'.encode('gbk') }}|{{ '€😀'.encode('gb18030') }}|{{ '繁體'.encode('big5') }}|{{ '한국어'.encode('euc_kr') }}
+{{ '똠'.encode('euc_kr') }}|{{ '똠'.encode('cp949') }}|{{ '한'.encode('johab') }}|{{ 'Ê̄'.encode('big5hkscs') }}|{{ 'か゚'.encode('shift_jis_2004') }}|{{ 'か゚'.encode('euc_jis_2004').decode('euc_jisx0213') }}
+{{ '日本語'.encode('sjis').decode('shift_jis') }}|{{ '€x'.encode('big5', 'replace') }}|{{ '€'.encode('shift_jis', 'xmlcharrefreplace') }}|{{ '😀'.encode('euc_kr', 'namereplace') }}|{{ 'ÿ'.encode('latin-1').decode('gbk', 'replace') }}
+{{ '中'.encode('gb18030').decode('gb18030') }}|{{ 'abc'.encode('cp950') }}|{{ ('a' ~ '日'.encode('euc_jp').decode('latin-1')[:1]).encode('latin-1').decode('euc_jp', 'backslashreplace') }}|{{ ('x' * 3).encode('gb2312') }}

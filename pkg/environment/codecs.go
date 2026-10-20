@@ -30,6 +30,7 @@ const (
 	kindRawUnicodeEscape
 	kindPunycode
 	kindUndefined
+	kindCJK
 )
 
 type codec struct {
@@ -40,6 +41,7 @@ type codec struct {
 	order byteOrder
 	bom   bool
 	table *charmapTable
+	cjk   *cjkCodec
 	// encodeMap is the inverse of table.decode with its overrides applied.
 	encodeMap map[rune]byte
 }
@@ -131,6 +133,9 @@ func lookupCodec(encoding string) (codec, error) {
 	if c, ok := builtinCodecs[module]; ok {
 		return c, nil
 	}
+	if cj, ok := cjkLookup(module); ok {
+		return codec{kind: kindCJK, name: module, cjk: cj}, nil
+	}
 	t := charmapTables[module]
 	c := codec{kind: kindTable, name: "charmap", table: &t, encodeMap: make(map[rune]byte, 256)}
 	for i := 255; i >= 0; i-- {
@@ -206,6 +211,8 @@ func pyEncode(s, encoding, errorsMode string) (runtime.Bytes, error) {
 		return punycodeEncode(rs), nil
 	case kindUndefined:
 		return nil, fmt.Errorf("undefined encoding")
+	case kindCJK:
+		return c.cjk.encodeCJK(rs, errorsMode)
 	}
 	return encodeSingleByte(c, rs, errorsMode)
 }
@@ -261,11 +268,7 @@ func encodeSingleByte(c codec, rs []rune, errorsMode string) (runtime.Bytes, err
 			}
 		case "namereplace":
 			for _, r := range rs[i:end] {
-				if name, ok := unicodename.Name(r); ok {
-					repl = append(repl, []rune(`\N{`+name+"}")...)
-				} else {
-					repl = append(repl, []rune(strings.Trim(charRepr(r), "'"))...)
-				}
+				repl = append(repl, []rune(nameReplace(r))...)
 			}
 		default:
 			return nil, fmt.Errorf("unknown error handler name '%s'", errorsMode)
@@ -281,6 +284,15 @@ func encodeSingleByte(c codec, rs []rune, errorsMode string) (runtime.Bytes, err
 		i = end
 	}
 	return out, nil
+}
+
+// nameReplace is the namereplace handler's replacement for r: \N{NAME},
+// or a backslash escape when r has no name.
+func nameReplace(r rune) string {
+	if name, ok := unicodename.Name(r); ok {
+		return `\N{` + name + "}"
+	}
+	return strings.Trim(charRepr(r), "'")
 }
 
 func (c codec) appendUnit(out []byte, u uint32) []byte {
@@ -349,6 +361,8 @@ func pyDecode(b []byte, encoding, errorsMode string) (string, error) {
 		return pyescape.Decode(b, true, &sb, d.fail)
 	case kindPunycode:
 		return punycodeDecode(b, errorsMode)
+	case kindCJK:
+		return c.cjk.decode(b, d)
 	case kindTable:
 		for i, x := range b {
 			if r := c.table.decode[x]; r != charmapUndefined {
