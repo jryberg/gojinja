@@ -100,8 +100,10 @@ func fetchOne(cacheDir string, p project) error {
 		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
-		// Strip the leading "<owner>-<name>-<sha>/" component.
-		rel := stripTopDir(hdr.Name)
+		rel, err := archivePath(hdr.Name)
+		if err != nil {
+			return err
+		}
 		if rel == "" {
 			continue
 		}
@@ -184,14 +186,19 @@ func writeTarFile(tr io.Reader, path string, mode os.FileMode) error {
 	return closeErr
 }
 
-func stripTopDir(p string) string {
-	// Tarball entries look like "pallets-jinja-5ef7011/path/to/file".
-	// We drop the first component.
-	_, rest, ok := strings.Cut(p, "/")
-	if !ok {
-		return ""
+// archivePath drops the leading "<owner>-<name>-<sha>/" component of a
+// tarball entry name, returning "" for the top directory itself. A name
+// that would land outside the extraction root is an error: no git tree
+// can produce one, so the tarball has been tampered with.
+func archivePath(name string) (string, error) {
+	_, rest, ok := strings.Cut(name, "/")
+	if !ok || rest == "" {
+		return "", nil
 	}
-	return rest
+	if !filepath.IsLocal(rest) {
+		return "", fmt.Errorf("tar entry %q escapes the extraction root", name)
+	}
+	return rest, nil
 }
 
 func matchesProject(rel string, p project) bool {

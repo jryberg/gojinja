@@ -100,7 +100,7 @@ func ensureASCII(raw []byte) []byte {
 	if !slices.ContainsFunc(raw, func(c byte) bool { return c >= 0x7f }) {
 		return raw
 	}
-	out := make([]byte, 0, len(raw)+len(raw)/2)
+	out := make([]byte, 0, len(raw))
 	for _, r := range string(raw) {
 		switch {
 		case r < 0x7f:
