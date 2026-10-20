@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/runtime"
@@ -74,16 +76,42 @@ func jsonMarshal(v any, pretty bool, indent string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	var raw []byte
 	if !pretty {
-		raw, err := json.Marshal(prepared)
+		raw, err = json.Marshal(prepared)
 		if err != nil {
 			return nil, err
 		}
 		// Python's default uses ", " and ": " — Go's json.Marshal
 		// emits ',' / ':'. Re-space the structural separators.
-		return rewriteJSONSpacing(raw), nil
+		raw = rewriteJSONSpacing(raw)
+	} else if raw, err = marshalIndented(prepared, indent); err != nil {
+		return nil, err
 	}
-	return marshalIndented(prepared, indent)
+	return ensureASCII(raw), nil
+}
+
+// ensureASCII escapes what json.dumps's default ensure_ascii does and
+// encoding/json leaves alone: DEL and every non-ASCII character, as
+// lowercase \uXXXX with surrogate pairs past the BMP. Such bytes only
+// occur inside string literals.
+func ensureASCII(raw []byte) []byte {
+	if !slices.ContainsFunc(raw, func(c byte) bool { return c >= 0x7f }) {
+		return raw
+	}
+	out := make([]byte, 0, len(raw)+len(raw)/2)
+	for _, r := range string(raw) {
+		switch {
+		case r < 0x7f:
+			out = append(out, byte(r))
+		case r > 0xffff:
+			r1, r2 := utf16.EncodeRune(r)
+			out = fmt.Appendf(out, "\\u%04x\\u%04x", r1, r2)
+		default:
+			out = fmt.Appendf(out, "\\u%04x", r)
+		}
+	}
+	return out
 }
 
 // rewriteJSONSpacing rewrites raw compact JSON to Python's default

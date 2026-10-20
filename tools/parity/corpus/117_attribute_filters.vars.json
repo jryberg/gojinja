@@ -1,0 +1,7 @@
+{"users": [
+  {"name": "Åsa", "age": 31, "city": "Malmö", "tags": ["a"]},
+  {"name": "bob", "age": 9, "city": "malmö", "tags": []},
+  {"name": "Cid", "age": 31, "city": "Oslo", "tags": ["b", "c"]},
+  {"name": "dan", "age": 10, "city": "Oslo", "tags": []},
+  {"name": "Eve", "age": 9, "city": "Bergen", "tags": ["d"]}
+]}

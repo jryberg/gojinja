@@ -18,6 +18,9 @@ import (
 // recover the underlying slice without binding to this concrete type.
 type PyList struct {
 	items []any
+	// groupHead is the first slot of the groupby tuple holding this
+	// list; see [NewGroupTuple].
+	groupHead *any
 }
 
 // NewPyList wraps an existing []any. The slice is adopted, not copied —

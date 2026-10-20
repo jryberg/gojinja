@@ -1,0 +1,7 @@
+{{ users|sort(attribute='age,name')|map(attribute='name')|join(',') }}|{{ users|sort(attribute='age,name', reverse=true)|map(attribute='name')|join(',') }}|{{ users|sort(attribute='city.0')|map(attribute='name')|join(',') }}
+{% for g in users|groupby('city') %}{{ g.grouper }}={{ g.list|map(attribute='name')|join('+') }};{% endfor %}
+{% for city, people in users|groupby('city', case_sensitive=true) %}{{ city }}:{{ people|length }};{% endfor %}
+{% for age, people in users|groupby('age') %}{{ age }}:{{ people|length }};{% endfor %}
+{{ users|selectattr('tags.0')|map(attribute='name')|join(',') }}|{{ users|rejectattr('age', 'gt', 30)|map(attribute='name')|join(',') }}|{{ users|join(', ', attribute='name') }}
+{{ (users|min(attribute='age')).name }}|{{ (users|max(attribute='name')).name }}|{{ users|unique(attribute='city')|map(attribute='name')|join(',') }}|{{ users|sum(attribute='age') }}
+{{ 'naïve café 日本語 x_y'|wordcount }}|{{ users|map(attribute='name')|list|tojson }}|{{ {'ключ': 'знач <&>', 'emoji': '😀'}|tojson }}

@@ -1016,6 +1016,9 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 			return m, nil
 		}
 	case runtime.Tuple:
+		if v, ok := runtime.GroupTupleAttr(x, attr); ok {
+			return v, nil
+		}
 		if m := seqMethod("tuple", []any(x), attr); m != nil {
 			return m, nil
 		}

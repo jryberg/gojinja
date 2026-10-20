@@ -8,8 +8,8 @@ import (
 	"math/big"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
@@ -467,12 +467,8 @@ func filterJoin(env *Environment, ctx *runtime.Context, value any, args []any, k
 	}
 	// Optional `attribute` kwarg / second positional — extract that
 	// attribute from each element before joining.
-	var attr string
-	if len(args) > 1 {
-		attr, _ = args[1].(string)
-	} else if v, ok := kwargs["attribute"].(string); ok {
-		attr = v
-	}
+	attribute, _ := paramArg(args, kwargs, 1, "attribute")
+	getter := makeAttrGetter(env, attribute, false, nil)
 	items, err := iterArg("join", value)
 	if err != nil {
 		return nil, err
@@ -480,8 +476,8 @@ func filterJoin(env *Environment, ctx *runtime.Context, value any, args []any, k
 	vals := make([]any, len(items))
 	_, markup := sep.(escape.Markup)
 	for i, it := range items {
-		if attr != "" {
-			if it, err = env.GetAttr(it, attr); err != nil {
+		if attribute != nil {
+			if it, err = getter(it); err != nil {
 				return nil, err
 			}
 		}
@@ -836,68 +832,54 @@ func filterLast(env *Environment, _ *runtime.Context, value any, _ []any, _ map[
 //
 // Accepts any iterable, like Python's `sorted()`; a dict sorts its keys.
 // Sort is **stable**. With `attribute`, sorts by the named attribute of
-// each element (dotted paths and integer indices both supported via
-// [lookupDottedAttr]). String comparisons are case-insensitive by default.
+// each element (dotted paths and integer indices both supported); a
+// comma-separated list such as `'age,name'` sorts by each attribute in
+// turn. String comparisons are case-insensitive by default.
 //
 // Example:
 //
 //	{{ ['B', 'a', 'C'] | sort }}                      →  ['a', 'B', 'C']
 //	{{ users           | sort(attribute='age') }}     →  sorted by age
+//	{{ users           | sort(attribute='age,name') }}
 //	{{ users           | sort(reverse=true, attribute='name') }}
 func filterSort(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	x, err := eval.ToIterable(value)
 	if err != nil || value == nil {
 		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("sort: cannot sort %T", value))
 	}
+	// Python's signature: sort(reverse=False, case_sensitive=False, attribute=None)
+	reverse, caseSensitive := false, false
+	if v, ok := paramArg(args, kwargs, 0, "reverse"); ok {
+		reverse = eval.Truthy(v)
+	}
+	if v, ok := paramArg(args, kwargs, 1, "case_sensitive"); ok {
+		caseSensitive = eval.Truthy(v)
+	}
+	attribute, _ := paramArg(args, kwargs, 2, "attribute")
 	out := make([]any, len(x))
 	copy(out, x)
-	// Python's signature: sort(reverse=False, case_sensitive=False, attribute=None)
-	reverse := false
-	if len(args) > 0 {
-		reverse, _ = args[0].(bool)
-	} else if v, ok := kwargs["reverse"].(bool); ok {
-		reverse = v
-	}
-	caseSensitive := false
-	if len(args) > 1 {
-		caseSensitive, _ = args[1].(bool)
-	} else if v, ok := kwargs["case_sensitive"].(bool); ok {
-		caseSensitive = v
-	}
-	var attr string
-	if len(args) > 2 {
-		attr, _ = args[2].(string)
-	} else if v, ok := kwargs["attribute"].(string); ok {
-		attr = v
-	}
-	keyFn := func(v any) any {
-		if attr == "" {
-			if s, ok := v.(string); ok && !caseSensitive {
-				return strings.ToLower(s)
-			}
-			return v
-		}
-		k, err := env.GetAttr(v, attr)
-		if err != nil {
-			return nil
-		}
-		if s, ok := k.(string); ok && !caseSensitive {
-			return strings.ToLower(s)
-		}
-		return k
-	}
-	if err := sortStable(out, keyFn, reverse); err != nil {
+	if err := sortBy(out, makeMultiAttrGetter(env, attribute, !caseSensitive), reverse); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// sortStable sorts items by key like Python's sorted(): stable, ordered
-// with `<`, and failing with Python's TypeError on unorderable keys.
-func sortStable(items []any, key func(any) any, reverse bool) error {
+// sortBy sorts items like Python's sorted(items, key=key): every key is
+// computed first, the sort is stable, keys are ordered with `<`, and
+// unorderable keys fail with Python's TypeError.
+func sortBy(items []any, key func(any) (any, error), reverse bool) error {
+	type keyed struct{ key, item any }
+	pairs := make([]keyed, len(items))
+	for i, it := range items {
+		k, err := key(it)
+		if err != nil {
+			return err
+		}
+		pairs[i] = keyed{k, it}
+	}
 	var cmpErr error
-	sort.SliceStable(items, func(i, j int) bool {
-		a, b := key(items[i]), key(items[j])
+	sort.SliceStable(pairs, func(i, j int) bool {
+		a, b := pairs[i].key, pairs[j].key
 		if reverse {
 			a, b = b, a
 		}
@@ -907,7 +889,100 @@ func sortStable(items []any, key func(any) any, reverse bool) error {
 		}
 		return lt
 	})
+	for i, p := range pairs {
+		items[i] = p.item
+	}
 	return cmpErr
+}
+
+// attributeParts is _prepare_attribute_parts: a string splits at dots,
+// all-digit parts becoming ints; any other attribute is a single part.
+func attributeParts(attribute any) ([]any, error) {
+	a, ok := attribute.(string)
+	if !ok {
+		if attribute == nil {
+			return nil, nil
+		}
+		return []any{attribute}, nil
+	}
+	var parts []any
+	for _, p := range strings.Split(a, ".") {
+		if p != "" && strings.IndexFunc(p, func(r rune) bool { return !unicode.IsDigit(r) }) < 0 {
+			n, err := runtime.ParseInt(p, 10)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, n)
+			continue
+		}
+		parts = append(parts, p)
+	}
+	return parts, nil
+}
+
+// makeAttrGetter is make_attrgetter: it looks attribute up in an item
+// with the environment's getitem, one part at a time. A non-nil def
+// replaces an undefined step; lower applies ignore_case to the result.
+func makeAttrGetter(env *Environment, attribute any, lower bool, def any) func(any) (any, error) {
+	parts, perr := attributeParts(attribute)
+	return func(item any) (any, error) {
+		if perr != nil {
+			return nil, perr
+		}
+		for _, p := range parts {
+			v, err := env.GetItem(item, p)
+			if err != nil {
+				return nil, err
+			}
+			item = v
+			if u, ok := item.(runtime.Undefiner); ok && def != nil && u.IsUndefined() {
+				item = def
+			}
+		}
+		if lower {
+			item = ignoreCase(item)
+		}
+		return item, nil
+	}
+}
+
+// makeMultiAttrGetter is make_multi_attrgetter: a string attribute is a
+// comma-separated list of attributes, and the key is the list of their
+// values.
+func makeMultiAttrGetter(env *Environment, attribute any, lower bool) func(any) (any, error) {
+	split := []any{attribute}
+	if a, ok := attribute.(string); ok {
+		split = split[:0]
+		for _, p := range strings.Split(a, ",") {
+			split = append(split, p)
+		}
+	}
+	getters := make([]func(any) (any, error), len(split))
+	for i, a := range split {
+		getters[i] = makeAttrGetter(env, a, lower, nil)
+	}
+	return func(item any) (any, error) {
+		key := make([]any, len(getters))
+		for i, g := range getters {
+			v, err := g(item)
+			if err != nil {
+				return nil, err
+			}
+			key[i] = v
+		}
+		return key, nil
+	}
+}
+
+// ignoreCase is ignore_case: strings are lowercased, other values kept.
+func ignoreCase(v any) any {
+	switch x := v.(type) {
+	case string:
+		return pyLower(x)
+	case escape.Markup:
+		return escape.Markup(pyLower(string(x)))
+	}
+	return v
 }
 
 // ----------------------------------------------------- additional filters
@@ -931,10 +1006,8 @@ func filterSum(env *Environment, _ *runtime.Context, value any, args []any, kwar
 		return nil, err
 	}
 	// Python signature: sum(attribute=None, start=0)
-	var attr string
-	if v, ok := paramArg(args, kwargs, 0, "attribute"); ok && v != nil {
-		attr = escape.SoftStr(v)
-	}
+	attribute, _ := paramArg(args, kwargs, 0, "attribute")
+	getter := makeAttrGetter(env, attribute, false, nil)
 	var total any = int64(0)
 	if v, ok := paramArg(args, kwargs, 1, "start"); ok {
 		total = v
@@ -943,8 +1016,8 @@ func filterSum(env *Environment, _ *runtime.Context, value any, args []any, kwar
 		return nil, gjerrors.NewFilterArgumentError("sum() can't sum strings [use ''.join(seq) instead]")
 	}
 	for _, it := range items {
-		if attr != "" {
-			if it, err = lookupDottedAttr(env, it, attr); err != nil {
+		if attribute != nil {
+			if it, err = getter(it); err != nil {
 				return nil, err
 			}
 		}
@@ -953,30 +1026,6 @@ func filterSum(env *Environment, _ *runtime.Context, value any, args []any, kwar
 		}
 	}
 	return total, nil
-}
-
-// lookupDottedAttr resolves an attribute path like "real.value" against
-// obj, returning the final value. Numeric segments index into tuples /
-// lists (matching Python's `sum` attribute notation).
-func lookupDottedAttr(env *Environment, obj any, path string) (any, error) {
-	parts := strings.Split(path, ".")
-	cur := obj
-	for _, p := range parts {
-		if n, err := strconv.Atoi(p); err == nil {
-			v, err := env.GetItem(cur, int64(n))
-			if err != nil {
-				return nil, err
-			}
-			cur = v
-			continue
-		}
-		v, err := env.GetAttr(cur, p)
-		if err != nil {
-			return nil, err
-		}
-		cur = v
-	}
-	return cur, nil
 }
 
 // filterMin implements the `min` filter: smallest item in a sequence.
@@ -999,11 +1048,17 @@ func filterMin(env *Environment, _ *runtime.Context, value any, args []any, kwar
 	if len(x) == 0 {
 		return env.undefined("No aggregated item, sequence was empty.", "", runtime.Missing, nil), nil
 	}
-	keyFn := minMaxKeyFn(env, args, kwargs)
+	key := minMaxKey(env, args, kwargs)
 	mi := x[0]
-	miKey := keyFn(mi)
+	miKey, err := key(mi)
+	if err != nil {
+		return nil, err
+	}
 	for _, it := range x[1:] {
-		k := keyFn(it)
+		k, err := key(it)
+		if err != nil {
+			return nil, err
+		}
 		lt, err := eval.Compare("lt", k, miKey)
 		if err != nil {
 			return nil, err
@@ -1036,12 +1091,18 @@ func filterMax(env *Environment, _ *runtime.Context, value any, args []any, kwar
 	if len(x) == 0 {
 		return env.undefined("No aggregated item, sequence was empty.", "", runtime.Missing, nil), nil
 	}
-	keyFn := minMaxKeyFn(env, args, kwargs)
+	key := minMaxKey(env, args, kwargs)
 	mx := x[0]
-	mxKey := keyFn(mx)
+	mxKey, err := key(mx)
+	if err != nil {
+		return nil, err
+	}
 	for _, it := range x[1:] {
 		// Python's max() compares with `>`.
-		k := keyFn(it)
+		k, err := key(it)
+		if err != nil {
+			return nil, err
+		}
 		gt, err := eval.Compare("gt", k, mxKey)
 		if err != nil {
 			return nil, err
@@ -1054,36 +1115,15 @@ func filterMax(env *Environment, _ *runtime.Context, value any, args []any, kwar
 	return mx, nil
 }
 
-// minMaxKeyFn builds the key extractor used by min / max. Python:
-// min(value, case_sensitive=False, attribute=None).
-func minMaxKeyFn(env *Environment, args []any, kwargs map[string]any) func(any) any {
+// minMaxKey is _min_or_max's key for min(value, case_sensitive=False,
+// attribute=None) and max.
+func minMaxKey(env *Environment, args []any, kwargs map[string]any) func(any) (any, error) {
 	caseSensitive := false
-	if len(args) > 0 {
-		caseSensitive, _ = args[0].(bool)
-	} else if v, ok := kwargs["case_sensitive"].(bool); ok {
-		caseSensitive = v
+	if v, ok := paramArg(args, kwargs, 0, "case_sensitive"); ok {
+		caseSensitive = eval.Truthy(v)
 	}
-	var attr string
-	if len(args) > 1 {
-		attr, _ = args[1].(string)
-	} else if v, ok := kwargs["attribute"].(string); ok {
-		attr = v
-	}
-	return func(v any) any {
-		key := v
-		if attr != "" {
-			rv, err := lookupDottedAttr(env, v, attr)
-			if err == nil {
-				key = rv
-			}
-		}
-		if !caseSensitive {
-			if s, ok := key.(string); ok {
-				return strings.ToLower(s)
-			}
-		}
-		return key
-	}
+	attribute, _ := paramArg(args, kwargs, 1, "attribute")
+	return makeAttrGetter(env, attribute, !caseSensitive, nil)
 }
 
 // filterItems implements the `items` filter: yield (key, value) pairs for
@@ -1191,14 +1231,14 @@ func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, k
 	default:
 		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("'%s' object has no attribute 'items'", runtime.PyTypeName(value)))
 	}
-	key := func(item any) any {
+	key := func(item any) (any, error) {
 		v := item.(runtime.Tuple)[pos]
-		if s, ok := v.(string); ok && !caseSensitive {
-			return strings.ToLower(s)
+		if !caseSensitive {
+			v = ignoreCase(v)
 		}
-		return v
+		return v, nil
 	}
-	if err := sortStable(items, key, reverse); err != nil {
+	if err := sortBy(items, key, reverse); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -1273,23 +1313,14 @@ func filterUnique(env *Environment, _ *runtime.Context, value any, args []any, k
 	if v, ok := paramArg(args, kwargs, 0, "case_sensitive"); ok {
 		caseSensitive = eval.Truthy(v)
 	}
-	var attr string
-	if v, ok := paramArg(args, kwargs, 1, "attribute"); ok && v != nil {
-		attr = escape.SoftStr(v)
-	}
+	attribute, _ := paramArg(args, kwargs, 1, "attribute")
+	getter := makeAttrGetter(env, attribute, !caseSensitive, nil)
 	seen := map[string]bool{}
 	out := []any{}
 	for _, it := range x {
-		key := it
-		if attr != "" {
-			if key, err = lookupDottedAttr(env, it, attr); err != nil {
-				return nil, err
-			}
-		}
-		if !caseSensitive {
-			if s, ok := key.(string); ok {
-				key = strings.ToLower(s)
-			}
+		key, err := getter(it)
+		if err != nil {
+			return nil, err
 		}
 		hk, err := runtime.HashKey(key)
 		if err != nil {
@@ -1497,7 +1528,7 @@ func filterWordcount(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 	count := 0
 	inWord := false
 	for _, r := range s {
-		isWord := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
+		isWord := r == '_' || isPyAlnum(r)
 		if isWord && !inWord {
 			count++
 		}
@@ -1968,18 +1999,23 @@ func filterMap(env *Environment, ctx *runtime.Context, value any, args []any, kw
 	if err != nil {
 		return nil, err
 	}
-	if attr, ok := kwargs["attribute"].(string); ok {
-		def, hasDefault := kwargs["default"]
+	if attribute, ok := kwargs["attribute"]; ok && len(args) == 0 {
+		var extra []string
+		for k := range kwargs {
+			if k != "attribute" && k != "default" {
+				extra = append(extra, k)
+			}
+		}
+		if len(extra) > 0 {
+			sort.Strings(extra)
+			return nil, gjerrors.NewFilterArgumentError("Unexpected keyword argument " + escape.Repr(extra[0]))
+		}
+		getter := makeAttrGetter(env, attribute, false, kwargs["default"])
 		out := make([]any, 0, len(x))
 		for _, it := range x {
-			v, err := lookupDottedAttr(env, it, attr)
+			v, err := getter(it)
 			if err != nil {
 				return nil, err
-			}
-			if u, ok := v.(runtime.Undefiner); ok && u.IsUndefined() {
-				if hasDefault {
-					v = def
-				}
 			}
 			out = append(out, v)
 		}
@@ -1993,7 +2029,7 @@ func filterMap(env *Environment, ctx *runtime.Context, value any, args []any, kw
 		rest := args[1:]
 		out := make([]any, 0, len(x))
 		for _, it := range x {
-			v, err := env.CallFilter(fname, ctx, it, rest, nil)
+			v, err := env.CallFilter(fname, ctx, it, rest, kwargs)
 			if err != nil {
 				return nil, err
 			}
@@ -2030,8 +2066,8 @@ func iterArg(filter string, value any) ([]any, error) {
 //
 //	{{ [1, 2, 3, 4]  | select('odd') | list }}      →  [1, 3]
 //	{{ [0, 1, 2, '', 'x'] | select | list }}         →  [1, 2, 'x']
-func filterSelect(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	return selectReject(env, ctx, value, args, true, "")
+func filterSelect(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	return selectReject(env, ctx, value, args, kwargs, true, false)
 }
 
 // skipFalsy reports whether a map/select-style filter yields nothing for
@@ -2053,8 +2089,8 @@ func skipFalsy(value any) (bool, error) {
 // Example:
 //
 //	{{ [1, 2, 3, 4]  | reject('odd') | list }}  →  [2, 4]
-func filterReject(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	return selectReject(env, ctx, value, args, false, "")
+func filterReject(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	return selectReject(env, ctx, value, args, kwargs, false, false)
 }
 
 // filterSelectAttr implements the `selectattr` filter: keep items whose
@@ -2068,18 +2104,8 @@ func filterReject(env *Environment, ctx *runtime.Context, value any, args []any,
 //
 //	{{ users | selectattr('admin') | list }}                →  admins
 //	{{ users | selectattr('age', 'gt', 18) | list }}        →  adults
-func filterSelectAttr(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	if empty, err := skipFalsy(value); empty || err != nil {
-		return []any{}, err
-	}
-	if len(args) < 1 {
-		return nil, gjerrors.NewFilterArgumentError("selectattr requires an attribute name")
-	}
-	attr, ok := args[0].(string)
-	if !ok {
-		return nil, gjerrors.NewFilterArgumentError("selectattr: attribute must be a string")
-	}
-	return selectReject(env, ctx, value, args[1:], true, attr)
+func filterSelectAttr(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	return selectReject(env, ctx, value, args, kwargs, true, true)
 }
 
 // filterRejectAttr implements the `rejectattr` filter: drop items whose
@@ -2090,26 +2116,26 @@ func filterSelectAttr(env *Environment, ctx *runtime.Context, value any, args []
 // Example:
 //
 //	{{ users | rejectattr('banned') | list }}  →  non-banned users
-func filterRejectAttr(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	if empty, err := skipFalsy(value); empty || err != nil {
-		return []any{}, err
-	}
-	if len(args) < 1 {
-		return nil, gjerrors.NewFilterArgumentError("rejectattr requires an attribute name")
-	}
-	attr, ok := args[0].(string)
-	if !ok {
-		return nil, gjerrors.NewFilterArgumentError("rejectattr: attribute must be a string")
-	}
-	return selectReject(env, ctx, value, args[1:], false, attr)
+func filterRejectAttr(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	return selectReject(env, ctx, value, args, kwargs, false, true)
 }
 
 // selectReject is the shared engine for select/reject/selectattr/rejectattr.
 // keep=true means "include items where the test passes"; attr (if set)
 // means "test the named attribute of each item, not the item itself".
-func selectReject(env *Environment, ctx *runtime.Context, value any, args []any, keep bool, attr string) (any, error) {
+func selectReject(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any, keep, lookupAttr bool) (any, error) {
 	if empty, err := skipFalsy(value); empty || err != nil {
 		return []any{}, err
+	}
+	// prepare_select_or_reject: the attribute, then the test and its
+	// arguments; without a test the value's truth decides.
+	transform := func(v any) (any, error) { return v, nil }
+	if lookupAttr {
+		if len(args) == 0 {
+			return nil, gjerrors.NewFilterArgumentError("Missing parameter for attribute name")
+		}
+		transform = makeAttrGetter(env, args[0], false, nil)
+		args = args[1:]
 	}
 	x, err := iterArg("select", value)
 	if err != nil {
@@ -2117,13 +2143,9 @@ func selectReject(env *Environment, ctx *runtime.Context, value any, args []any,
 	}
 	out := make([]any, 0, len(x))
 	for _, it := range x {
-		probe := it
-		if attr != "" {
-			v, err := env.GetAttr(it, attr)
-			if err != nil {
-				return nil, err
-			}
-			probe = v
+		probe, err := transform(it)
+		if err != nil {
+			return nil, err
 		}
 		var pass bool
 		if len(args) == 0 {
@@ -2133,12 +2155,11 @@ func selectReject(env *Environment, ctx *runtime.Context, value any, args []any,
 			if !ok {
 				return nil, gjerrors.NewFilterArgumentError("select/reject: test name must be a string")
 			}
-			rest := args[1:]
-			res, err := env.CallTest(tname, ctx, probe, rest, nil)
+			res, err := env.CallTest(tname, ctx, probe, args[1:], kwargs)
 			if err != nil {
 				return nil, err
 			}
-			pass, _ = res.(bool)
+			pass = eval.Truthy(res)
 		}
 		if pass == keep {
 			out = append(out, it)

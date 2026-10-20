@@ -18,7 +18,10 @@ import (
 //
 // Signature: groupby(value, attribute, default=None, case_sensitive=False)
 //
-// Returns a list of `(grouper, [items])` tuples sorted by grouper.
+// Returns a list of `(grouper, [items])` tuples sorted by grouper, which
+// also have `.grouper` and `.list` attributes. Grouping is
+// case-insensitive by default; the grouper is then the first item's own
+// value.
 // `attribute` supports dotted notation (`meta.k`) and numeric segments
 // for indexing into tuples / lists. `default` is the value used when the
 // attribute is undefined.
@@ -33,75 +36,64 @@ func filterGroupby(env *Environment, _ *runtime.Context, value any, args []any, 
 	if err != nil {
 		return nil, err
 	}
-	var attr string
-	if len(args) > 0 {
-		switch a := args[0].(type) {
-		case string:
-			attr = a
-		case int:
-			attr = fmt.Sprint(a)
-		case int64:
-			attr = fmt.Sprint(a)
-		}
-	} else if v, ok := kwargs["attribute"]; ok {
-		switch a := v.(type) {
-		case string:
-			attr = a
-		case int:
-			attr = fmt.Sprint(a)
-		case int64:
-			attr = fmt.Sprint(a)
-		}
-	}
-	if attr == "" {
+	attribute, ok := paramArg(args, kwargs, 0, "attribute")
+	if !ok {
 		return nil, gjerrors.NewFilterArgumentError("groupby requires an attribute name")
 	}
-	defaultVal, hasDefault := kwargs["default"]
-	if !hasDefault && len(args) > 1 {
-		defaultVal = args[1]
-		hasDefault = true
-	}
+	def, _ := paramArg(args, kwargs, 1, "default")
 	caseSensitive := false
-	if v, ok := kwargs["case_sensitive"].(bool); ok {
-		caseSensitive = v
-	} else if len(args) > 2 {
-		caseSensitive, _ = args[2].(bool)
+	if v, ok := paramArg(args, kwargs, 2, "case_sensitive"); ok {
+		caseSensitive = eval.Truthy(v)
 	}
-	type group struct {
-		Key   any
-		Items []any
+	expr := makeAttrGetter(env, attribute, !caseSensitive, def)
+	sorted := make([]any, len(items))
+	copy(sorted, items)
+	if err := sortBy(sorted, expr, false); err != nil {
+		return nil, err
 	}
-	groups := map[string]*group{}
-	order := []string{}
-	for _, it := range items {
-		key, err := lookupDottedAttr(env, it, attr)
+	// itertools.groupby: runs of consecutive items with equal keys.
+	output := makeAttrGetter(env, attribute, false, def)
+	out := []any{}
+	var runKey any
+	var run []any
+	flush := func() error {
+		if run == nil {
+			return nil
+		}
+		grouper := runKey
+		if !caseSensitive {
+			// The real key of the first item, not the lowercased one.
+			g, err := output(run[0])
+			if err != nil {
+				return err
+			}
+			grouper = g
+		}
+		out = append(out, runtime.NewGroupTuple(grouper, runtime.NewPyList(run)))
+		return nil
+	}
+	for _, it := range sorted {
+		k, err := expr(it)
 		if err != nil {
 			return nil, err
 		}
-		if u, ok := key.(runtime.Undefiner); ok && u.IsUndefined() {
-			if hasDefault {
-				key = defaultVal
+		if run != nil {
+			eq, err := eval.ValuesEqual(runKey, k)
+			if err != nil {
+				return nil, err
+			}
+			if eq {
+				run = append(run, it)
+				continue
+			}
+			if err := flush(); err != nil {
+				return nil, err
 			}
 		}
-		k := fmt.Sprintf("%v", key)
-		if !caseSensitive {
-			if s, ok := key.(string); ok {
-				k = strings.ToLower(s)
-			}
-		}
-		g, ok := groups[k]
-		if !ok {
-			g = &group{Key: key}
-			groups[k] = g
-			order = append(order, k)
-		}
-		g.Items = append(g.Items, it)
+		runKey, run = k, []any{it}
 	}
-	sort.Strings(order)
-	out := make([]any, 0, len(order))
-	for _, k := range order {
-		g := groups[k]
-		out = append(out, runtime.Tuple{g.Key, g.Items})
+	if err := flush(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
