@@ -15,6 +15,7 @@ package escape
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
 	"strconv"
 	"strings"
@@ -125,6 +126,10 @@ func SoftStr(v any) string {
 		return pyFloatStr(float64(x))
 	case float64:
 		return pyFloatStr(x)
+	case *big.Int:
+		return intRepr(x)
+	case complex128:
+		return complexRepr(x)
 	case []any, tupleRepr, map[string]any, map[any]any, orderedDictRepr, viewRepr, listRepr, attrsRepr:
 		// str() of a container is its repr.
 		return pyRepr(v)
@@ -169,13 +174,34 @@ func pyFloatStr(f float64) string {
 	if math.IsInf(f, -1) {
 		return "-inf"
 	}
-	// Use shortest round-trip: 'g' with precision -1.
-	s := strconv.FormatFloat(f, 'g', -1, 64)
-	// If there's no decimal point or exponent, append ".0".
-	if !strings.ContainsAny(s, ".eE") {
-		s += ".0"
+	// Python's repr: the shortest round-trip digits, in fixed notation
+	// for exponents from -4 to 15 and in exponent notation otherwise.
+	e := strconv.FormatFloat(f, 'e', -1, 64) // e.g. -1.2345e+06
+	sign := ""
+	if e[0] == '-' {
+		sign, e = "-", e[1:]
 	}
-	return s
+	mant, expStr, _ := strings.Cut(e, "e")
+	digits := strings.Replace(mant, ".", "", 1)
+	exp, _ := strconv.Atoi(expStr)
+	if exp < -4 || exp >= 16 {
+		m := digits[:1]
+		if len(digits) > 1 {
+			m += "." + digits[1:]
+		}
+		es := "+"
+		if exp < 0 {
+			es, exp = "-", -exp
+		}
+		return fmt.Sprintf("%s%se%s%02d", sign, m, es, exp)
+	}
+	if exp < 0 {
+		return sign + "0." + strings.Repeat("0", -exp-1) + digits
+	}
+	if len(digits) <= exp+1 {
+		return sign + digits + strings.Repeat("0", exp+1-len(digits)) + ".0"
+	}
+	return sign + digits[:exp+1] + "." + digits[exp+1:]
 }
 
 // orderedDictRepr lets escape recognise insertion-ordered dicts without

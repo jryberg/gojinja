@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/big"
 	"sort"
 	"strings"
 
@@ -54,15 +55,19 @@ type Engine interface {
 // Render renders tpl into w against ctx. Returns the number of bytes
 // written and any error.
 func Render(ctx context.Context, w io.Writer, tpl *ast.Template, rctx *runtime.Context, eng Engine) (err error) {
-	// repr and str() of too deeply nested values panic, having no error
-	// result; the render fails with their error.
+	// repr and str() of too deeply nested values, or of ints too long
+	// for decimal, panic, having no error result; the render fails with
+	// their error.
 	defer func() {
 		if r := recover(); r != nil {
-			re, ok := r.(escape.RecursionError)
-			if !ok {
+			switch e := r.(type) {
+			case escape.RecursionError:
+				err = gjerrors.NewTemplateRuntimeError(e.Error())
+			case escape.ValueError:
+				err = gjerrors.NewTemplateRuntimeError(e.Error())
+			default:
 				panic(r)
 			}
-			err = gjerrors.NewTemplateRuntimeError(re.Error())
 		}
 	}()
 	ev := &evaluator{eng: eng, w: w, goCtx: ctx}
@@ -1150,6 +1155,10 @@ func Truthy(v any) bool {
 		return x.Len() != 0
 	case *runtime.Range:
 		return x.Len() != 0
+	case *big.Int:
+		return x.Sign() != 0
+	case complex128:
+		return x != 0
 	case map[any]any:
 		return len(x) != 0
 	case map[string]any:

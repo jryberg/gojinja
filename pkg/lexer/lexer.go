@@ -4,6 +4,7 @@ package lexer
 
 import (
 	"fmt"
+	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
@@ -753,7 +754,7 @@ func (l *Lexer) wrap(raw []rawToken, name, filename string) ([]Token, error) {
 			if err != nil {
 				return nil, gjerrors.NewTemplateSyntaxError(err.Error(), t.Lineno, name, filename)
 			}
-			v = strconv.FormatInt(n, 10)
+			v = n.String()
 		case TokenFloat:
 			f, err := parseFloatLiteral(v)
 			if err != nil {
@@ -783,18 +784,28 @@ func lastLineno(toks []Token) int {
 }
 
 // parseIntLiteral parses a Jinja2 integer literal, supporting all Python
-// bases and `_` separators.
-func parseIntLiteral(s string) (int64, error) {
+// bases and `_` separators. Like Python's int(), it is unbounded, but a
+// decimal literal may have at most escape.MaxStrDigits digits.
+func parseIntLiteral(s string) (*big.Int, error) {
 	clean := strings.ReplaceAll(s, "_", "")
+	base := 10
 	switch {
 	case strings.HasPrefix(clean, "0b") || strings.HasPrefix(clean, "0B"):
-		return strconv.ParseInt(clean[2:], 2, 64)
+		base, clean = 2, clean[2:]
 	case strings.HasPrefix(clean, "0o") || strings.HasPrefix(clean, "0O"):
-		return strconv.ParseInt(clean[2:], 8, 64)
+		base, clean = 8, clean[2:]
 	case strings.HasPrefix(clean, "0x") || strings.HasPrefix(clean, "0X"):
-		return strconv.ParseInt(clean[2:], 16, 64)
+		base, clean = 16, clean[2:]
+	default:
+		if err := escape.ParseIntDigits(len(clean)); err != nil {
+			return nil, err
+		}
 	}
-	return strconv.ParseInt(clean, 10, 64)
+	n, ok := new(big.Int).SetString(clean, base)
+	if !ok {
+		return nil, fmt.Errorf("invalid integer literal %q", s)
+	}
+	return n, nil
 }
 
 // parseFloatLiteral parses a Jinja2 float literal, allowing `_` separators.

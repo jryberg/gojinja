@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
@@ -61,11 +62,8 @@ func NormalizeJSONNumbers(v any) any {
 		}
 		return out
 	case json.Number:
-		if i, err := x.Int64(); err == nil {
-			return i
-		}
-		if f, err := x.Float64(); err == nil {
-			return f
+		if v, err := jsonNumber(x); err == nil {
+			return v
 		}
 		return x.String()
 	}
@@ -117,14 +115,7 @@ func decodeValue(dec *json.Decoder, tok json.Token) (any, error) {
 	case string, bool, nil:
 		return t, nil
 	case json.Number:
-		if i, err := t.Int64(); err == nil {
-			return i, nil
-		}
-		f, err := t.Float64()
-		if err != nil {
-			return nil, err
-		}
-		return f, nil
+		return jsonNumber(t)
 	}
 	return nil, fmt.Errorf("varsutil: unexpected token %T", tok)
 }
@@ -175,4 +166,18 @@ func decodeArray(dec *json.Decoder) ([]any, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// jsonNumber converts a JSON number the way Python's json.loads does: an
+// integer literal to an exact int (int64, or *big.Int beyond it, within
+// Python's 4300-digit limit), anything else to a float.
+func jsonNumber(n json.Number) (any, error) {
+	s := n.String()
+	if !strings.ContainsAny(s, ".eE") {
+		if i, err := n.Int64(); err == nil {
+			return i, nil
+		}
+		return runtime.ParseInt(s, 10)
+	}
+	return runtime.ParseFloat(s)
 }

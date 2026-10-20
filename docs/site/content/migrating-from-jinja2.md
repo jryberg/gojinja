@@ -76,5 +76,9 @@ short version:
   [`context.Context`](https://pkg.go.dev/context) cancellation instead.
 - Lone surrogates such as `"\ud800"`: Go strings cannot hold them, so
   they become U+FFFD. See [divergences](divergences.md).
+- Ints larger than 2^22 bits: an operation producing one raises an error.
+  Python itself prints ints only up to 4300 digits.
+- Float results of `**` and complex math are correctly rounded; the C
+  library Python uses can differ in the last bit in rare cases.
 - Memcached bytecode cache as a built-in — implement the small `Cache`
   interface and you have it.

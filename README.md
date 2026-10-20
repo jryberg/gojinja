@@ -471,6 +471,8 @@ These are deliberate divergences. Each was a conscious trade-off, not an oversig
 | `enable_async` / `async def` filters / `async for` | Different runtime model; Go has no `await`. | `Template.RenderContext(ctx, vars)` cancels mid-render through `context.Context`. |
 | Python-runtime serialization (the `pickle` module) | Python-runtime specific. | Use `pkg/cache.Filesystem` for cross-process AST caching. |
 | Lone surrogates (`"\ud800"`, malformed `utf-7` / `unicode_escape` input) | Go strings are UTF-8 and cannot hold half a surrogate pair. | They become U+FFFD; avoid relying on lone surrogates. |
+| Ints over 2^22 bits (about 1.26 million digits) | Bounds a denial of service such as `9 ** 9 ** 9`; Python can only print ints up to 4300 digits anyway. | None needed in practice; such an operation raises an error. |
+| The last bit of a transcendental float result | gojinja computes `**` and complex math correctly rounded, while the platform C library is off by one ulp in rare cases. | Round explicitly when comparing results across languages. |
 | Memcached bytecode cache | Avoid hard external deps. | Userland adapter satisfying the `Cache` interface. |
 | `PackageLoader` (Python zipfile-aware) | Replaced by `EmbedLoader`. | Use `embed.FS`. |
 | Python `__html__` / `__str__` dunder dispatch on arbitrary objects | Go has no dunder methods. | User Go types implement `escape.HTMLer` (for safe HTML) or `fmt.Stringer` (for custom string form). |

@@ -31,20 +31,6 @@ func pyRoundFloat(f float64, ndigits int) float64 {
 	return out
 }
 
-// pyRoundInt is CPython's round(i, ndigits) for an int: unchanged for
-// ndigits >= 0, otherwise rounded half-to-even to a multiple of
-// 10**-ndigits. Reports false when the result overflows int64.
-func pyRoundInt(i int64, ndigits int) (int64, bool) {
-	if ndigits >= 0 {
-		return i, true
-	}
-	r := roundRatHalfEven(new(big.Rat).SetInt64(i), ndigits)
-	if !r.IsInt() || !r.Num().IsInt64() {
-		return 0, false
-	}
-	return r.Num().Int64(), true
-}
-
 // roundRatHalfEven rounds r to ndigits decimal places (negative ndigits
 // round to tens, hundreds, ...) with ties going to the even neighbour.
 func roundRatHalfEven(r *big.Rat, ndigits int) *big.Rat {
@@ -183,7 +169,7 @@ func (w *jsonWalker) prep(v any) (any, error) {
 			return []any{}, nil
 		}
 		items = x.Items()
-	case *runtime.Range, *runtime.DictView:
+	case *runtime.Range, *runtime.DictView, complex128:
 		//lint:ignore ST1005 json.dumps's exact message
 		return nil, fmt.Errorf("Object of type %s is not JSON serializable", runtime.PyTypeName(v))
 	default:

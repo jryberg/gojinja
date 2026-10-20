@@ -35,15 +35,16 @@ func valuesEqual(a, b any, depth int) (bool, error) {
 	if u, ok := b.(runtime.Undefined); ok {
 		return u.Equal(a)
 	}
-	if ai, ok := eqInt(a); ok {
-		if bi, ok := eqInt(b); ok {
-			return ai == bi, nil
-		}
+	if ac, ok := a.(complex128); ok {
+		return complexEqual(ac, b), nil
 	}
-	if af, ok := eqFloat(a); ok {
-		if bf, ok := eqFloat(b); ok {
-			return af == bf, nil
-		}
+	if bc, ok := b.(complex128); ok {
+		return complexEqual(bc, a), nil
+	}
+	if c, nan, ok := runtime.CompareNumbers(a, b); ok {
+		return !nan && c == 0, nil
+	}
+	if runtime.IsNumber(a) || runtime.IsNumber(b) {
 		return false, nil
 	}
 	if as, ok := eqStr(a); ok {
@@ -121,23 +122,18 @@ func elemEqual(a, b any, depth int) (bool, error) {
 	return valuesEqual(a, b, depth+1)
 }
 
-// eqInt returns v as an int64 when it is a Go integer or a bool.
-func eqInt(v any) (int64, bool) {
-	if b, ok := v.(bool); ok {
-		if b {
-			return 1, true
-		}
-		return 0, true
+// complexEqual is == between a complex and v: componentwise with a
+// complex, and against the real part (exactly) when the imaginary part
+// is zero for any other number.
+func complexEqual(c complex128, v any) bool {
+	if d, ok := v.(complex128); ok {
+		return c == d
 	}
-	return asInt64(v)
-}
-
-// eqFloat returns v as a float64 when it is any Python number.
-func eqFloat(v any) (float64, bool) {
-	if i, ok := eqInt(v); ok {
-		return float64(i), true
+	if imag(c) != 0 || !runtime.IsNumber(v) {
+		return false
 	}
-	return asFloat(v)
+	cmp, nan, _ := runtime.CompareNumbers(real(c), v)
+	return !nan && cmp == 0
 }
 
 func eqStr(v any) (string, bool) {

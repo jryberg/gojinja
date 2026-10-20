@@ -3,7 +3,7 @@ package environment
 import (
 	"fmt"
 	"math"
-	"reflect"
+	"math/big"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -518,26 +518,18 @@ func pyFormat(v any, spec string) (string, error) {
 	case escape.Markup:
 		return formatStr(string(x), spec)
 	case bool:
-		var n uint64
+		n := big.NewInt(0)
 		if x {
-			n = 1
+			n.SetInt64(1)
 		}
-		return formatInt(false, n, spec, "bool")
+		return formatInt(n, spec, "bool")
 	case float64:
 		return formatFloat(x, spec, "float")
 	case float32:
 		return formatFloat(float64(x), spec, "float")
 	}
-	rv := reflect.ValueOf(v)
-	switch rv.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		n := rv.Int()
-		if n < 0 {
-			return formatInt(true, uint64(-(n+1))+1, spec, "int")
-		}
-		return formatInt(false, uint64(n), spec, "int")
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return formatInt(false, rv.Uint(), spec, "int")
+	if n, ok := runtime.BigInt(v); ok {
+		return formatInt(n, spec, "int")
 	}
 	if u, ok := v.(runtime.Undefined); ok && u.Mode == runtime.ModeStrict {
 		return "", u.Fail()
@@ -568,16 +560,18 @@ func formatStr(s, spec string) (string, error) {
 	return pad(sp, "", s, '<'), nil
 }
 
-func formatInt(neg bool, mag uint64, spec, typeName string) (string, error) {
+func formatInt(n *big.Int, spec, typeName string) (string, error) {
 	sp, err := parseSpec(spec, typeName, '>')
 	if err != nil {
 		return "", err
 	}
+	neg := n.Sign() < 0
+	mag := new(big.Int).Abs(n)
 	switch sp.typ {
 	case 'e', 'E', 'f', 'F', 'g', 'G', '%':
-		f := float64(mag)
-		if neg {
-			f = -f
+		f, err := runtime.IntToFloat(n)
+		if err != nil {
+			return "", gjerrors.NewTemplateRuntimeError(err.Error())
 		}
 		return formatFloat(f, spec, typeName)
 	case 0, 'd', 'n', 'b', 'o', 'x', 'X', 'c':
@@ -600,10 +594,10 @@ func formatInt(neg bool, mag uint64, spec, typeName string) (string, error) {
 		if sp.alt {
 			return "", formatValueError("Alternate form (#) not allowed with integer format specifier 'c'")
 		}
-		if neg || mag > 0x10ffff {
+		if neg || !mag.IsInt64() || mag.Int64() > 0x10ffff {
 			return "", gjerrors.NewTemplateRuntimeError("%c arg not in range(0x110000)")
 		}
-		return pad(sp, "", string(rune(mag)), '>'), nil
+		return pad(sp, "", string(rune(mag.Int64())), '>'), nil
 	}
 	base, prefix, group := 10, "", 3
 	switch sp.typ {
@@ -619,7 +613,14 @@ func formatInt(neg bool, mag uint64, spec, typeName string) (string, error) {
 	if !sp.alt {
 		prefix = ""
 	}
-	digits := strconv.FormatUint(mag, base)
+	var digits string
+	if base == 10 {
+		if digits, err = escape.IntDecimal(mag); err != nil {
+			return "", gjerrors.NewTemplateRuntimeError(err.Error())
+		}
+	} else {
+		digits = mag.Text(base)
+	}
 	if sp.typ == 'X' {
 		digits = strings.ToUpper(digits)
 	}

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"math/big"
 	"reflect"
 
 	"github.com/jryberg/gojinja/pkg/escape"
@@ -22,6 +23,10 @@ func PyTypeName(v any) string {
 		return "Markup"
 	case float32, float64:
 		return "float"
+	case *big.Int:
+		return "int"
+	case complex128:
+		return "complex"
 	case []any, *PyList, []string:
 		return "list"
 	case Tuple:

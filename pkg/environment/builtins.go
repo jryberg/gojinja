@@ -1,9 +1,11 @@
 package environment
 
 import (
+	"errors"
 	"fmt"
 	"html"
 	"math"
+	"math/big"
 	"reflect"
 	"sort"
 	"strconv"
@@ -604,24 +606,11 @@ func reverseRunes(s string) string {
 //	{{ -7    | abs }}  →  7
 //	{{ -1.5  | abs }}  →  1.5
 func filterAbs(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	switch x := value.(type) {
-	case int:
-		if x < 0 {
-			return -x, nil
-		}
-		return x, nil
-	case int64:
-		if x < 0 {
-			return -x, nil
-		}
-		return x, nil
-	case float64:
-		if x < 0 {
-			return -x, nil
-		}
-		return x, nil
+	v, err := runtime.AbsNumber(value)
+	if runtime.IsNotNumber(err) {
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("bad operand type for abs(): '%s'", runtime.PyTypeName(value)))
 	}
-	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("abs: not numeric %T", value))
+	return v, err
 }
 
 // filterInt implements the `int` filter: convert a value to an integer.
@@ -650,75 +639,95 @@ func filterInt(_ *Environment, _ *runtime.Context, value any, args []any, kwargs
 	} else if v, ok := kwargs["default"]; ok {
 		def = v
 	}
-	base := 10
+	base := any(int64(10))
 	if len(args) > 1 {
-		if n, ok := asInt(args[1]); ok {
-			base = n
-		}
+		base = args[1]
 	} else if v, ok := kwargs["base"]; ok {
-		if n, ok := asInt(v); ok {
-			base = n
-		}
+		base = v
 	}
+	// Jinja2's do_int: int(value, base) for a string, int(value)
+	// otherwise; on a ValueError or TypeError, int(float(value)) (so
+	// "42.23"|int is 42), and on any error of that (an OverflowError
+	// included) the default.
+	v, err := pyInt(value, base)
+	if err == nil || !pyConversionError(err) {
+		return v, err
+	}
+	f, err := pyFloat(value)
+	if err != nil {
+		return def, nil
+	}
+	if v, err = runtime.FloatToInt(f); err != nil {
+		return def, nil
+	}
+	return v, nil
+}
+
+// errPyType marks a TypeError from int() or float().
+var errPyType = errors.New("unsupported type")
+
+func intTypeError(v any) error {
+	return fmt.Errorf("int() argument must be a string, a bytes-like object or a real number, not '%s': %w", runtime.PyTypeName(v), errPyType)
+}
+
+func floatTypeError(v any) error {
+	return fmt.Errorf("float() argument must be a string or a real number, not '%s': %w", runtime.PyTypeName(v), errPyType)
+}
+
+// pyConversionError reports whether err is the TypeError or ValueError
+// do_int and do_float fall back to the default on.
+func pyConversionError(err error) bool {
+	return errors.Is(err, errPyType) || runtime.IsValueError(err)
+}
+
+// pyInt is Python's int(value) — or int(value, base) for a string.
+func pyInt(value, base any) (any, error) {
 	switch x := value.(type) {
-	case int:
-		return int64(x), nil
-	case int64:
-		return x, nil
-	case float64:
-		if math.IsNaN(x) {
-			return def, nil
+	case string:
+		b, err := indexArg(base)
+		if err != nil {
+			return nil, errPyType
 		}
-		if math.IsInf(x, 0) {
-			return nil, gjerrors.NewFilterArgumentError("cannot convert float infinity to integer")
-		}
-		return int64(x), nil
+		return runtime.ParseInt(x, b)
+	case escape.Markup:
+		return pyInt(string(x), base)
+	case runtime.Bytes:
+		return pyInt(string(x), base)
 	case bool:
 		if x {
 			return int64(1), nil
 		}
 		return int64(0), nil
-	case string:
-		s := strings.TrimSpace(x)
-		// Python's int() with base != 10 accepts optional 0x/0o/0b prefix.
-		if base != 10 {
-			s = strings.TrimPrefix(s, "+")
-			negate := false
-			if strings.HasPrefix(s, "-") {
-				negate = true
-				s = s[1:]
-			}
-			switch base {
-			case 16:
-				s = strings.TrimPrefix(s, "0x")
-				s = strings.TrimPrefix(s, "0X")
-			case 8:
-				s = strings.TrimPrefix(s, "0o")
-				s = strings.TrimPrefix(s, "0O")
-			case 2:
-				s = strings.TrimPrefix(s, "0b")
-				s = strings.TrimPrefix(s, "0B")
-			}
-			n, err := strconv.ParseInt(s, base, 64)
-			if err != nil {
-				return def, nil
-			}
-			if negate {
-				n = -n
-			}
-			return n, nil
-		}
-		// Base 10: try int first, fall back to float→int (Python's
-		// behaviour for "32.32"|int → 32).
-		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-			return n, nil
-		}
-		if f, err := strconv.ParseFloat(s, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) {
-			return int64(f), nil
-		}
-		return def, nil
+	case float64:
+		return runtime.FloatToInt(x)
 	}
-	return def, nil
+	if b, ok := runtime.BigInt(value); ok {
+		return runtime.NormInt(b)
+	}
+	return nil, intTypeError(value)
+}
+
+// pyFloat is Python's float(value).
+func pyFloat(value any) (float64, error) {
+	switch x := value.(type) {
+	case float64:
+		return x, nil
+	case bool:
+		if x {
+			return 1, nil
+		}
+		return 0, nil
+	case string:
+		return runtime.ParseFloat(x)
+	case escape.Markup:
+		return runtime.ParseFloat(string(x))
+	case runtime.Bytes:
+		return runtime.ParseFloat(string(x))
+	}
+	if runtime.IsInt(value) {
+		return runtime.IntToFloat(value)
+	}
+	return 0, floatTypeError(value)
 }
 
 // filterFloat implements the `float` filter: convert a value to a
@@ -745,26 +754,14 @@ func filterFloat(_ *Environment, _ *runtime.Context, value any, args []any, kwar
 	} else if v, ok := kwargs["default"]; ok {
 		def = v
 	}
-	switch x := value.(type) {
-	case int:
-		return float64(x), nil
-	case int64:
-		return float64(x), nil
-	case float64:
-		return x, nil
-	case bool:
-		if x {
-			return 1.0, nil
-		}
-		return 0.0, nil
-	case string:
-		f, err := strconv.ParseFloat(strings.TrimSpace(x), 64)
-		if err != nil {
+	f, err := pyFloat(value)
+	if err != nil {
+		if pyConversionError(err) {
 			return def, nil
 		}
-		return f, nil
+		return nil, err
 	}
-	return def, nil
+	return f, nil
 }
 
 // filterList implements the `list` filter: convert a value to a list.
@@ -1238,6 +1235,9 @@ func indexArg(v any) (int, error) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return int(rv.Uint()), nil
 	}
+	if runtime.IsInt(v) {
+		return 0, gjerrors.NewFilterArgumentError("Python int too large to convert to C ssize_t")
+	}
 	return 0, gjerrors.NewFilterArgumentError(fmt.Sprintf("'%s' object cannot be interpreted as an integer", runtime.PyTypeName(v)))
 }
 
@@ -1670,32 +1670,55 @@ func filterRound(_ *Environment, _ *runtime.Context, value any, args []any, kwar
 			return nil, err
 		}
 	}
-	f, ok := numAsFloat(value)
-	if b, isBool := value.(bool); isBool {
-		f, ok = 0, true
-		if b {
-			f = 1
-		}
-	}
-	if !ok {
-		return nil, gjerrors.NewFilterArgumentError("round requires a number")
-	}
 	if method == "common" {
-		// Python's round() keeps an int (or bool) input an int.
-		if _, isFloat := value.(float64); !isFloat {
-			if n, ok := pyRoundInt(int64(f), prec); ok {
-				return n, nil
-			}
-			return nil, gjerrors.NewFilterArgumentError("round: integer result out of range")
+		return pyRound(value, prec)
+	}
+	// func(value * 10**precision) / 10**precision, with Python's
+	// arithmetic: exact for an int, a float for the result.
+	p, err := runtime.NumBinop("**", int64(10), int64(prec))
+	if err != nil {
+		return nil, err
+	}
+	m, err := eval.BinaryOp("*", value, p)
+	if err != nil {
+		return nil, err
+	}
+	if f, ok := m.(float64); ok {
+		if method == "ceil" {
+			f = math.Ceil(f)
+		} else {
+			f = math.Floor(f)
 		}
-		return pyRoundFloat(f, prec), nil
+		if m, err = runtime.FloatToInt(f); err != nil {
+			return nil, err
+		}
+	} else if !runtime.IsInt(m) {
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("must be real number, not %s", runtime.PyTypeName(m)))
 	}
-	// math.ceil/floor(value * 10**precision) / 10**precision
-	mult := math.Pow10(prec)
-	if method == "ceil" {
-		return math.Ceil(f*mult) / mult, nil
+	return runtime.NumBinop("/", m, p)
+}
+
+// pyRound is Python's round(value, ndigits): an int stays an int, a
+// float rounds half to even exactly.
+func pyRound(value any, ndigits int) (any, error) {
+	switch x := value.(type) {
+	case float64:
+		return pyRoundFloat(x, ndigits), nil
+	case bool:
+		if x {
+			return int64(1), nil
+		}
+		return int64(0), nil
 	}
-	return math.Floor(f*mult) / mult, nil
+	b, ok := runtime.BigInt(value)
+	if !ok {
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("type %s doesn't define __round__ method", runtime.PyTypeName(value)))
+	}
+	if ndigits >= 0 {
+		return runtime.NormInt(b)
+	}
+	r := roundRatHalfEven(new(big.Rat).SetInt(b), ndigits)
+	return runtime.NormInt(r.Num())
 }
 
 // filterFilesizeformat implements the `filesizeformat` filter: render a
@@ -1711,9 +1734,9 @@ func filterRound(_ *Environment, _ *runtime.Context, value any, args []any, kwar
 //	{{ 1500       | filesizeformat }}            →  1.5 kB
 //	{{ 1500       | filesizeformat(true) }}      →  1.5 KiB
 func filterFilesizeformat(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	f, ok := numAsFloat(value)
-	if !ok {
-		return nil, gjerrors.NewFilterArgumentError("filesizeformat requires a number")
+	f, err := pyFloat(value)
+	if err != nil {
+		return nil, gjerrors.NewFilterArgumentError(err.Error())
 	}
 	binary := false
 	if len(args) > 0 {
@@ -2203,11 +2226,7 @@ func testString(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 //
 // Signature: x is number
 func testNumber(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
-	switch value.(type) {
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
-		return true, nil
-	}
-	return false, nil
+	return runtime.IsNumber(value), nil
 }
 
 // testInteger implements the `integer` test: true if the value is any
@@ -2215,11 +2234,7 @@ func testNumber(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 //
 // Signature: x is integer
 func testInteger(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
-	switch value.(type) {
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return true, nil
-	}
-	return false, nil
+	return runtime.IsInt(value), nil
 }
 
 // testFloat implements the `float` test: true if the value is a float32
@@ -2534,16 +2549,4 @@ func testIsTest(env *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	}
 	_, exists := env.tests[name]
 	return exists, nil
-}
-
-func numAsFloat(v any) (float64, bool) {
-	switch x := v.(type) {
-	case int:
-		return float64(x), true
-	case int64:
-		return float64(x), true
-	case float64:
-		return x, true
-	}
-	return 0, false
 }

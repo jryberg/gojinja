@@ -2,6 +2,7 @@ package escape
 
 import (
 	"fmt"
+	"math/big"
 	"reflect"
 	"strings"
 )
@@ -98,6 +99,10 @@ func (st *reprState) repr(v any) string {
 		return pyFloatStr(float64(x))
 	case float64:
 		return pyFloatStr(x)
+	case *big.Int:
+		return intRepr(x)
+	case complex128:
+		return complexRepr(x)
 	case []any:
 		return st.list(v, x)
 	case tupleRepr:

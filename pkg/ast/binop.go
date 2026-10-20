@@ -1,9 +1,9 @@
 package ast
 
 import (
-	"fmt"
-	"math"
 	"strings"
+
+	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
 // binexprBase is embedded by every binary-operator node. The Op field is
@@ -133,198 +133,11 @@ func applyBinop(op string, a, b any) (any, error) {
 			}
 		}
 	}
-	la, lb, ok := numericPair(a, b)
-	if !ok {
+	// Numbers fold with the evaluator's arithmetic; anything it would
+	// reject is left for render time to raise.
+	v, err := runtime.NumBinop(op, a, b)
+	if err != nil {
 		return nil, ErrImpossible
 	}
-	switch op {
-	case "+":
-		return numAdd(la, lb), nil
-	case "-":
-		return numSub(la, lb), nil
-	case "*":
-		return numMul(la, lb), nil
-	case "/":
-		if isZero(lb) {
-			return nil, ErrImpossible
-		}
-		return numDiv(la, lb), nil
-	case "//":
-		if isZero(lb) {
-			return nil, ErrImpossible
-		}
-		return numFloorDiv(la, lb), nil
-	case "%":
-		if isZero(lb) {
-			return nil, ErrImpossible
-		}
-		return numMod(la, lb), nil
-	case "**":
-		return numPow(la, lb), nil
-	}
-	return nil, fmt.Errorf("ast: unknown binary operator %q: %w", op, ErrImpossible)
-}
-
-// numericPair coerces both values to either two int64s or two float64s.
-// The first return is the chosen widened pair; the second is true when
-// the coercion succeeded.
-func numericPair(a, b any) (any, any, bool) {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			return ai, bi, true
-		}
-		if bf, ok := b.(float64); ok {
-			return float64(ai), bf, true
-		}
-	}
-	if af, ok := a.(float64); ok {
-		if bi, ok := b.(int64); ok {
-			return af, float64(bi), true
-		}
-		if bf, ok := b.(float64); ok {
-			return af, bf, true
-		}
-	}
-	if ai, ok := asInt64(a); ok {
-		if bi, ok := asInt64(b); ok {
-			return ai, bi, true
-		}
-	}
-	return nil, nil, false
-}
-
-// asInt64 attempts to widen a Go integer of any size into int64.
-func asInt64(v any) (int64, bool) {
-	switch x := v.(type) {
-	case int:
-		return int64(x), true
-	case int8:
-		return int64(x), true
-	case int16:
-		return int64(x), true
-	case int32:
-		return int64(x), true
-	case int64:
-		return x, true
-	case uint:
-		return int64(x), true
-	case uint8:
-		return int64(x), true
-	case uint16:
-		return int64(x), true
-	case uint32:
-		return int64(x), true
-	case uint64:
-		if x > math.MaxInt64 {
-			return 0, false
-		}
-		return int64(x), true
-	}
-	return 0, false
-}
-
-func isZero(v any) bool {
-	switch x := v.(type) {
-	case int64:
-		return x == 0
-	case float64:
-		return x == 0
-	}
-	return false
-}
-
-func numAdd(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			return ai + bi
-		}
-	}
-	return a.(float64) + b.(float64)
-}
-
-func numSub(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			return ai - bi
-		}
-	}
-	return a.(float64) - b.(float64)
-}
-
-func numMul(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			return ai * bi
-		}
-	}
-	return a.(float64) * b.(float64)
-}
-
-// numDiv mirrors Python's `/`: int / int returns float.
-func numDiv(a, b any) any {
-	af := toFloat(a)
-	bf := toFloat(b)
-	return af / bf
-}
-
-func numFloorDiv(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			// Python floor-div rounds toward -inf.
-			q := ai / bi
-			if (ai%bi != 0) && ((ai < 0) != (bi < 0)) {
-				q--
-			}
-			return q
-		}
-	}
-	af := toFloat(a)
-	bf := toFloat(b)
-	return math.Floor(af / bf)
-}
-
-func numMod(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			r := ai % bi
-			if (r != 0) && ((r < 0) != (bi < 0)) {
-				r += bi
-			}
-			return r
-		}
-	}
-	af := toFloat(a)
-	bf := toFloat(b)
-	r := math.Mod(af, bf)
-	if (r != 0) && ((r < 0) != (bf < 0)) {
-		r += bf
-	}
-	return r
-}
-
-func numPow(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok && bi >= 0 {
-			r := int64(1)
-			x := ai
-			for i := bi; i > 0; i >>= 1 {
-				if i&1 == 1 {
-					r *= x
-				}
-				x *= x
-			}
-			return r
-		}
-	}
-	return math.Pow(toFloat(a), toFloat(b))
-}
-
-func toFloat(v any) float64 {
-	switch x := v.(type) {
-	case int64:
-		return float64(x)
-	case float64:
-		return x
-	}
-	return math.NaN()
+	return v, nil
 }

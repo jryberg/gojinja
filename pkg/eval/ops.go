@@ -1,8 +1,10 @@
 package eval
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"strings"
 
 	"github.com/jryberg/gojinja/pkg/escape"
@@ -77,6 +79,13 @@ func applyBinop(op string, a, b any) (any, error) {
 		}
 	}
 	if op == "*" {
+		// Repeating a sequence needs a count that fits an index.
+		if _, big := a.(*big.Int); big && isSequence(b) {
+			return nil, errIndexSized
+		}
+		if _, big := b.(*big.Int); big && isSequence(a) {
+			return nil, errIndexSized
+		}
 		if s, ok := a.(string); ok {
 			if n, ok := asInt(b); ok {
 				if n < 0 {
@@ -104,36 +113,22 @@ func applyBinop(op string, a, b any) (any, error) {
 			}
 		}
 	}
-	la, lb, ok := numericPair(a, b)
-	if !ok {
+	v, err := runtime.NumBinop(op, a, b)
+	if runtime.IsNotNumber(err) {
 		return nil, fmt.Errorf("unsupported operand type(s) for %s: '%s' and '%s'", op, runtime.PyTypeName(a), runtime.PyTypeName(b))
 	}
-	switch op {
-	case "+":
-		return numAdd(la, lb), nil
-	case "-":
-		return numSub(la, lb), nil
-	case "*":
-		return numMul(la, lb), nil
-	case "/":
-		if isZero(lb) {
-			return nil, fmt.Errorf("division by zero")
-		}
-		return toFloat(la) / toFloat(lb), nil
-	case "//":
-		if isZero(lb) {
-			return nil, fmt.Errorf("integer division by zero")
-		}
-		return numFloorDiv(la, lb), nil
-	case "%":
-		if isZero(lb) {
-			return nil, fmt.Errorf("modulo by zero")
-		}
-		return numMod(la, lb), nil
-	case "**":
-		return numPow(la, lb), nil
+	return v, err
+}
+
+var errIndexSized = errors.New("cannot fit 'int' into an index-sized integer")
+
+// isSequence reports whether v is a sequence `*` repeats.
+func isSequence(v any) bool {
+	switch v.(type) {
+	case string, escape.Markup, runtime.Bytes, runtime.Tuple, *runtime.PyList, []any:
+		return true
 	}
-	return nil, fmt.Errorf("unknown binary operator %q", op)
+	return false
 }
 
 func boolToInt(v any) any {
@@ -246,20 +241,11 @@ func negate(v any) (any, error) {
 	if err := FailUndefined(v); err != nil {
 		return nil, err
 	}
-	switch x := v.(type) {
-	case bool:
-		if x {
-			return int64(-1), nil
-		}
-		return int64(0), nil
-	case int:
-		return -x, nil
-	case int64:
-		return -x, nil
-	case float64:
-		return -x, nil
+	r, err := runtime.NegateNumber(v)
+	if runtime.IsNotNumber(err) {
+		return nil, fmt.Errorf("bad operand type for unary -: '%s'", runtime.PyTypeName(v))
 	}
-	return nil, fmt.Errorf("cannot negate %T", v)
+	return r, err
 }
 
 // positive implements unary `+`.
@@ -267,16 +253,16 @@ func positive(v any) (any, error) {
 	if err := FailUndefined(v); err != nil {
 		return nil, err
 	}
-	switch x := v.(type) {
-	case bool:
-		if x {
+	if b, ok := v.(bool); ok {
+		if b {
 			return int64(1), nil
 		}
 		return int64(0), nil
-	case int, int64, float64:
-		return x, nil
 	}
-	return nil, fmt.Errorf("bad operand type for unary +: %T", v)
+	if !runtime.IsNumber(v) {
+		return nil, fmt.Errorf("bad operand type for unary +: '%s'", runtime.PyTypeName(v))
+	}
+	return v, nil
 }
 
 // compareValues evaluates a single comparison op on two values.
@@ -315,15 +301,11 @@ func orderDepth(op string, a, b any, depth int) (bool, error) {
 	if err := FailUndefined(a, b); err != nil {
 		return false, err
 	}
-	if ai, ok := eqInt(a); ok {
-		if bi, ok := eqInt(b); ok {
-			return cmpOrdered(op, ai, bi), nil
+	if c, nan, ok := runtime.CompareNumbers(a, b); ok {
+		if nan {
+			return false, nil
 		}
-	}
-	if af, ok := eqFloat(a); ok {
-		if bf, ok := eqFloat(b); ok {
-			return cmpOrdered(op, af, bf), nil
-		}
+		return cmpOrdered(op, c, 0), nil
 	}
 	if as, ok := eqStr(a); ok {
 		if bs, ok := eqStr(b); ok {
@@ -457,26 +439,6 @@ func asAnyList(v any) ([]any, bool) {
 
 // ------------------------------------------------------------ numeric helpers
 
-func numericPair(a, b any) (any, any, bool) {
-	if ai, ok := asInt64(a); ok {
-		if bi, ok := asInt64(b); ok {
-			return ai, bi, true
-		}
-		if bf, ok := asFloat(b); ok {
-			return float64(ai), bf, true
-		}
-	}
-	if af, ok := asFloat(a); ok {
-		if bf, ok := asFloat(b); ok {
-			return af, bf, true
-		}
-		if bi, ok := asInt64(b); ok {
-			return af, float64(bi), true
-		}
-	}
-	return nil, nil, false
-}
-
 func asInt(v any) (int, bool) {
 	switch x := v.(type) {
 	case int:
@@ -523,110 +485,4 @@ func asFloat(v any) (float64, bool) {
 		return x, true
 	}
 	return 0, false
-}
-
-func numAsFloat(v any) (float64, bool) {
-	if i, ok := asInt64(v); ok {
-		return float64(i), true
-	}
-	if f, ok := asFloat(v); ok {
-		return f, true
-	}
-	return 0, false
-}
-
-func isZero(v any) bool {
-	switch x := v.(type) {
-	case int64:
-		return x == 0
-	case float64:
-		return x == 0
-	}
-	return false
-}
-
-func numAdd(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			return ai + bi
-		}
-	}
-	return toFloat(a) + toFloat(b)
-}
-func numSub(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			return ai - bi
-		}
-	}
-	return toFloat(a) - toFloat(b)
-}
-func numMul(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			return ai * bi
-		}
-	}
-	return toFloat(a) * toFloat(b)
-}
-
-func numFloorDiv(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			q := ai / bi
-			if (ai%bi != 0) && ((ai < 0) != (bi < 0)) {
-				q--
-			}
-			return q
-		}
-	}
-	return math.Floor(toFloat(a) / toFloat(b))
-}
-
-func numMod(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok {
-			r := ai % bi
-			if (r != 0) && ((r < 0) != (bi < 0)) {
-				r += bi
-			}
-			return r
-		}
-	}
-	af, bf := toFloat(a), toFloat(b)
-	r := math.Mod(af, bf)
-	if (r != 0) && ((r < 0) != (bf < 0)) {
-		r += bf
-	}
-	return r
-}
-
-func numPow(a, b any) any {
-	if ai, ok := a.(int64); ok {
-		if bi, ok := b.(int64); ok && bi >= 0 {
-			r := int64(1)
-			x := ai
-			for i := bi; i > 0; i >>= 1 {
-				if i&1 == 1 {
-					r *= x
-				}
-				x *= x
-			}
-			return r
-		}
-	}
-	return math.Pow(toFloat(a), toFloat(b))
-}
-
-func toFloat(v any) float64 {
-	switch x := v.(type) {
-	case int64:
-		return float64(x)
-	case float64:
-		return x
-	}
-	if f, ok := numAsFloat(v); ok {
-		return f
-	}
-	return math.NaN()
 }

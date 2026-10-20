@@ -3,6 +3,7 @@ package runtime
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"reflect"
 	"strconv"
 	"strings"
@@ -46,6 +47,17 @@ func writeHashKey(b *strings.Builder, v any) error {
 		return nil
 	case float64:
 		writeHashFloat(b, x)
+		return nil
+	case *big.Int:
+		b.WriteString("i" + x.String() + ";")
+		return nil
+	case complex128:
+		// A complex with no imaginary part is filed with its real part.
+		if imag(x) == 0 {
+			writeHashFloat(b, real(x))
+			return nil
+		}
+		b.WriteString("c" + strconv.FormatFloat(real(x), 'g', -1, 64) + "," + strconv.FormatFloat(imag(x), 'g', -1, 64) + ";")
 		return nil
 	case float32:
 		writeHashFloat(b, float64(x))
@@ -102,8 +114,13 @@ func writeHashString(b *strings.Builder, tag byte, s string) {
 // writeHashFloat files an integral float with the int of the same value,
 // as Python's hash(1.0) == hash(1).
 func writeHashFloat(b *strings.Builder, f float64) {
-	if f == math.Trunc(f) && math.Abs(f) < 1<<63 {
-		fmt.Fprintf(b, "i%d;", int64(f))
+	if f == math.Trunc(f) && !math.IsInf(f, 0) {
+		if math.Abs(f) < 1<<63 {
+			fmt.Fprintf(b, "i%d;", int64(f))
+		} else {
+			i, _ := new(big.Float).SetFloat64(f).Int(nil)
+			b.WriteString("i" + i.String() + ";")
+		}
 		return
 	}
 	b.WriteString("f" + strconv.FormatFloat(f, 'g', -1, 64) + ";")

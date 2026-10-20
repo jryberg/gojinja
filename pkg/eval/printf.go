@@ -3,6 +3,7 @@ package eval
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -250,16 +251,16 @@ func (p *percentFormatter) convert(verb rune, arg any, spec percentSpec, index i
 			}
 			return pad(x, spec, false), nil
 		}
-		n, ok := asInt64(boolToInt(arg))
+		b, ok := runtime.BigInt(boolToInt(arg))
 		if !ok {
 			return "", fmt.Errorf("%%c requires an int or a unicode character, not %s", runtime.PyTypeName(arg))
 		}
-		if n < 0 || n > 0x10ffff {
+		if !b.IsInt64() || b.Int64() < 0 || b.Int64() > 0x10ffff {
 			return "", fmt.Errorf("%%c arg not in range(0x110000)")
 		}
-		return pad(string(rune(n)), spec, false), nil
+		return pad(string(rune(b.Int64())), spec, false), nil
 	case 'd', 'i', 'u':
-		n, ok := asInt64(boolToInt(arg))
+		b, ok := runtime.BigInt(boolToInt(arg))
 		if !ok {
 			f, isFloat := asFloat(arg)
 			if !isFloat {
@@ -268,11 +269,11 @@ func (p *percentFormatter) convert(verb rune, arg any, spec percentSpec, index i
 			if math.IsInf(f, 0) || math.IsNaN(f) {
 				return "", fmt.Errorf("cannot convert float %s to integer", pyFloatWord(f))
 			}
-			n = int64(f)
+			b, _ = new(big.Float).SetFloat64(math.Trunc(f)).Int(nil)
 		}
-		return formatInt(n, 10, false, spec, ""), nil
+		return formatInt(b, 10, false, spec, "")
 	case 'o', 'x', 'X':
-		n, ok := asInt64(boolToInt(arg))
+		b, ok := runtime.BigInt(boolToInt(arg))
 		if !ok {
 			return "", fmt.Errorf("%%%c format: an integer is required, not %s", verb, runtime.PyTypeName(arg))
 		}
@@ -285,11 +286,17 @@ func (p *percentFormatter) convert(verb rune, arg any, spec percentSpec, index i
 		if !spec.alt {
 			prefix = ""
 		}
-		return formatInt(n, base, verb == 'X', spec, prefix), nil
+		return formatInt(b, base, verb == 'X', spec, prefix)
 	case 'e', 'E', 'f', 'F', 'g', 'G':
-		f, ok := eqFloat(arg)
-		if !ok {
+		if _, isComplex := arg.(complex128); isComplex || !runtime.IsNumber(arg) {
 			return "", fmt.Errorf("must be real number, not %s", runtime.PyTypeName(arg))
+		}
+		f, isFloat := asFloat(arg)
+		if !isFloat {
+			var err error
+			if f, err = runtime.IntToFloat(boolToInt(arg)); err != nil {
+				return "", err
+			}
 		}
 		return formatFloat(f, verb, spec), nil
 	}
@@ -305,20 +312,25 @@ func pyFloatWord(f float64) string {
 
 // formatInt renders an integer with printf flags; prec is the minimum
 // number of digits.
-func formatInt(n int64, base int, upper bool, spec percentSpec, prefix string) string {
-	neg := n < 0
-	u := uint64(n)
-	if neg {
-		u = uint64(-n)
+func formatInt(n *big.Int, base int, upper bool, spec percentSpec, prefix string) (string, error) {
+	neg := n.Sign() < 0
+	abs := new(big.Int).Abs(n)
+	var digits string
+	if base == 10 {
+		var err error
+		if digits, err = escape.IntDecimal(abs); err != nil {
+			return "", err
+		}
+	} else {
+		digits = abs.Text(base)
 	}
-	digits := strconv.FormatUint(u, base)
 	if upper {
 		digits = strings.ToUpper(digits)
 	}
 	if spec.prec > len(digits) {
 		digits = strings.Repeat("0", spec.prec-len(digits)) + digits
 	}
-	return padNumber(signOf(neg, spec)+prefix, digits, spec)
+	return padNumber(signOf(neg, spec)+prefix, digits, spec), nil
 }
 
 func signOf(neg bool, spec percentSpec) string {

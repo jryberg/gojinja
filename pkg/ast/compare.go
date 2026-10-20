@@ -2,7 +2,9 @@ package ast
 
 import (
 	"fmt"
-	"reflect"
+	"strings"
+
+	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
 // compareConst applies a Python-style comparison op to two folded values.
@@ -10,9 +12,10 @@ import (
 func compareConst(op string, a, b any) (bool, error) {
 	switch op {
 	case "eq":
-		return equalConst(a, b), nil
+		return equalConst(a, b)
 	case "ne":
-		return !equalConst(a, b), nil
+		eq, err := equalConst(a, b)
+		return !eq, err
 	case "lt", "lteq", "gt", "gteq":
 		return orderConst(op, a, b)
 	case "in":
@@ -24,97 +27,54 @@ func compareConst(op string, a, b any) (bool, error) {
 	return false, fmt.Errorf("ast: unknown compare op %q: %w", op, ErrImpossible)
 }
 
-// equalConst is a Python-eq style equality check that treats numerics
-// across int/float as equal when their numeric value is equal.
-func equalConst(a, b any) bool {
-	if af, aok := numAsFloat(a); aok {
-		if bf, bok := numAsFloat(b); bok {
-			return af == bf
+// equalConst folds == for numbers (compared exactly, as Python does)
+// and strings; anything else is left to the evaluator.
+func equalConst(a, b any) (bool, error) {
+	if c, nan, ok := runtime.CompareNumbers(a, b); ok {
+		return !nan && c == 0, nil
+	}
+	if as, ok := a.(string); ok {
+		if bs, ok := b.(string); ok {
+			return as == bs, nil
 		}
 	}
-	return reflect.DeepEqual(a, b)
+	return false, ErrImpossible
 }
 
-// orderConst applies <, <=, >, >= to numerics or strings.
+// orderConst applies <, <=, >, >= to numbers or strings.
 func orderConst(op string, a, b any) (bool, error) {
-	if af, aok := numAsFloat(a); aok {
-		if bf, bok := numAsFloat(b); bok {
-			switch op {
-			case "lt":
-				return af < bf, nil
-			case "lteq":
-				return af <= bf, nil
-			case "gt":
-				return af > bf, nil
-			case "gteq":
-				return af >= bf, nil
-			}
+	c, ok := 0, false
+	if cmp, nan, isNum := runtime.CompareNumbers(a, b); isNum {
+		if nan {
+			return false, nil
 		}
-	}
-	if as, aok := a.(string); aok {
+		c, ok = cmp, true
+	} else if as, aok := a.(string); aok {
 		if bs, bok := b.(string); bok {
-			switch op {
-			case "lt":
-				return as < bs, nil
-			case "lteq":
-				return as <= bs, nil
-			case "gt":
-				return as > bs, nil
-			case "gteq":
-				return as >= bs, nil
-			}
+			c, ok = strings.Compare(as, bs), true
 		}
 	}
-	return false, ErrImpossible
+	if !ok {
+		return false, ErrImpossible
+	}
+	switch op {
+	case "lt":
+		return c < 0, nil
+	case "lteq":
+		return c <= 0, nil
+	case "gt":
+		return c > 0, nil
+	}
+	return c >= 0, nil
 }
 
-// inConst checks `a in b` for the b types we support.
+// inConst folds `a in b` for strings; other containers are left to the
+// evaluator.
 func inConst(a, b any) (bool, error) {
-	switch col := b.(type) {
-	case string:
-		s, ok := a.(string)
-		if !ok {
-			return false, ErrImpossible
-		}
-		return len(s) > 0 && len(col) >= len(s) && stringContains(col, s), nil
-	case []any:
-		for _, it := range col {
-			if equalConst(a, it) {
-				return true, nil
-			}
-		}
-		return false, nil
-	case map[any]any:
-		_, ok := col[a]
-		return ok, nil
+	s, ok := a.(string)
+	col, colOK := b.(string)
+	if !ok || !colOK {
+		return false, ErrImpossible
 	}
-	return false, ErrImpossible
-}
-
-// stringContains is exposed so tests can mock it; tiny wrapper around
-// strings.Contains kept here to avoid an import cycle.
-func stringContains(haystack, needle string) bool {
-	if needle == "" {
-		return true
-	}
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
-}
-
-// numAsFloat widens any modeled numeric to float64.
-func numAsFloat(v any) (float64, bool) {
-	switch x := v.(type) {
-	case int64:
-		return float64(x), true
-	case float64:
-		return x, true
-	}
-	if i, ok := asInt64(v); ok {
-		return float64(i), true
-	}
-	return 0, false
+	return strings.Contains(col, s), nil
 }

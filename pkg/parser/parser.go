@@ -5,12 +5,14 @@ package parser
 
 import (
 	"fmt"
+	"math/big"
 	"strconv"
 
 	"github.com/jryberg/gojinja/pkg/ast"
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/lexer"
+	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
 // ExtensionFunc is the parse hook an extension supplies for each of its
@@ -1194,9 +1196,13 @@ func (p *Parser) parsePrimary(withNamespace bool) (ast.Expr, error) {
 		return c, nil
 	case lexer.TokenInteger:
 		p.stream.Next()
-		n, err := strconv.ParseInt(tok.Value, 10, 64)
-		if err != nil {
+		b, ok := new(big.Int).SetString(tok.Value, 10)
+		if !ok {
 			return nil, p.fail("invalid integer literal", tok.Lineno)
+		}
+		n, err := runtime.NormInt(b)
+		if err != nil {
+			return nil, p.fail(err.Error(), tok.Lineno)
 		}
 		c := &ast.Const{Value: n}
 		c.SetLineno(tok.Lineno)
