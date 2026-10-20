@@ -548,6 +548,9 @@ type templateReference struct {
 	undef runtime.UndefinedFactory
 }
 
+// TypeName is the Python type name.
+func (r *templateReference) TypeName() string { return "TemplateReference" }
+
 func (r *templateReference) String() string {
 	if r.ctx.Name == "" {
 		return "<TemplateReference None>"
@@ -893,6 +896,9 @@ type macroValue struct {
 	// recursion across imported macros works).
 	DefCtx *runtime.Context
 }
+
+// TypeName is the Python type name.
+func (m *macroValue) TypeName() string { return "Macro" }
 
 func (e *evaluator) evalMacroDef(n *ast.Macro, ctx *runtime.Context) error {
 	declared := map[string]bool{}

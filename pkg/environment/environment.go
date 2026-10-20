@@ -781,13 +781,14 @@ var strictUndefinedFilters = map[string]bool{
 	"rejectattr": true, "unique": true, "batch": true, "slice": true,
 }
 
-// lazyFilters are the builtin filters that read a list as it is when
-// each item is reached, as Python's generators and reverse iterators
-// do; they get the list itself.
+// lazyFilters are the builtin filters that get a list itself, not a
+// copy: those that read it as it is when each item is reached, as
+// Python's generators and reverse iterators do, and attr, whose methods
+// act on it.
 var lazyFilters = map[string]bool{
 	"map": true, "select": true, "reject": true, "selectattr": true,
 	"rejectattr": true, "unique": true, "batch": true, "slice": true,
-	"reverse": true,
+	"reverse": true, "attr": true,
 }
 
 // strictUndefinedTests are the builtin tests that accept a
@@ -986,6 +987,9 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 }
 
 func (e *Environment) getAttr(obj any, attr string) (any, error) {
+	if u, ok := e.unsafeAttr(obj, attr); ok {
+		return u, nil
+	}
 	// Built-in types with custom attribute resolution.
 	switch x := obj.(type) {
 	case *runtime.Cycler:
@@ -1066,6 +1070,9 @@ func (e *Environment) getAttr(obj any, attr string) (any, error) {
 			return m, nil
 		}
 	case *runtime.DictView:
+		if attr == "mapping" {
+			return runtime.NewMappingProxy(x.Dict), nil
+		}
 		if attr == "isdisjoint" && x.Kind != "values" {
 			return KwargsCallable(func(args []any, kwargs map[string]any) (any, error) {
 				if err := oneArg(x.TypeName()+".isdisjoint", args, kwargs); err != nil {
@@ -1101,10 +1108,7 @@ func (e *Environment) getAttr(obj any, attr string) (any, error) {
 		}
 		v = v.Elem()
 	}
-	if v.Kind() == reflect.Struct {
-		if e.sandboxed && !sandbox.IsSafeAttribute(obj, attr) {
-			return nil, gjerrors.NewSecurityError(fmt.Sprintf("access to attribute %q is forbidden", attr))
-		}
+	if v.Kind() == reflect.Struct && (!e.sandboxed || sandbox.IsSafeAttribute(obj, attr)) {
 		f := v.FieldByName(attr)
 		if f.IsValid() && f.CanInterface() {
 			return f.Interface(), nil

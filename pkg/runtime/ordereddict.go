@@ -21,6 +21,9 @@ import (
 type OrderedDict struct {
 	keys []any          // the key objects, in insertion order
 	vals map[string]any // values by HashKey of their key
+	// proxy makes this Python's mappingproxy: a read-only view through
+	// which every operation reads proxy.
+	proxy *OrderedDict
 }
 
 // NewOrderedDict returns an empty OrderedDict ready for Set.
@@ -41,6 +44,7 @@ func NewOrderedDictFromPairs(pairs ...[2]any) *OrderedDict {
 
 // Len returns the number of entries.
 func (d *OrderedDict) Len() int {
+	d = d.data()
 	if d == nil {
 		return 0
 	}
@@ -49,6 +53,7 @@ func (d *OrderedDict) Len() int {
 
 // Get looks up a value by key. Returns (nil, false) on miss.
 func (d *OrderedDict) Get(key any) (any, bool) {
+	d = d.data()
 	if d == nil {
 		return nil, false
 	}
@@ -63,6 +68,7 @@ func (d *OrderedDict) Get(key any) (any, bool) {
 // Put is Set for a key from a template: an unhashable key (a list or a
 // dict) is Python's TypeError.
 func (d *OrderedDict) Put(key, value any) error {
+	d = d.data()
 	if _, err := HashKey(key); err != nil {
 		return err
 	}
@@ -73,6 +79,7 @@ func (d *OrderedDict) Put(key, value any) error {
 // Set inserts or replaces an entry. New keys are appended to the
 // iteration order; existing keys keep their position.
 func (d *OrderedDict) Set(key, value any) {
+	d = d.data()
 	if d.vals == nil {
 		d.vals = map[string]any{}
 	}
@@ -87,6 +94,7 @@ func (d *OrderedDict) Set(key, value any) {
 
 // Keys returns a copy of the keys in insertion order.
 func (d *OrderedDict) Keys() []any {
+	d = d.data()
 	if d == nil {
 		return nil
 	}
@@ -97,6 +105,7 @@ func (d *OrderedDict) Keys() []any {
 
 // Values returns the values in insertion order.
 func (d *OrderedDict) Values() []any {
+	d = d.data()
 	if d == nil {
 		return nil
 	}
@@ -111,6 +120,7 @@ func (d *OrderedDict) Values() []any {
 // runtime.Tuple so rendering matches Python's `(k, v)` repr; the eval
 // layer's tuple-target unpacking sees them as iterables.
 func (d *OrderedDict) Items() []any {
+	d = d.data()
 	if d == nil {
 		return nil
 	}
@@ -123,6 +133,7 @@ func (d *OrderedDict) Items() []any {
 
 // Delete removes key. Returns true if it existed.
 func (d *OrderedDict) Delete(key any) bool {
+	d = d.data()
 	if d == nil {
 		return false
 	}
@@ -144,6 +155,7 @@ func (d *OrderedDict) Delete(key any) bool {
 // overwriting existing keys. Accepts *OrderedDict, map[string]any,
 // map[any]any, or a sequence of (k, v) pairs.
 func (d *OrderedDict) Update(other any) error {
+	d = d.data()
 	if d == nil {
 		return fmt.Errorf("update on nil dict")
 	}
@@ -209,6 +221,7 @@ func (d *OrderedDict) Update(other any) error {
 // returns the default when key is absent; without one, returns an
 // error.
 func (d *OrderedDict) Pop(key any, def any, hasDef bool) (any, error) {
+	d = d.data()
 	if d == nil || d.vals == nil {
 		if hasDef {
 			return def, nil
@@ -228,6 +241,7 @@ func (d *OrderedDict) Pop(key any, def any, hasDef bool) (any, error) {
 // SetDefault returns d[key] if present; otherwise inserts and returns
 // def.
 func (d *OrderedDict) SetDefault(key any, def any) any {
+	d = d.data()
 	if d == nil {
 		return def
 	}
@@ -242,6 +256,7 @@ func (d *OrderedDict) SetDefault(key any, def any) any {
 // (key, value), matching Python 3.7+ LIFO semantics. Returns an error
 // when d is empty.
 func (d *OrderedDict) PopItem() (Tuple, error) {
+	d = d.data()
 	if d == nil || len(d.keys) == 0 {
 		return nil, fmt.Errorf("popitem(): dictionary is empty")
 	}
@@ -257,6 +272,7 @@ func (d *OrderedDict) PopItem() (Tuple, error) {
 // Copy returns a shallow copy of d preserving insertion order.
 // Keys and values are not deep-copied; nested containers are shared.
 func (d *OrderedDict) Copy() *OrderedDict {
+	d = d.data()
 	if d == nil {
 		return NewOrderedDict()
 	}
@@ -272,6 +288,7 @@ func (d *OrderedDict) Copy() *OrderedDict {
 
 // Clear empties the dict in place.
 func (d *OrderedDict) Clear() {
+	d = d.data()
 	if d == nil {
 		return
 	}
@@ -285,6 +302,7 @@ func (d *OrderedDict) Clear() {
 // (Go's `range` over a map is randomised, so the sort substitutes for
 // the insertion order Python preserves but Go doesn't carry).
 func (d *OrderedDict) MergeMap(m map[string]any) {
+	d = d.data()
 	if d == nil || len(m) == 0 {
 		return
 	}
@@ -301,6 +319,7 @@ func (d *OrderedDict) MergeMap(m map[string]any) {
 // MergeOrderedDict appends entries from src into d in src's key order.
 // Existing keys keep their slot; new keys append.
 func (d *OrderedDict) MergeOrderedDict(src *OrderedDict) {
+	d = d.data()
 	if d == nil || src == nil {
 		return
 	}
@@ -342,4 +361,29 @@ func pairKV(pair any) (any, any, bool) {
 		}
 	}
 	return nil, nil, false
+}
+
+// NewMappingProxy is types.MappingProxyType(d), which dict views'
+// mapping attribute gives: a read-only view of d that reads it live. It
+// is an OrderedDict, so it reads, iterates and compares as d does; only
+// its type name and repr, and the methods templates get, differ.
+func NewMappingProxy(d *OrderedDict) *OrderedDict { return &OrderedDict{proxy: d} }
+
+// IsProxy reports whether d is a mappingproxy.
+func (d *OrderedDict) IsProxy() bool { return d != nil && d.proxy != nil }
+
+// ProxyTarget returns the dict a mappingproxy views.
+func (d *OrderedDict) ProxyTarget() (any, bool) {
+	if !d.IsProxy() {
+		return nil, false
+	}
+	return d.data(), true
+}
+
+// data is the dict d's operations act on.
+func (d *OrderedDict) data() *OrderedDict {
+	for d != nil && d.proxy != nil {
+		d = d.proxy
+	}
+	return d
 }

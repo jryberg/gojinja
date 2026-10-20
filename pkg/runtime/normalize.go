@@ -42,8 +42,9 @@ func NormalizeForTemplate(v any) any {
 			return x
 		}
 		out := NewOrderedDict()
-		for _, k := range x.keys {
-			out.Set(k, NormalizeForTemplate(x.vals[hashKeyOf(k)]))
+		for _, k := range x.Keys() {
+			v, _ := x.Get(k)
+			out.Set(k, NormalizeForTemplate(v))
 		}
 		return out
 	case map[string]any:

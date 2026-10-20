@@ -1,0 +1,2 @@
+{{ doc._id }}|{{ doc['_rev'] }}|{{ doc.meta._x }}|{{ doc.meta['_x'] }}|{{ doc|dictsort|first }}
+{% set p = doc.keys().mapping %}{{ p }}|{{ [p] }}|{{ p|length }}|{{ p._id }}|{{ p.get('_rev') }}|{{ p == doc }}|{{ p.update is defined }}|{{ p.copy() }}|{{ p|dictsort }}|{{ p|pprint }}|{{ doc.values().mapping|list }}

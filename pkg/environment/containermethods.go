@@ -382,6 +382,10 @@ func sortList(env *Environment, ctx *runtime.Context, l *runtime.PyList, args []
 
 // dictMethod returns Python's dict method attr bound to m. A Go map
 // reached through a host value gets the methods of a snapshot of it.
+// proxyMethods are the methods of a mappingproxy, which cannot change
+// its dict.
+var proxyMethods = map[string]bool{"get": true, "keys": true, "values": true, "items": true, "copy": true}
+
 func dictMethod(m any, attr string) any {
 	d, ok := m.(*runtime.OrderedDict)
 	if !ok {
@@ -391,6 +395,9 @@ func dictMethod(m any, attr string) any {
 		}
 	}
 	method := func(f func(args []any, kwargs map[string]any) (any, error)) any { return KwargsCallable(f) }
+	if d.IsProxy() && !proxyMethods[attr] {
+		return nil
+	}
 	switch attr {
 	case "keys", "values", "items":
 		return method(func(args []any, kwargs map[string]any) (any, error) {

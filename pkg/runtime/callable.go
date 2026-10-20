@@ -83,6 +83,9 @@ func (c *Callable) String() string {
 	return fmt.Sprintf("<built-in method %s of %s object at %p>", c.name, c.selfType, c)
 }
 
+// ClassName is a class's qualified name.
+func (c *Callable) ClassName() (string, bool) { return c.name, c.kind == class }
+
 // IsMethod reports whether c is a bound method, and gives its name and
 // receiver. Two methods are equal when both match.
 func (c *Callable) IsMethod() (name string, self any, ok bool) {

@@ -23,6 +23,17 @@ The sandbox layer in `pkg/sandbox` provides four predicates:
   for callables you only want available in a `WithUnsafe()`-built
   environment.
 
+## What a blocked attribute does
+
+As in Python's `SandboxedEnvironment`, an unsafe attribute that exists
+(`x.__class__`, a namespace's `ns._secret`, a generator's `gi_frame`)
+gives an Undefined, never the value. It prints as nothing and fails
+`is defined`, and using it — calling it, reading its attributes, or
+printing it under `StrictUndefined` — raises `SecurityError`
+("access to attribute '__class__' of 'list' object is unsafe."). An
+underscore name the object lacks is looked up as an item instead, so a
+dict key such as `doc._id` works as in Jinja2.
+
 ## Opting out
 
 Pass `gj.WithUnsafe()` at construction:

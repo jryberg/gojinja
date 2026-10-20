@@ -2,11 +2,13 @@ package environment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 
+	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/ext"
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
@@ -239,19 +241,34 @@ func TestCacheSizeRejectsUnbounded(t *testing.T) {
 
 // =============================================================== sandbox / safety
 
+// TestUnderscoreAttributesBlocked is test_security.py's test_unsafe: an
+// unsafe attribute renders as an Undefined, never as its value, and using
+// it raises SecurityError.
 func TestUnderscoreAttributesBlocked(t *testing.T) {
 	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
 	type s struct{ Field, _hidden string }
-	tpl, err := e.FromString("{{ x._hidden }}")
-	if err != nil {
-		t.Fatal(err)
+	vars := map[string]any{"x": s{Field: "ok", _hidden: "secret"}, "foo": 42, "fn": func() {}}
+	for src, want := range map[string]string{
+		"{{ x._hidden }}":     "",
+		"{{ x.Field }}":       "ok",
+		"{{ foo.__class__ }}": "",
+		"{{ fn.func_code }}":  "",
+	} {
+		if got := render(t, e, src, vars); got != want {
+			t.Errorf("%s = %q, want %q", src, got, want)
+		}
 	}
-	_, err = tpl.RenderContext(context.Background(), map[string]any{"x": s{Field: "ok", _hidden: "secret"}})
-	if err == nil {
-		t.Fatal("expected SecurityError on underscore attribute")
-	}
-	if !strings.Contains(err.Error(), "forbidden") {
-		t.Fatalf("expected security message, got %v", err)
+	for _, src := range []string{"{{ x._hidden.upper() }}", "{{ foo.__class__.__subclasses__() }}",
+		"{{ x['_hidden'].upper() }}", "{{ (x|attr('_hidden')).upper() }}", "{{ '{0._hidden.x}'.format(x) }}"} {
+		tpl, err := e.FromString(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tpl.RenderContext(context.Background(), vars)
+		var se *gjerrors.SecurityError
+		if !errors.As(err, &se) || !strings.Contains(err.Error(), "is unsafe.") {
+			t.Errorf("%s: got %v, want a SecurityError", src, err)
+		}
 	}
 }
 

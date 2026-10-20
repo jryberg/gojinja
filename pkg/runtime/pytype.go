@@ -33,7 +33,12 @@ func PyTypeName(v any) string {
 		return "tuple"
 	case Bytes:
 		return "bytes"
-	case map[string]any, map[any]any, *OrderedDict:
+	case *OrderedDict:
+		if x.IsProxy() {
+			return "mappingproxy"
+		}
+		return "dict"
+	case map[string]any, map[any]any:
 		return "dict"
 	case Undefined:
 		return undefinedClass[x.Mode]
@@ -55,6 +60,9 @@ func PyTypeName(v any) string {
 		return "Cycler"
 	case *Joiner:
 		return "Joiner"
+	}
+	if t, ok := v.(interface{ TypeName() string }); ok {
+		return t.TypeName()
 	}
 	switch reflect.ValueOf(v).Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,

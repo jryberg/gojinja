@@ -50,6 +50,7 @@ const (
 	ppList
 	ppTuple
 	ppStr
+	ppProxy
 )
 
 // ppClassify maps v to the Python type whose pretty-printer applies and
@@ -71,6 +72,9 @@ func ppClassify(v any) (ppKind, []any) {
 		}
 		return ppList, items
 	case *runtime.OrderedDict:
+		if x.IsProxy() {
+			return ppProxy, nil
+		}
 		return ppDict, x.Items()
 	case map[string]any:
 		items := make([]any, 0, len(x))
@@ -126,7 +130,7 @@ func ppRecursion(v any, id uintptr) string {
 func (p *prettyPrinter) safeRepr(v any, context map[uintptr]bool) string {
 	defer p.nest()()
 	kind, items := ppClassify(v)
-	if kind == ppOther || kind == ppStr {
+	if kind == ppOther || kind == ppStr || kind == ppProxy {
 		return escape.Repr(v)
 	}
 	if len(items) == 0 {
@@ -211,6 +215,11 @@ func (p *prettyPrinter) format(v any, indent, allowance, level int) {
 				p.b.WriteString(end)
 			case ppStr:
 				p.pprintStr(v.(string), indent, allowance, level+1)
+			case ppProxy:
+				// _pprint_mappingproxy formats a copy of the dict.
+				p.b.WriteString("mappingproxy(")
+				p.format(v.(*runtime.OrderedDict).Copy(), indent+13, allowance+1, level)
+				p.b.WriteByte(')')
 			}
 			return
 		}

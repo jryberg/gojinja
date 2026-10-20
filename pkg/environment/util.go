@@ -177,6 +177,10 @@ func (w *jsonWalker) prep(v any) (any, error) {
 		if x == nil {
 			return v, nil
 		}
+		if x.IsProxy() {
+			//lint:ignore ST1005 json.dumps's exact message
+			return nil, fmt.Errorf("Object of type mappingproxy is not JSON serializable")
+		}
 		keys = x.Keys()
 		get = func(k any) any { val, _ := x.Get(k); return val }
 	case map[string]any:
@@ -199,7 +203,7 @@ func (w *jsonWalker) prep(v any) (any, error) {
 		}
 		items = x.Items()
 	case *runtime.Range, *runtime.DictView, *runtime.Iterator, *runtime.LoopContext, *runtime.Callable,
-		*runtime.Cycler, *runtime.Joiner, *runtime.BlockReference, complex128:
+		*runtime.Cycler, *runtime.Joiner, *runtime.BlockReference, runtime.Undefined, complex128:
 		//lint:ignore ST1005 json.dumps's exact message
 		return nil, fmt.Errorf("Object of type %s is not JSON serializable", runtime.PyTypeName(v))
 	default:

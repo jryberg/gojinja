@@ -78,7 +78,10 @@ func writeHashKey(b *strings.Builder, v any) error {
 		// Every Undefined of a kind compares equal to the others.
 		fmt.Fprintf(b, "u%d", x.Mode)
 		return nil
-	case *PyList, []any, []string, *OrderedDict, map[string]any, map[any]any, *DictView:
+	case *OrderedDict:
+		// A mappingproxy hashes its dict.
+		return fmt.Errorf("unhashable type: 'dict'")
+	case *PyList, []any, []string, map[string]any, map[any]any, *DictView:
 		return fmt.Errorf("unhashable type: '%s'", PyTypeName(v))
 	case *Callable:
 		// Equal methods, the same method of the same object, hash alike.

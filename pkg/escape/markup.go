@@ -131,7 +131,12 @@ func SoftStr(v any) string {
 	case complex128:
 		return complexRepr(x)
 	case []any, tupleRepr, map[string]any, map[any]any, orderedDictRepr, viewRepr, listRepr, attrsRepr:
-		// str() of a container is its repr.
+		// str() of a container is its repr; a mappingproxy's is its dict's.
+		if p, ok := v.(proxyRepr); ok {
+			if target, ok := p.ProxyTarget(); ok {
+				return pyRepr(target)
+			}
+		}
 		return pyRepr(v)
 	case fmt.Stringer:
 		return x.String()
@@ -211,6 +216,12 @@ func pyFloatStr(f float64) string {
 type orderedDictRepr interface {
 	Keys() []any
 	Get(any) (any, bool)
+}
+
+// proxyRepr is runtime's mappingproxy: a read-only view of a dict, whose
+// repr wraps the dict's.
+type proxyRepr interface {
+	ProxyTarget() (any, bool)
 }
 
 // Repr returns Python's repr() of v: strings single-quoted with

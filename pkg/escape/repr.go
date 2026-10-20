@@ -112,6 +112,11 @@ func (st *reprState) repr(v any) string {
 	case map[any]any:
 		return st.dict(v, x)
 	case orderedDictRepr:
+		if p, ok := x.(proxyRepr); ok {
+			if target, ok := p.ProxyTarget(); ok {
+				return "mappingproxy(" + st.repr(target) + ")"
+			}
+		}
 		return st.orderedDict(x)
 	case viewRepr:
 		name, items := x.ReprView()

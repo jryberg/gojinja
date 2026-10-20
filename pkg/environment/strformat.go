@@ -11,7 +11,6 @@ import (
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/runtime"
-	"github.com/jryberg/gojinja/pkg/sandbox"
 )
 
 // strFormatMethod returns the bound `format` / `format_map` method of a
@@ -220,12 +219,7 @@ func (f *strFormatter) getField(name string) (any, error) {
 		return nil, err
 	}
 	rest := name[end:]
-	unsafe := false
 	for rest != "" {
-		// Any lookup on an unsafe placeholder raises its SecurityError.
-		if unsafe {
-			return nil, obj.(runtime.Undefined).Fail()
-		}
 		switch rest[0] {
 		case '.':
 			rest = rest[1:]
@@ -238,7 +232,7 @@ func (f *strFormatter) getField(name string) (any, error) {
 			if attr == "" {
 				return nil, formatValueError("Empty attribute in format string")
 			}
-			if obj, unsafe, err = f.getAttr(obj, attr); err != nil {
+			if obj, err = f.env.GetAttr(obj, attr); err != nil {
 				return nil, err
 			}
 		case '[':
@@ -267,18 +261,6 @@ func (f *strFormatter) getField(name string) (any, error) {
 		}
 	}
 	return obj, nil
-}
-
-// getAttr is the sandboxed attribute step. An unsafe attribute yields an
-// Undefined that renders empty but raises SecurityError on further use,
-// matching SandboxedEnvironment.unsafe_undefined; unsafe reports that.
-func (f *strFormatter) getAttr(obj any, attr string) (v any, unsafe bool, err error) {
-	if f.env.sandboxed && !sandbox.IsSafeAttribute(obj, attr) {
-		msg := fmt.Sprintf("access to attribute %s of %s object is unsafe.", escape.Repr(attr), escape.Repr(runtime.PyTypeName(obj)))
-		return f.env.undefined(msg, attr, obj, func(m string) error { return gjerrors.NewSecurityError(m) }), true, nil
-	}
-	v, err = f.env.GetAttr(obj, attr)
-	return v, false, err
 }
 
 // getValue looks up the first part of a field: a positional index or a

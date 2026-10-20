@@ -1690,12 +1690,15 @@ func filterAttr(env *Environment, _ *runtime.Context, value any, args []any, _ m
 	if !ok {
 		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("attribute name must be string, not '%s'", runtime.PyTypeName(args[0])))
 	}
+	if u, ok := env.unsafeAttr(value, name); ok {
+		return u, nil
+	}
 	// attr is getattr(): on a dict only its methods are attributes, never
 	// its keys.
 	switch m := value.(type) {
 	case map[string]any, map[any]any, *runtime.OrderedDict:
 		if method := dictMethod(m, name); method != nil {
-			return method, nil
+			return bindMethod(value, name, method), nil
 		}
 		return env.undefined("", name, value, nil), nil
 	}
