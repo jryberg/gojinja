@@ -16,7 +16,8 @@ const maxEqualDepth = 1000
 //
 // Numbers compare by value across int/float, and bool counts as the int
 // 0/1 the way Python's bool subclasses int. str and Markup compare by
-// text. Lists compare element-wise with lists, tuples with tuples, and
+// text. An Undefined equals another Undefined of the same kind, and a
+// StrictUndefined fails. Lists compare element-wise with lists, tuples with tuples, and
 // mappings key-by-key regardless of their Go representation. Values of
 // any other type fall back to [reflect.DeepEqual], which never panics on
 // uncomparable types.
@@ -27,6 +28,12 @@ func ValuesEqual(a, b any) (bool, error) {
 func valuesEqual(a, b any, depth int) (bool, error) {
 	if depth > maxEqualDepth {
 		return false, gjerrors.NewTemplateRuntimeError("maximum recursion depth exceeded in comparison")
+	}
+	if u, ok := a.(runtime.Undefined); ok {
+		return u.Equal(b)
+	}
+	if u, ok := b.(runtime.Undefined); ok {
+		return u.Equal(a)
 	}
 	if ai, ok := eqInt(a); ok {
 		if bi, ok := eqInt(b); ok {

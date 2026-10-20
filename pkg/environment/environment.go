@@ -36,6 +36,9 @@ type FilterFunc func(env *Environment, ctx *runtime.Context, value any, args []a
 type Filter struct {
 	Pass runtime.PassArg
 	Func FilterFunc
+	// builtin marks the standard Jinja2 filters, which get Python's
+	// argument handling; user-registered filters are dispatched as-is.
+	builtin bool
 }
 
 // TestFunc is a registered template test (predicate).
@@ -45,6 +48,8 @@ type TestFunc func(env *Environment, ctx *runtime.Context, value any, args []any
 type Test struct {
 	Pass runtime.PassArg
 	Func TestFunc
+	// builtin marks the standard Jinja2 tests; see [Filter].
+	builtin bool
 }
 
 // Loader is re-exported from [pkg/loader]. A loader resolves a template
@@ -739,10 +744,31 @@ func (e *Environment) CallFilter(name string, ctx *runtime.Context, value any, a
 	if !ok {
 		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("no filter named %q", name))
 	}
+	if u, ok := value.(runtime.Undefined); ok && u.Mode == runtime.ModeStrict && f.builtin && !strictUndefinedFilters[name] {
+		return nil, u.Fail()
+	}
 	value = unwrapPyList(value)
 	args = unwrapPyListArgs(args)
 	kwargs = unwrapPyListKwargs(kwargs)
 	return f.Func(e, ctx, value, args, kwargs)
+}
+
+// strictUndefinedFilters are the builtin filters that receive a
+// StrictUndefined value unchanged, because Python's never call str(),
+// len() or iter() on it (abs, round and tojson then raise a TypeError
+// of their own). Every other builtin raises the undefined error.
+var strictUndefinedFilters = map[string]bool{
+	"default": true, "d": true, "pprint": true, "items": true,
+	"abs": true, "round": true, "tojson": true,
+}
+
+// strictUndefinedTests are the builtin tests that accept a
+// StrictUndefined value: they only inspect its type.
+var strictUndefinedTests = map[string]bool{
+	"boolean": true, "callable": true, "defined": true, "escaped": true,
+	"false": true, "float": true, "integer": true, "mapping": true,
+	"none": true, "number": true, "sameas": true, "sequence": true,
+	"string": true, "true": true, "undefined": true,
 }
 
 // CallTest looks up name in the test registry and invokes it.
@@ -750,6 +776,9 @@ func (e *Environment) CallTest(name string, ctx *runtime.Context, value any, arg
 	t, ok := e.tests[name]
 	if !ok {
 		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("no test named %q", name))
+	}
+	if u, ok := value.(runtime.Undefined); ok && u.Mode == runtime.ModeStrict && t.builtin && !strictUndefinedTests[name] {
+		return nil, u.Fail()
 	}
 	value = unwrapPyList(value)
 	args = unwrapPyListArgs(args)

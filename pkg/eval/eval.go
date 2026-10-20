@@ -178,6 +178,9 @@ func (e *evaluator) evalOutput(o *ast.Output, ctx *runtime.Context) error {
 
 // write emits v with the autoescape rules of the active eval context.
 func (e *evaluator) write(v any, ctx *runtime.Context) error {
+	if err := FailStrict(v); err != nil {
+		return err
+	}
 	var s string
 	if ctx.Eval != nil && ctx.Eval.Autoescape {
 		s = string(escape.Escape(v))
@@ -195,7 +198,11 @@ func (e *evaluator) evalIf(n *ast.If, ctx *runtime.Context) error {
 	if err != nil {
 		return err
 	}
-	if Truthy(v) {
+	ok, err := truth(v)
+	if err != nil {
+		return err
+	}
+	if ok {
 		return e.evalBody(n.Body, ctx)
 	}
 	for _, elif := range n.Elif {
@@ -203,7 +210,11 @@ func (e *evaluator) evalIf(n *ast.If, ctx *runtime.Context) error {
 		if err != nil {
 			return err
 		}
-		if Truthy(v) {
+		ok, err := truth(v)
+		if err != nil {
+			return err
+		}
+		if ok {
 			return e.evalBody(elif.Body, ctx)
 		}
 	}
@@ -262,7 +273,11 @@ func (e *evaluator) evalFor(n *ast.For, ctx *runtime.Context) error {
 			if err != nil {
 				return err
 			}
-			if Truthy(tv) {
+			ok, err := truth(tv)
+			if err != nil {
+				return err
+			}
+			if ok {
 				filtered = append(filtered, it)
 			}
 		}
@@ -1128,6 +1143,9 @@ func ToIterable(v any) ([]any, error) {
 		// Iterating a dict yields its keys in insertion order, matching
 		// Python's `for k in d` semantics.
 		return x.Keys(), nil
+	}
+	if u, ok := v.(runtime.Undefined); ok {
+		return u.Iter()
 	}
 	if u, ok := v.(runtime.Undefiner); ok && u.IsUndefined() {
 		return nil, nil

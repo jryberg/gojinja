@@ -94,6 +94,9 @@ func (e *evaluator) evalExprAny(n ast.Expr, ctx *runtime.Context) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := FailStrict(v); err != nil {
+			return nil, err
+		}
 		return escape.Markup(escape.SoftStr(v)), nil
 	case *ast.MarkSafeIfAutoescape:
 		v, err := e.evalExprAny(x.Expr, ctx)
@@ -101,6 +104,9 @@ func (e *evaluator) evalExprAny(n ast.Expr, ctx *runtime.Context) (any, error) {
 			return nil, err
 		}
 		if ctx.Eval != nil && ctx.Eval.Autoescape {
+			if err := FailStrict(v); err != nil {
+				return nil, err
+			}
 			return escape.Markup(escape.SoftStr(v)), nil
 		}
 		return v, nil
@@ -220,7 +226,11 @@ func (e *evaluator) evalCondExpr(n *ast.CondExpr, ctx *runtime.Context) (any, er
 	if err != nil {
 		return nil, err
 	}
-	if Truthy(tv) {
+	ok, err := truth(tv)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
 		return e.evalExprAny(n.Expr1, ctx)
 	}
 	if n.Expr2 != nil {
@@ -234,6 +244,9 @@ func (e *evaluator) evalConcat(n *ast.Concat, ctx *runtime.Context) (any, error)
 	for _, x := range n.Nodes {
 		v, err := e.evalExprAny(x, ctx)
 		if err != nil {
+			return nil, err
+		}
+		if err := FailStrict(v); err != nil {
 			return nil, err
 		}
 		b = append(b, escape.SoftStr(v)...)
@@ -311,7 +324,11 @@ func (e *evaluator) evalBinUnaryOp(n ast.Expr, ctx *runtime.Context) (any, error
 		if err != nil {
 			return nil, err
 		}
-		if !Truthy(lv) {
+		ok, err := truth(lv)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
 			return lv, nil
 		}
 		return e.evalExprAny(x.Right, ctx)
@@ -320,7 +337,11 @@ func (e *evaluator) evalBinUnaryOp(n ast.Expr, ctx *runtime.Context) (any, error
 		if err != nil {
 			return nil, err
 		}
-		if Truthy(lv) {
+		ok, err := truth(lv)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			return lv, nil
 		}
 		return e.evalExprAny(x.Right, ctx)
@@ -329,7 +350,8 @@ func (e *evaluator) evalBinUnaryOp(n ast.Expr, ctx *runtime.Context) (any, error
 		if err != nil {
 			return nil, err
 		}
-		return !Truthy(v), nil
+		ok, err := truth(v)
+		return !ok, err
 	case *ast.Neg:
 		v, err := e.evalExprAny(x.Node, ctx)
 		if err != nil {
@@ -337,7 +359,11 @@ func (e *evaluator) evalBinUnaryOp(n ast.Expr, ctx *runtime.Context) (any, error
 		}
 		return negate(v)
 	case *ast.UAdd:
-		return e.evalExprAny(x.Node, ctx)
+		v, err := e.evalExprAny(x.Node, ctx)
+		if err != nil {
+			return nil, err
+		}
+		return positive(v)
 	}
 	return nil, fmt.Errorf("eval: unsupported expression %T", n)
 }

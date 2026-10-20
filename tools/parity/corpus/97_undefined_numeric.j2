@@ -1,0 +1,6 @@
+{{ q, }}|{{ [q, 1] }}|{{ {'a': q} }}|{{ q == z }}|{{ q != z }}|{{ q == 1 }}|{{ q is eq z }}
+{{ q is sequence }}|{{ q is iterable }}|{{ q is callable }}|{{ q|join(',') }}|{{ q|sum }}|{{ q ~ 'x' }}
+{{ 'x'|float(0) }}|{{ 'x'|float('n/a') }}|{{ 'x'|float }}|{{ 'x'|int(1.5) }}|{{ 'x'|int('n/a') }}|{{ port|float }}
+{{ 0|round }}|{{ port|round }}|{{ 1250|round(-2) }}|{{ true|round }}|{{ 2.5|round }}|{{ 0.5|round }}|{{ -0.5|round }}
+{{ 2.675|round(2) }}|{{ 1250.0|round(-2) }}|{{ ratio|round(1) }}|{{ 3|round(0, 'ceil') }}|{{ 42.55|round(1, 'floor') }}
+{{ none is lower }}|{{ [1, 'a'] is lower }}|{{ +port }}|{{ -true }}

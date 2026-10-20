@@ -4,17 +4,77 @@ import (
 	"bytes"
 	"encoding/json"
 	"math"
+	"math/big"
 	"strings"
 
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
-// Tiny math wrappers that match Python's rounding semantics for the
-// `round` filter. Kept private to the environment package.
+// pyRoundFloat is CPython's round(f, ndigits) for a float: the exact
+// binary value is rounded half-to-even at the decimal position, then
+// converted back to the nearest float. Non-finite input is returned
+// unchanged and a zero result keeps the sign of f.
+func pyRoundFloat(f float64, ndigits int) float64 {
+	if math.IsNaN(f) || math.IsInf(f, 0) || ndigits > 323 {
+		return f
+	}
+	if ndigits < -308 {
+		return math.Copysign(0, f)
+	}
+	r := new(big.Rat).SetFloat64(f)
+	out, _ := roundRatHalfEven(r, ndigits).Float64()
+	if out == 0 {
+		return math.Copysign(0, f)
+	}
+	return out
+}
 
-func mathRound(f float64) float64 { return math.Round(f) }
-func mathCeil(f float64) float64  { return math.Ceil(f) }
-func mathFloor(f float64) float64 { return math.Floor(f) }
+// pyRoundInt is CPython's round(i, ndigits) for an int: unchanged for
+// ndigits >= 0, otherwise rounded half-to-even to a multiple of
+// 10**-ndigits. Reports false when the result overflows int64.
+func pyRoundInt(i int64, ndigits int) (int64, bool) {
+	if ndigits >= 0 {
+		return i, true
+	}
+	r := roundRatHalfEven(new(big.Rat).SetInt64(i), ndigits)
+	if !r.IsInt() || !r.Num().IsInt64() {
+		return 0, false
+	}
+	return r.Num().Int64(), true
+}
+
+// roundRatHalfEven rounds r to ndigits decimal places (negative ndigits
+// round to tens, hundreds, ...) with ties going to the even neighbour.
+func roundRatHalfEven(r *big.Rat, ndigits int) *big.Rat {
+	exp := ndigits
+	if exp < 0 {
+		exp = -exp
+	}
+	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exp)), nil)
+	scaled := new(big.Rat).Set(r)
+	if ndigits >= 0 {
+		scaled.Mul(scaled, new(big.Rat).SetInt(scale))
+	} else {
+		scaled.Quo(scaled, new(big.Rat).SetInt(scale))
+	}
+	q, m := new(big.Int).QuoRem(scaled.Num(), scaled.Denom(), new(big.Int))
+	// Compare 2*|remainder| with the denominator to classify the tie.
+	cmp := new(big.Int).Abs(m)
+	cmp.Lsh(cmp, 1)
+	switch c := cmp.Cmp(scaled.Denom()); {
+	case c > 0 || (c == 0 && q.Bit(0) == 1):
+		if m.Sign() < 0 {
+			q.Sub(q, big.NewInt(1))
+		} else {
+			q.Add(q, big.NewInt(1))
+		}
+	}
+	out := new(big.Rat).SetInt(q)
+	if ndigits >= 0 {
+		return out.Quo(out, new(big.Rat).SetInt(scale))
+	}
+	return out.Mul(out, new(big.Rat).SetInt(scale))
+}
 
 // jsonMarshal serializes v as JSON. indent==0 → Python's default
 // json.dumps (`{"a": 1, "b": 2}`); >0 → indented form. Recursively

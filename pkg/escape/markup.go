@@ -149,6 +149,13 @@ type tupleRepr interface {
 	Iter() []any
 }
 
+// undefinedRepr is the duck-typing interface for runtime.Undefined —
+// kept without an import on pkg/runtime to avoid a cycle. Python's
+// repr() of every Undefined kind is `Undefined`.
+type undefinedRepr interface {
+	IsUndefined() bool
+}
+
 // listRepr is the duck-typing interface for runtime.PyList (lists built
 // inside a template) — kept without an import on pkg/runtime to avoid a
 // cycle. It is matched after orderedDictRepr, whose Items() also returns
@@ -233,6 +240,8 @@ func pyRepr(v any) string {
 		return pyStringRepr(x)
 	case Markup:
 		return "Markup(" + pyStringRepr(string(x)) + ")"
+	case undefinedRepr:
+		return "Undefined"
 	case []byte:
 		return pyStringRepr(string(x))
 	case float32:

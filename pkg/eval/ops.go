@@ -12,6 +12,9 @@ import (
 // the ast package's helper because it's lower-cased. The two stay in sync
 // by virtue of mirroring jinja2's _binop_to_func table.
 func applyBinop(op string, a, b any) (any, error) {
+	if err := FailUndefined(a, b); err != nil {
+		return nil, err
+	}
 	if op == "+" {
 		if as, ok := a.(string); ok {
 			if bs, ok := b.(string); ok {
@@ -137,8 +140,45 @@ func seqTypeName(v any) string {
 	return "list"
 }
 
+// FailUndefined returns the undefined error of the first Undefined in
+// vals. Python's Undefined fails every arithmetic and ordering operator
+// in all modes.
+func FailUndefined(vals ...any) error {
+	for _, v := range vals {
+		if u, ok := v.(runtime.Undefined); ok {
+			return u.Fail()
+		}
+	}
+	return nil
+}
+
+// FailStrict returns the undefined error when v is a StrictUndefined,
+// whose __str__, __bool__ and __iter__ all raise in Python.
+func FailStrict(v any) error {
+	if u, ok := v.(runtime.Undefined); ok && u.Mode == runtime.ModeStrict {
+		return u.Fail()
+	}
+	return nil
+}
+
+// truth is [Truthy] for template conditions: a StrictUndefined raises.
+func truth(v any) (bool, error) {
+	if err := FailStrict(v); err != nil {
+		return false, err
+	}
+	return Truthy(v), nil
+}
+
 func negate(v any) (any, error) {
+	if err := FailUndefined(v); err != nil {
+		return nil, err
+	}
 	switch x := v.(type) {
+	case bool:
+		if x {
+			return int64(-1), nil
+		}
+		return int64(0), nil
 	case int:
 		return -x, nil
 	case int64:
@@ -147,6 +187,23 @@ func negate(v any) (any, error) {
 		return -x, nil
 	}
 	return nil, fmt.Errorf("cannot negate %T", v)
+}
+
+// positive implements unary `+`.
+func positive(v any) (any, error) {
+	if err := FailUndefined(v); err != nil {
+		return nil, err
+	}
+	switch x := v.(type) {
+	case bool:
+		if x {
+			return int64(1), nil
+		}
+		return int64(0), nil
+	case int, int64, float64:
+		return x, nil
+	}
+	return nil, fmt.Errorf("bad operand type for unary +: %T", v)
 }
 
 // compareValues evaluates a single comparison op on two values.
@@ -169,6 +226,9 @@ func compareValues(op string, a, b any) (bool, error) {
 }
 
 func orderValues(op string, a, b any) (bool, error) {
+	if err := FailUndefined(a, b); err != nil {
+		return false, err
+	}
 	if af, ok := numAsFloat(a); ok {
 		if bf, ok := numAsFloat(b); ok {
 			switch op {

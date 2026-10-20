@@ -2,6 +2,7 @@ package environment
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -121,6 +122,15 @@ func registerBuiltins(e *Environment) {
 	e.tests["escaped"] = Test{Func: testEscaped}
 	e.tests["filter"] = Test{Func: testIsFilter}
 	e.tests["test"] = Test{Func: testIsTest}
+
+	for name, f := range e.filters {
+		f.builtin = true
+		e.filters[name] = f
+	}
+	for name, t := range e.tests {
+		t.builtin = true
+		e.tests[name] = t
+	}
 }
 
 // namespaceCtor implements the `namespace` global: a mutable container
@@ -449,52 +459,34 @@ func filterJoin(env *Environment, _ *runtime.Context, value any, args []any, kwa
 		attr = v
 	}
 	stringify := func(it any) (string, error) {
-		if attr == "" {
-			return escape.SoftStr(it), nil
+		if attr != "" {
+			v, err := env.GetAttr(it, attr)
+			if err != nil {
+				return "", err
+			}
+			it = v
 		}
-		v, err := env.GetAttr(it, attr)
-		if err != nil {
+		if err := eval.FailStrict(it); err != nil {
 			return "", err
 		}
-		return escape.SoftStr(v), nil
+		return escape.SoftStr(it), nil
 	}
-	switch x := value.(type) {
-	case []any:
-		parts := make([]string, len(x))
-		for i, it := range x {
-			s, err := stringify(it)
-			if err != nil {
-				return nil, err
-			}
-			parts[i] = s
+	items, err := eval.ToIterable(value)
+	if err != nil {
+		if runtime.IsUndefined(value) {
+			return nil, err
 		}
-		return strings.Join(parts, sep), nil
-	case []string:
-		return strings.Join(x, sep), nil
-	case runtime.Tuple:
-		parts := make([]string, len(x))
-		for i, it := range x {
-			s, err := stringify(it)
-			if err != nil {
-				return nil, err
-			}
-			parts[i] = s
-		}
-		return strings.Join(parts, sep), nil
-	case string:
-		// Python: `sep.join(string)` joins each char with sep.
-		var b strings.Builder
-		first := true
-		for _, r := range x {
-			if !first {
-				b.WriteString(sep)
-			}
-			b.WriteRune(r)
-			first = false
-		}
-		return b.String(), nil
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("join: cannot join %T", value))
 	}
-	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("join: cannot join %T", value))
+	parts := make([]string, len(items))
+	for i, it := range items {
+		s, err := stringify(it)
+		if err != nil {
+			return nil, err
+		}
+		parts[i] = s
+	}
+	return strings.Join(parts, sep), nil
 }
 
 // filterReplace implements the `replace` filter: replace occurrences of
@@ -590,7 +582,8 @@ func filterAbs(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[str
 //
 // Signature: int(value, default=0, base=10)
 //
-// Conversion falls back to `default` if parsing fails. Bases other than
+// Conversion falls back to `default`, returned as given, if parsing
+// fails; an undefined value raises. Bases other than
 // 10 accept the optional `0x` / `0o` / `0b` prefix. Base-10 input that
 // looks like a float is truncated toward zero (`"32.32" | int → 32`,
 // matching Python).
@@ -601,15 +594,15 @@ func filterAbs(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[str
 //	{{ "ff"     | int(0, 16) }}      →  255
 //	{{ "bad"    | int(-1) }}         →  -1
 func filterInt(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	def := int64(0)
+	if u, ok := value.(runtime.Undefined); ok {
+		return nil, u.Fail()
+	}
+	// Python returns `default` untouched, whatever its type.
+	var def any = int64(0)
 	if len(args) > 0 {
-		if n, ok := asInt(args[0]); ok {
-			def = int64(n)
-		}
+		def = args[0]
 	} else if v, ok := kwargs["default"]; ok {
-		if n, ok := asInt(v); ok {
-			def = int64(n)
-		}
+		def = v
 	}
 	base := 10
 	if len(args) > 1 {
@@ -627,6 +620,12 @@ func filterInt(_ *Environment, _ *runtime.Context, value any, args []any, kwargs
 	case int64:
 		return x, nil
 	case float64:
+		if math.IsNaN(x) {
+			return def, nil
+		}
+		if math.IsInf(x, 0) {
+			return nil, gjerrors.NewFilterArgumentError("cannot convert float infinity to integer")
+		}
 		return int64(x), nil
 	case bool:
 		if x {
@@ -668,7 +667,7 @@ func filterInt(_ *Environment, _ *runtime.Context, value any, args []any, kwargs
 		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
 			return n, nil
 		}
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
+		if f, err := strconv.ParseFloat(s, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) {
 			return int64(f), nil
 		}
 		return def, nil
@@ -681,22 +680,24 @@ func filterInt(_ *Environment, _ *runtime.Context, value any, args []any, kwargs
 //
 // Signature: float(value, default=0.0)
 //
-// Falls back to `default` if parsing fails.
+// Falls back to `default`, returned as given, if parsing fails. An
+// undefined value raises.
 //
 // Example:
 //
 //	{{ "3.14"  | float }}        →  3.14
 //	{{ "bad"   | float(0.0) }}   →  0.0
+//	{{ "bad"   | float(0) }}     →  0
 func filterFloat(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	def := 0.0
+	if u, ok := value.(runtime.Undefined); ok {
+		return nil, u.Fail()
+	}
+	// Python returns `default` untouched, whatever its type.
+	var def any = 0.0
 	if len(args) > 0 {
-		if f, ok := numAsFloat(args[0]); ok {
-			def = f
-		}
+		def = args[0]
 	} else if v, ok := kwargs["default"]; ok {
-		if f, ok := numAsFloat(v); ok {
-			def = f
-		}
+		def = v
 	}
 	switch x := value.(type) {
 	case int:
@@ -928,6 +929,8 @@ func iterableForSum(value any) ([]any, error) {
 		return x, nil
 	case runtime.Tuple:
 		return []any(x), nil
+	case runtime.Undefined:
+		return x.Iter()
 	}
 	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("sum: cannot sum %T", value))
 }
@@ -1513,19 +1516,18 @@ func filterCenter(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 //
 // Signature: round(value, precision=0, method='common')
 //
-// Methods: 'common' (round-half-to-even), 'ceil', 'floor'. Negative
-// precision rounds to powers of ten (e.g. precision=-2 rounds to the
-// nearest 100).
+// Methods: 'common' (Python's round(): half-to-even on the exact value),
+// 'ceil', 'floor'. Negative precision rounds to powers of ten (e.g.
+// precision=-2 rounds to the nearest 100). 'common' keeps an integer
+// input an integer; every other case returns a float.
 //
 // Example:
 //
 //	{{ 3.14159 | round(2) }}             →  3.14
-//	{{ 3.5     | round(0, 'ceil') }}     →  4
+//	{{ 2.5     | round }}                →  2.0
+//	{{ 1250    | round(-2) }}            →  1200
+//	{{ 3.5     | round(0, 'ceil') }}     →  4.0
 func filterRound(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	f, ok := numAsFloat(value)
-	if !ok {
-		return nil, gjerrors.NewFilterArgumentError("round requires a number")
-	}
 	// Python signature: round(precision=0, method='common')
 	prec := 0
 	if len(args) > 0 {
@@ -1545,21 +1547,42 @@ func filterRound(_ *Environment, _ *runtime.Context, value any, args []any, kwar
 	} else if v, ok := kwargs["method"].(string); ok {
 		method = v
 	}
-	mult := 1.0
-	for i := 0; i < prec; i++ {
-		mult *= 10
+	if method != "common" && method != "ceil" && method != "floor" {
+		return nil, gjerrors.NewFilterArgumentError("method must be common, ceil or floor")
 	}
-	for i := 0; i > prec; i-- {
-		mult /= 10
+	// Python's round() rejects an Undefined with a TypeError, while
+	// ceil/floor first multiply it, which raises the undefined error.
+	if method != "common" {
+		if err := eval.FailUndefined(value); err != nil {
+			return nil, err
+		}
 	}
-	switch method {
-	case "ceil":
-		return mathCeil(f*mult) / mult, nil
-	case "floor":
-		return mathFloor(f*mult) / mult, nil
-	default:
-		return mathRound(f*mult) / mult, nil
+	f, ok := numAsFloat(value)
+	if b, isBool := value.(bool); isBool {
+		f, ok = 0, true
+		if b {
+			f = 1
+		}
 	}
+	if !ok {
+		return nil, gjerrors.NewFilterArgumentError("round requires a number")
+	}
+	if method == "common" {
+		// Python's round() keeps an int (or bool) input an int.
+		if _, isFloat := value.(float64); !isFloat {
+			if n, ok := pyRoundInt(int64(f), prec); ok {
+				return n, nil
+			}
+			return nil, gjerrors.NewFilterArgumentError("round: integer result out of range")
+		}
+		return pyRoundFloat(f, prec), nil
+	}
+	// math.ceil/floor(value * 10**precision) / 10**precision
+	mult := math.Pow10(prec)
+	if method == "ceil" {
+		return math.Ceil(f*mult) / mult, nil
+	}
+	return math.Floor(f*mult) / mult, nil
 }
 
 // filterFilesizeformat implements the `filesizeformat` filter: render a
@@ -2097,6 +2120,9 @@ func testFloat(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[str
 //
 //	{% for n in numbers if n is odd %}{{ n }} {% endfor %}
 func testOdd(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
+	if err := eval.FailUndefined(value); err != nil {
+		return false, err
+	}
 	if n, ok := asInt(value); ok {
 		return n%2 != 0, nil
 	}
@@ -2108,6 +2134,9 @@ func testOdd(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[strin
 //
 // Signature: x is even
 func testEven(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
+	if err := eval.FailUndefined(value); err != nil {
+		return false, err
+	}
 	if n, ok := asInt(value); ok {
 		return n%2 == 0, nil
 	}
@@ -2126,6 +2155,9 @@ func testDivisibleBy(_ *Environment, _ *runtime.Context, value any, args []any, 
 	if len(args) < 1 {
 		return false, gjerrors.NewTemplateRuntimeError("divisibleby requires divisor")
 	}
+	if err := eval.FailUndefined(value, args[0]); err != nil {
+		return false, err
+	}
 	n, ok := asInt(value)
 	if !ok {
 		return false, nil
@@ -2143,11 +2175,14 @@ func testDivisibleBy(_ *Environment, _ *runtime.Context, value any, args []any, 
 // Signature: x is sequence
 //
 // Includes lists, tuples, strings, and mappings (mirrors Python's "anything
-// with `__len__` and `__getitem__`").
+// with `__len__` and `__getitem__`"). An Undefined is a sequence, except a
+// StrictUndefined, whose `len()` fails.
 func testSequence(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
-	switch value.(type) {
+	switch x := value.(type) {
 	case []any, string, runtime.Tuple, map[string]any, map[any]any, *runtime.OrderedDict:
 		return true, nil
+	case runtime.Undefined:
+		return x.Mode != runtime.ModeStrict, nil
 	}
 	return false, nil
 }
@@ -2170,10 +2205,16 @@ func testMapping(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 // Signature: x is iterable
 //
 // Lists, tuples, strings (over runes) and mappings are iterable,
-// matching Python's `iter(value)` succeeding.
+// matching Python's `iter(value)` succeeding. An Undefined iterates as
+// empty; a StrictUndefined raises.
 func testIterable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
-	switch value.(type) {
+	switch x := value.(type) {
 	case []any, runtime.Tuple, string, map[string]any, map[any]any, *runtime.OrderedDict:
+		return true, nil
+	case runtime.Undefined:
+		if _, err := x.Iter(); err != nil {
+			return false, err
+		}
 		return true, nil
 	}
 	return false, nil
@@ -2184,10 +2225,9 @@ func testIterable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 //
 // Signature: x is lower
 func testLowerStr(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
-	if s, ok := value.(string); ok {
-		return s == strings.ToLower(s) && containsLetter(s), nil
-	}
-	return false, nil
+	// Python tests str(value), so non-strings are checked by their text.
+	s := escape.SoftStr(value)
+	return s == strings.ToLower(s) && containsLetter(s), nil
 }
 
 // testUpperStr implements the `upper` test: true if the value is a string
@@ -2195,10 +2235,9 @@ func testLowerStr(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 //
 // Signature: x is upper
 func testUpperStr(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
-	if s, ok := value.(string); ok {
-		return s == strings.ToUpper(s) && containsLetter(s), nil
-	}
-	return false, nil
+	// Python tests str(value), so non-strings are checked by their text.
+	s := escape.SoftStr(value)
+	return s == strings.ToUpper(s) && containsLetter(s), nil
 }
 
 func containsLetter(s string) bool {
@@ -2242,6 +2281,9 @@ func testLt(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 	if len(args) < 1 {
 		return false, nil
 	}
+	if err := eval.FailUndefined(value, args[0]); err != nil {
+		return false, err
+	}
 	return compareLess(value, args[0]), nil
 }
 
@@ -2251,6 +2293,9 @@ func testLt(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 func testLtEq(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
+	}
+	if err := eval.FailUndefined(value, args[0]); err != nil {
+		return false, err
 	}
 	if compareLess(value, args[0]) {
 		return true, nil
@@ -2266,6 +2311,9 @@ func testGt(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 	if len(args) < 1 {
 		return false, nil
 	}
+	if err := eval.FailUndefined(value, args[0]); err != nil {
+		return false, err
+	}
 	return compareLess(args[0], value), nil
 }
 
@@ -2275,6 +2323,9 @@ func testGt(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 func testGtEq(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
 		return false, nil
+	}
+	if err := eval.FailUndefined(value, args[0]); err != nil {
+		return false, err
 	}
 	return !compareLess(value, args[0]), nil
 }
@@ -2344,6 +2395,10 @@ func testCallable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	if value == nil {
 		return false, nil
 	}
+	// Python's Undefined defines __call__ (which raises when invoked).
+	if runtime.IsUndefined(value) {
+		return true, nil
+	}
 	rv := reflect.ValueOf(value)
 	return rv.Kind() == reflect.Func, nil
 }
@@ -2353,6 +2408,10 @@ func testCallable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 //
 // Signature: x is escaped
 func testEscaped(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
+	// ChainableUndefined is the one Undefined that defines __html__.
+	if u, ok := value.(runtime.Undefined); ok {
+		return u.Mode == runtime.ModeChainable, nil
+	}
 	_, ok := value.(escape.Markup)
 	return ok, nil
 }
