@@ -395,6 +395,17 @@ func inValue(needle, haystack any) (bool, error) {
 		return col.Contains(needle, SameOrEqual)
 	case *runtime.Range:
 		return col.Contains(needle, SameOrEqual)
+	case *runtime.Iterator:
+		// Reads the iterator up to the first match.
+		for {
+			it, ok, err := col.Next()
+			if err != nil || !ok {
+				return false, err
+			}
+			if eq, err := elemEqual(needle, it, 0); err != nil || eq {
+				return eq, err
+			}
+		}
 	case runtime.Undefined:
 		// Mirrors Python: iterating Undefined (default mode) yields the
 		// empty sequence, so `x in undef` is False. ModeStrict errors at

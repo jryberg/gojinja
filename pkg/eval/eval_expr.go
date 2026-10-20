@@ -1,9 +1,11 @@
 package eval
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/jryberg/gojinja/pkg/ast"
+	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
@@ -164,7 +166,70 @@ func (e *evaluator) evalGetitem(n *ast.Getitem, ctx *runtime.Context) (any, erro
 			return ref.block(name), nil
 		}
 	}
+	// Jinja2 compiles a slice to a plain subscript, unless the whole
+	// expression folds to a constant, which goes through getitem.
+	if sv, ok := arg.(ast.SliceVal); ok && !(e.foldable(n.Node) && e.foldable(n.Arg)) {
+		if rv, done, err := subscriptSlice(v, sv); done {
+			return rv, err
+		}
+	}
 	return e.eng.GetItem(v, arg)
+}
+
+// subscriptSlice is obj[slice] for the values getitem would otherwise
+// make Undefined; done=false leaves the slicing to getitem.
+func subscriptSlice(v any, sv ast.SliceVal) (any, bool, error) {
+	switch x := v.(type) {
+	case string, escape.Markup, []any, []string, runtime.Tuple, *runtime.PyList, runtime.Bytes, *runtime.Range:
+		return nil, false, nil
+	case *runtime.OrderedDict, map[string]any, map[any]any:
+		// A slice is a dict key like any other: a KeyError.
+		return nil, true, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("slice(%s, %s, %s)", escape.Repr(sv.Start), escape.Repr(sv.Stop), escape.Repr(sv.Step)))
+	case runtime.Undefined:
+		if x.Mode == runtime.ModeChainable {
+			return x, true, nil
+		}
+		return nil, true, x.Fail()
+	}
+	return nil, true, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("'%s' object is not subscriptable", runtime.PyTypeName(v)))
+}
+
+// constFolder is satisfied by the environment: whether Jinja2 folds a
+// call of the named filter or test at compile time.
+type constFolder interface {
+	ConstFoldable(filter bool, name string) bool
+}
+
+// foldable reports whether Jinja2's as_const can fold n: no variables,
+// calls, or filters and tests that need the context.
+func (e *evaluator) foldable(n ast.Node) bool {
+	switch x := n.(type) {
+	case nil:
+		return true
+	case *ast.Name, *ast.NSRef, *ast.Call, *ast.ContextReference, *ast.DerivedContextReference,
+		*ast.EnvironmentAttribute, *ast.ExtensionAttribute, *ast.ImportedName, *ast.InternalName:
+		return false
+	case *ast.Filter:
+		cf, ok := e.eng.(constFolder)
+		if x.Node == nil || !ok || !cf.ConstFoldable(true, x.Name) {
+			return false
+		}
+	case *ast.Test:
+		cf, ok := e.eng.(constFolder)
+		if !ok || !cf.ConstFoldable(false, x.Name) {
+			return false
+		}
+	case *ast.CondExpr:
+		if x.Expr2 == nil {
+			return false
+		}
+	}
+	for _, c := range ast.Children(n) {
+		if !e.foldable(c) {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *evaluator) evalCall(n *ast.Call, ctx *runtime.Context) (any, error) {
@@ -179,11 +244,16 @@ func (e *evaluator) evalCall(n *ast.Call, ctx *runtime.Context) (any, error) {
 	if mv, ok := fn.(*macroValue); ok {
 		return e.CallMacro(mv, ctx, args, kwargs, order, nil)
 	}
+	var v any
 	if oc, ok := e.eng.(orderedCaller); ok {
-		v, err := oc.CallOrdered(ctx, fn, args, kwargs, order)
-		return runtime.ToPyList(v), err
+		v, err = oc.CallOrdered(ctx, fn, args, kwargs, order)
+	} else {
+		v, err = e.eng.Call(ctx, fn, args, kwargs)
 	}
-	v, err := e.eng.Call(ctx, fn, args, kwargs)
+	if errors.Is(err, runtime.ErrStopIteration) {
+		// Context.call turns a StopIteration into an Undefined.
+		return e.eng.UndefinedFactory()(runtime.ErrStopIteration.Error(), "", runtime.Missing, nil), nil
+	}
 	return runtime.ToPyList(v), err
 }
 
@@ -314,7 +384,9 @@ func (e *evaluator) evalConcat(n *ast.Concat, ctx *runtime.Context) (any, error)
 		}
 		vals[i] = v
 	}
-	markup = markup && ctx.Eval != nil && ctx.Eval.Autoescape
+	// A constant concatenation is folded at compile time with str(), which
+	// drops Markup; only one evaluated at runtime keeps it.
+	markup = markup && ctx.Eval != nil && ctx.Eval.Autoescape && !e.foldable(n)
 	var b []byte
 	for _, v := range vals {
 		if markup {

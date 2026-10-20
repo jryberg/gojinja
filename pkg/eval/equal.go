@@ -29,6 +29,12 @@ func valuesEqual(a, b any, depth int) (bool, error) {
 	if depth > maxEqualDepth {
 		return false, gjerrors.NewTemplateRuntimeError("maximum recursion depth exceeded in comparison")
 	}
+	if it, ok := a.(*runtime.Iterator); ok {
+		return it == b, nil
+	}
+	if it, ok := b.(*runtime.Iterator); ok {
+		return it == a, nil
+	}
 	if u, ok := a.(runtime.Undefined); ok {
 		return u.Equal(b)
 	}

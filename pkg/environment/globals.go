@@ -76,7 +76,7 @@ func globalRange(e *Environment) KwargsCallable {
 //
 // Example:
 //
-//	{{ dict(a=1, b=2) | items }}  →  [('a', 1), ('b', 2)]
+//	{{ dict(a=1, b=2) | items | list }}  →  [('a', 1), ('b', 2)]
 func globalDict(args []any, kwargs *runtime.OrderedDict) (any, error) {
 	if len(args) > 1 {
 		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("dict expected at most 1 argument, got %d", len(args)))

@@ -1,0 +1,1 @@
+{% autoescape true %}{{ ('<a>'|safe) ~ '<b>' }}|{{ ('<a>'|e) ~ '<b>' }}|{{ ('<a>'|safe) ~ tag }}|{% set y = ('<i>'|safe) ~ '<b>' %}{{ y }}|{% set z = '<a>'|safe %}{{ z ~ '<b>' }}|{{ (('<a>'|safe) ~ '<b>') is escaped }}{% endautoescape %}

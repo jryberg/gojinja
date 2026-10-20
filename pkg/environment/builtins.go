@@ -343,6 +343,8 @@ func filterLength(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	case interface{ Len() int }:
 		// Lists, dicts and dict views.
 		return x.Len(), nil
+	case *runtime.LoopContext:
+		return x.Length()
 	}
 	return 0, gjerrors.NewFilterArgumentError(fmt.Sprintf("object of type '%s' has no len()", runtime.PyTypeName(value)))
 }
@@ -547,41 +549,6 @@ func filterReplace(_ *Environment, ctx *runtime.Context, value any, args []any, 
 	return strings.Replace(escape.SoftStr(subject), old, escape.SoftStr(newVal), count), nil
 }
 
-// filterReverse implements the `reverse` filter: reverse a string or
-// sequence.
-//
-// Signature: reverse(value)
-//
-// Strings are reversed by character, and a Markup stays Markup. Any
-// other iterable (lists, tuples, a dict's keys) returns a new reversed
-// list; the original is left unmodified.
-//
-// Example:
-//
-//	{{ "abc"      | reverse }}  →  cba
-//	{{ [1, 2, 3]  | reverse }}  →  [3, 2, 1]
-func filterReverse(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	switch x := value.(type) {
-	case string:
-		return reverseRunes(x), nil
-	case escape.Markup:
-		// value[::-1] on a Markup is a Markup.
-		return escape.Markup(reverseRunes(string(x))), nil
-	}
-	items, err := eval.ToIterable(value)
-	if err != nil || value == nil {
-		if runtime.IsUndefined(value) {
-			return nil, err
-		}
-		return nil, gjerrors.NewFilterArgumentError("argument must be iterable")
-	}
-	out := make([]any, len(items))
-	for i, it := range items {
-		out[len(items)-1-i] = it
-	}
-	return out, nil
-}
-
 func reverseRunes(s string) string {
 	runes := []rune(s)
 	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
@@ -776,8 +743,8 @@ func filterList(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 		return x, nil
 	}
 	x, err := eval.ToIterable(value)
-	if err != nil || value == nil {
-		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("list: cannot convert %T", value))
+	if err != nil {
+		return nil, err
 	}
 	out := make([]any, len(x))
 	copy(out, x)
@@ -795,6 +762,14 @@ func filterList(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 //
 //	{{ [1, 2, 3]  | first }}  →  1
 func filterFirst(env *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
+	if it, ok := value.(*runtime.Iterator); ok {
+		// next(iter(seq)) reads just one item.
+		v, ok, err := it.Next()
+		if err != nil || ok {
+			return v, err
+		}
+		return env.undefined("No first item, sequence was empty.", "", runtime.Missing, nil), nil
+	}
 	x, err := iterArg("first", value)
 	if err != nil {
 		return nil, err
@@ -816,6 +791,9 @@ func filterFirst(env *Environment, _ *runtime.Context, value any, _ []any, _ map
 //
 //	{{ [1, 2, 3]  | last }}  →  3
 func filterLast(env *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
+	if _, ok := value.(*runtime.Iterator); ok {
+		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("'%s' object is not reversible", runtime.PyTypeName(value)))
+	}
 	x, err := iterArg("last", value)
 	if err != nil {
 		return nil, err
@@ -1126,63 +1104,6 @@ func minMaxKey(env *Environment, args []any, kwargs map[string]any) func(any) (a
 	return makeAttrGetter(env, attribute, !caseSensitive, nil)
 }
 
-// filterItems implements the `items` filter: yield (key, value) pairs for
-// a mapping.
-//
-// Signature: items(d)
-//
-// Output is a list of two-element tuples. For Go map types, keys are
-// sorted lexicographically (Go map iteration order is non-deterministic;
-// sorting keeps output stable across renders). For [runtime.OrderedDict],
-// insertion order is preserved (matching Python dicts since 3.7).
-// Undefined input yields an empty list.
-//
-// Example:
-//
-//	{% for k, v in {'a': 1, 'b': 2} | items %}{{ k }}={{ v }} {% endfor %}
-//	→  a=1 b=2
-func filterItems(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	switch x := value.(type) {
-	case map[string]any:
-		// Map iteration is non-deterministic; sort by key so output
-		// stays stable across runs. Templates relying on insertion
-		// order should use a runtime.OrderedDict (built by `{...}`
-		// literals or the `dict()` global).
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		out := make([]any, 0, len(keys))
-		for _, k := range keys {
-			out = append(out, runtime.Tuple{k, x[k]})
-		}
-		return out, nil
-	case map[any]any:
-		stringKeys := make([]string, 0, len(x))
-		valByKey := make(map[string]any, len(x))
-		origKey := make(map[string]any, len(x))
-		for k, v := range x {
-			s := stringifyKey(k)
-			stringKeys = append(stringKeys, s)
-			valByKey[s] = v
-			origKey[s] = k
-		}
-		sort.Strings(stringKeys)
-		out := make([]any, 0, len(stringKeys))
-		for _, k := range stringKeys {
-			out = append(out, runtime.Tuple{origKey[k], valByKey[k]})
-		}
-		return out, nil
-	case *runtime.OrderedDict:
-		return x.Items(), nil
-	}
-	if u, ok := value.(runtime.Undefiner); ok && u.IsUndefined() {
-		return []any{}, nil
-	}
-	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("items: %T is not a mapping", value))
-}
-
 // filterDictsort implements the `dictsort` filter: sort a dict and emit
 // (key, value) pairs.
 //
@@ -1289,156 +1210,6 @@ func paramArg(args []any, kwargs map[string]any, i int, name string) (any, bool)
 	}
 	v, ok := kwargs[name]
 	return v, ok
-}
-
-// filterUnique implements the `unique` filter: drop duplicate items
-// preserving input order.
-//
-// Signature: unique(value, case_sensitive=False, attribute=None)
-//
-// Equality is value equality for primitives. String comparisons are
-// case-insensitive by default — first-seen casing wins. With `attribute`,
-// items are deduplicated by that (dotted) attribute.
-//
-// Example:
-//
-//	{{ [1, 2, 1, 3]            | unique }}  →  [1, 2, 3]
-//	{{ ['Foo', 'foo', 'BAR']   | unique }}  →  ['Foo', 'BAR']
-func filterUnique(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	x, err := iterArg("unique", value)
-	if err != nil {
-		return nil, err
-	}
-	caseSensitive := false
-	if v, ok := paramArg(args, kwargs, 0, "case_sensitive"); ok {
-		caseSensitive = eval.Truthy(v)
-	}
-	attribute, _ := paramArg(args, kwargs, 1, "attribute")
-	getter := makeAttrGetter(env, attribute, !caseSensitive, nil)
-	seen := map[string]bool{}
-	out := []any{}
-	for _, it := range x {
-		key, err := getter(it)
-		if err != nil {
-			return nil, err
-		}
-		hk, err := runtime.HashKey(key)
-		if err != nil {
-			return nil, gjerrors.NewTemplateRuntimeError(err.Error())
-		}
-		if !seen[hk] {
-			seen[hk] = true
-			out = append(out, it)
-		}
-	}
-	return out, nil
-}
-
-// filterBatch implements the `batch` filter: group items into rows of N.
-//
-// Signature: batch(value, linecount, fill_with=None)
-//
-// The last row is padded with `fill_with` to reach `linecount` if a
-// fill value is provided; otherwise it's left short. A port of Python's
-// do_batch, including its results for a zero or non-integer linecount.
-//
-// Example:
-//
-//	{{ [1, 2, 3, 4, 5]      | batch(2) }}     →  [[1, 2], [3, 4], [5]]
-//	{{ [1, 2, 3, 4, 5]      | batch(2, 0) }}  →  [[1, 2], [3, 4], [5, 0]]
-func filterBatch(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	x, err := iterArg("batch", value)
-	if err != nil {
-		return nil, err
-	}
-	// The signature check guarantees linecount was passed.
-	linecount, _ := paramArg(args, kwargs, 0, "linecount")
-	fill, _ := paramArg(args, kwargs, 1, "fill_with")
-	// Port of do_batch, including its behaviour for odd linecounts.
-	var out []any
-	var tmp []any
-	for _, item := range x {
-		full, err := eval.ValuesEqual(int64(len(tmp)), linecount)
-		if err != nil {
-			return nil, err
-		}
-		if full {
-			out = append(out, tmp)
-			tmp = nil
-		}
-		tmp = append(tmp, item)
-	}
-	if len(tmp) > 0 {
-		if fill != nil {
-			short, err := eval.Compare("lt", int64(len(tmp)), linecount)
-			if err != nil {
-				return nil, err
-			}
-			if short {
-				missing, err := eval.BinaryOp("-", linecount, int64(len(tmp)))
-				if err != nil {
-					return nil, err
-				}
-				n, err := indexArg(missing)
-				if err != nil {
-					return nil, err
-				}
-				for range n {
-					tmp = append(tmp, fill)
-				}
-			}
-		}
-		out = append(out, tmp)
-	}
-	return out, nil
-}
-
-// filterSlice implements the `slice` filter: distribute items across N
-// columns of nearly-equal length.
-//
-// Signature: slice(value, slices, fill_with=None)
-//
-// Useful for newspaper-style layouts. Earlier slices get one extra item
-// when the count doesn't divide evenly. With `fill_with`, short slices
-// are padded so all have equal length.
-//
-// Example:
-//
-//	{{ [1, 2, 3, 4, 5]   | slice(3) }}  →  [[1, 2], [3, 4], [5]]
-func filterSlice(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	x, err := iterArg("slice", value)
-	if err != nil {
-		return nil, err
-	}
-	if len(args) < 1 {
-		return nil, gjerrors.NewFilterArgumentError("slice requires count")
-	}
-	n, ok := asInt(args[0])
-	if !ok || n <= 0 {
-		return nil, gjerrors.NewFilterArgumentError("slice count must be positive")
-	}
-	var fill any
-	if len(args) > 1 {
-		fill = args[1]
-	}
-	total := len(x)
-	per := total / n
-	extra := total % n
-	out := make([]any, 0, n)
-	pos := 0
-	for i := 0; i < n; i++ {
-		size := per
-		if i < extra {
-			size++
-		}
-		row := append([]any(nil), x[pos:pos+size]...)
-		pos += size
-		if fill != nil && i >= extra && extra != 0 {
-			row = append(row, fill)
-		}
-		out = append(out, row)
-	}
-	return out, nil
 }
 
 // filterTruncate implements the `truncate` filter: shorten a string and
@@ -1974,72 +1745,6 @@ func formatError(err error) error {
 
 // ------------------------------------------------------ higher-order filters
 
-// filterMap implements the `map` filter: apply a filter to each item, or
-// extract an attribute from each item.
-//
-// Signature: map(value, *args, **kwargs)
-//
-// Two forms:
-//   - `map(filter_name, *args)` applies the named filter to each item.
-//   - `map(attribute='name', default=...)` extracts the named attribute
-//     (dotted path supported) from each item, falling back to `default`
-//     when the attribute is undefined.
-//
-// `None` and Undefined inputs yield an empty list (matching Python).
-//
-// Example:
-//
-//	{{ ['a', 'b']  | map('upper')         | list }}  →  ['A', 'B']
-//	{{ users       | map(attribute='name') | list }}  →  list of names
-func filterMap(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	if empty, err := skipFalsy(value); empty || err != nil {
-		return []any{}, err
-	}
-	x, err := iterArg("map", value)
-	if err != nil {
-		return nil, err
-	}
-	if attribute, ok := kwargs["attribute"]; ok && len(args) == 0 {
-		var extra []string
-		for k := range kwargs {
-			if k != "attribute" && k != "default" {
-				extra = append(extra, k)
-			}
-		}
-		if len(extra) > 0 {
-			sort.Strings(extra)
-			return nil, gjerrors.NewFilterArgumentError("Unexpected keyword argument " + escape.Repr(extra[0]))
-		}
-		getter := makeAttrGetter(env, attribute, false, kwargs["default"])
-		out := make([]any, 0, len(x))
-		for _, it := range x {
-			v, err := getter(it)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, v)
-		}
-		return out, nil
-	}
-	if len(args) >= 1 {
-		fname, ok := args[0].(string)
-		if !ok {
-			return nil, gjerrors.NewFilterArgumentError("map: first arg must be a filter name")
-		}
-		rest := args[1:]
-		out := make([]any, 0, len(x))
-		for _, it := range x {
-			v, err := env.CallFilter(fname, ctx, it, rest, kwargs)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, v)
-		}
-		return out, nil
-	}
-	return nil, gjerrors.NewFilterArgumentError("map requires a filter name or attribute=")
-}
-
 // iterArg returns the items a filter iterates, as Python's iter() would:
 // strings and Markup yield their characters, mappings their keys, and an
 // Undefined nothing (a StrictUndefined raises).
@@ -2054,22 +1759,6 @@ func iterArg(filter string, value any) ([]any, error) {
 	return items, nil
 }
 
-// filterSelect implements the `select` filter: keep items where a test
-// passes.
-//
-// Signature: select(value, test_name=None, *test_args)
-//
-// With no arguments, keeps items that are truthy. With a test name,
-// applies the named test to each item.
-//
-// Example:
-//
-//	{{ [1, 2, 3, 4]  | select('odd') | list }}      →  [1, 3]
-//	{{ [0, 1, 2, '', 'x'] | select | list }}         →  [1, 2, 'x']
-func filterSelect(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	return selectReject(env, ctx, value, args, kwargs, true, false)
-}
-
 // skipFalsy reports whether a map/select-style filter yields nothing for
 // value: Python's filters start with `if value:`, so a falsy value (None,
 // 0, an empty sequence) gives an empty result before any argument is
@@ -2079,93 +1768,6 @@ func skipFalsy(value any) (bool, error) {
 		return true, err
 	}
 	return !eval.Truthy(value), nil
-}
-
-// filterReject implements the `reject` filter: drop items where a test
-// passes (the complement of [filterSelect]).
-//
-// Signature: reject(value, test_name=None, *test_args)
-//
-// Example:
-//
-//	{{ [1, 2, 3, 4]  | reject('odd') | list }}  →  [2, 4]
-func filterReject(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	return selectReject(env, ctx, value, args, kwargs, false, false)
-}
-
-// filterSelectAttr implements the `selectattr` filter: keep items whose
-// named attribute passes a test.
-//
-// Signature: selectattr(value, attribute, test_name=None, *test_args)
-//
-// With no test, keeps items where the attribute is truthy.
-//
-// Example:
-//
-//	{{ users | selectattr('admin') | list }}                →  admins
-//	{{ users | selectattr('age', 'gt', 18) | list }}        →  adults
-func filterSelectAttr(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	return selectReject(env, ctx, value, args, kwargs, true, true)
-}
-
-// filterRejectAttr implements the `rejectattr` filter: drop items whose
-// named attribute passes a test (complement of [filterSelectAttr]).
-//
-// Signature: rejectattr(value, attribute, test_name=None, *test_args)
-//
-// Example:
-//
-//	{{ users | rejectattr('banned') | list }}  →  non-banned users
-func filterRejectAttr(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	return selectReject(env, ctx, value, args, kwargs, false, true)
-}
-
-// selectReject is the shared engine for select/reject/selectattr/rejectattr.
-// keep=true means "include items where the test passes"; attr (if set)
-// means "test the named attribute of each item, not the item itself".
-func selectReject(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any, keep, lookupAttr bool) (any, error) {
-	if empty, err := skipFalsy(value); empty || err != nil {
-		return []any{}, err
-	}
-	// prepare_select_or_reject: the attribute, then the test and its
-	// arguments; without a test the value's truth decides.
-	transform := func(v any) (any, error) { return v, nil }
-	if lookupAttr {
-		if len(args) == 0 {
-			return nil, gjerrors.NewFilterArgumentError("Missing parameter for attribute name")
-		}
-		transform = makeAttrGetter(env, args[0], false, nil)
-		args = args[1:]
-	}
-	x, err := iterArg("select", value)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]any, 0, len(x))
-	for _, it := range x {
-		probe, err := transform(it)
-		if err != nil {
-			return nil, err
-		}
-		var pass bool
-		if len(args) == 0 {
-			pass = eval.Truthy(probe)
-		} else {
-			tname, ok := args[0].(string)
-			if !ok {
-				return nil, gjerrors.NewFilterArgumentError("select/reject: test name must be a string")
-			}
-			res, err := env.CallTest(tname, ctx, probe, args[1:], kwargs)
-			if err != nil {
-				return nil, err
-			}
-			pass = eval.Truthy(res)
-		}
-		if pass == keep {
-			out = append(out, it)
-		}
-	}
-	return out, nil
 }
 
 // =========================================================== Test funcs
@@ -2357,7 +1959,7 @@ func testMapping(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 func testIterable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch x := value.(type) {
 	case []any, runtime.Tuple, string, escape.Markup, []string, map[string]any, map[any]any, *runtime.OrderedDict,
-		*runtime.PyList, *runtime.Range, *runtime.DictView, runtime.Bytes:
+		*runtime.PyList, *runtime.Range, *runtime.DictView, runtime.Bytes, *runtime.Iterator, *runtime.LoopContext:
 		return true, nil
 	case runtime.Undefined:
 		if _, err := x.Iter(); err != nil {

@@ -1,0 +1,6 @@
+{% set active = users|selectattr('active') %}{% if active %}truthy{% endif %}|{% if users|selectattr('admin') %}admins?{% endif %}|{{ active|map(attribute='name')|join(',') }}|{{ active|list }}
+{% set names = users|map(attribute='name') %}{% for n in names %}{{ n }}{% if loop.index == 2 %}{% break %}{% endif %}{% endfor %}/{{ names|list }}
+{% for u in users|rejectattr('active') %}{{ loop.index }}/{{ loop.length }}:{{ u.name }}{{ ',' if not loop.last }}{% else %}none{% endfor %}
+{% for row in users|map(attribute='age')|batch(2, 0) %}{{ row }}{% endfor %}|{% for col in users|slice(2) %}{{ col|length }}{% endfor %}|{{ users|map(attribute='age')|unique|list }}|{{ users|map(attribute='name')|first }}
+{% for k, v in prefs|items %}{{ k }}={{ v }};{% endfor %}|{% for k in prefs|reverse %}{{ k }}{% endfor %}|{{ users|reverse|map(attribute='name')|join(' ') }}|{{ (users|reverse|list)[0].name }}
+{% set ns = namespace(n=0) %}{% for u in users if ns.n < 2 %}{% set ns.n = ns.n + 1 %}{{ u.name }}{% endfor %}|{{ 'Ada' in users|map(attribute='name') }}|{{ users|map(attribute='age')|sum }}

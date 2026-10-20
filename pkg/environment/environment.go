@@ -738,7 +738,7 @@ func asTemplateSyntaxError(err error, target **gjerrors.TemplateSyntaxError) boo
 func (e *Environment) CallFilter(name string, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	f, ok := e.filters[name]
 	if !ok {
-		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("no filter named %q", name))
+		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("No filter named %s.", escape.Repr(name)))
 	}
 	if f.sig != nil {
 		if msg := f.sig.check(len(args), kwargs); msg != "" {
@@ -749,10 +749,24 @@ func (e *Environment) CallFilter(name string, ctx *runtime.Context, value any, a
 			return nil, u.Fail()
 		}
 	}
-	value = unwrapPyList(value)
+	if f.sig == nil || !lazyFilters[name] {
+		value = unwrapPyList(value)
+	}
 	args = unwrapPyListArgs(args)
 	kwargs = unwrapPyListKwargs(kwargs)
 	return f.Func(e, ctx, value, args, kwargs)
+}
+
+// ConstFoldable reports whether Jinja2 would fold a call of the named
+// filter (or test) at compile time: one that exists and does not need
+// the template context.
+func (e *Environment) ConstFoldable(filter bool, name string) bool {
+	if filter {
+		f, ok := e.filters[name]
+		return ok && f.Pass != runtime.PassContext
+	}
+	t, ok := e.tests[name]
+	return ok && t.Pass != runtime.PassContext
 }
 
 // strictUndefinedFilters are the builtin filters that receive a
@@ -762,6 +776,18 @@ func (e *Environment) CallFilter(name string, ctx *runtime.Context, value any, a
 var strictUndefinedFilters = map[string]bool{
 	"default": true, "d": true, "pprint": true, "items": true,
 	"abs": true, "round": true, "tojson": true,
+	// Generators, which only use the value when read.
+	"map": true, "select": true, "reject": true, "selectattr": true,
+	"rejectattr": true, "unique": true, "batch": true, "slice": true,
+}
+
+// lazyFilters are the builtin filters that read a list as it is when
+// each item is reached, as Python's generators and reverse iterators
+// do; they get the list itself.
+var lazyFilters = map[string]bool{
+	"map": true, "select": true, "reject": true, "selectattr": true,
+	"rejectattr": true, "unique": true, "batch": true, "slice": true,
+	"reverse": true,
 }
 
 // strictUndefinedTests are the builtin tests that accept a
@@ -777,7 +803,7 @@ var strictUndefinedTests = map[string]bool{
 func (e *Environment) CallTest(name string, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	t, ok := e.tests[name]
 	if !ok {
-		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("no test named %q", name))
+		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("No test named %s.", escape.Repr(name)))
 	}
 	if t.sig != nil {
 		if msg := t.sig.check(len(args), kwargs); msg != "" {
@@ -953,9 +979,9 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 		if v, ok := x.Get(attr); ok {
 			return v, nil
 		}
-	case *runtime.LoopContext:
-		if v, ok := x.Get(attr); ok {
-			return v, nil
+	case runtime.FallibleAttrGetter:
+		if v, ok, err := x.GetAttr(attr); err != nil || ok {
+			return v, err
 		}
 	case *runtime.Namespace:
 		if v, ok := x.Get(attr); ok {
@@ -1051,12 +1077,6 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 		if f.IsValid() && f.CanInterface() {
 			return f.Interface(), nil
 		}
-		// Loop variable special-case.
-		if lc, ok := obj.(*runtime.LoopContext); ok {
-			if got, ok := lc.Get(attr); ok {
-				return got, nil
-			}
-		}
 	}
 	if v.Kind() == reflect.Map {
 		key := reflect.ValueOf(attr)
@@ -1065,11 +1085,6 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 			if it.IsValid() {
 				return it.Interface(), nil
 			}
-		}
-	}
-	if lc, ok := obj.(*runtime.LoopContext); ok {
-		if got, ok := lc.Get(attr); ok {
-			return got, nil
 		}
 	}
 	return e.undefined("", attr, obj, nil), nil

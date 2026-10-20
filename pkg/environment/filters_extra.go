@@ -177,6 +177,10 @@ func filterPprint(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 //
 //	{{ ['rock', 'paper', 'scissors'] | random }}
 func filterRandom(env *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
+	if _, ok := value.(*runtime.Iterator); ok {
+		// random.choice needs len().
+		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("object of type '%s' has no len()", runtime.PyTypeName(value)))
+	}
 	x, err := iterArg("random", value)
 	if err != nil {
 		return nil, err

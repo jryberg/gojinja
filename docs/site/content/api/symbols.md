@@ -193,10 +193,17 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `Escape` | func | Escape returns v as a [Markup]. If v is already safe (Markup or | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#Escape) |
 | `ForceEscape` | func | ForceEscape always escapes — even values that are already [Markup]. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#ForceEscape) |
 | `HTMLer` | type | HTMLer is the contract for values that already represent safe HTML. The | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#HTMLer) |
+| `IntDecimal` | func | IntDecimal is str(b): its decimal digits, or Python's ValueError past | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#IntDecimal) |
 | `IsMarkup` | func | IsMarkup reports whether v is a [Markup] value or implements [HTMLer], and | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#IsMarkup) |
 | `Markup` | type | Markup is a string the engine has marked as already-safe for HTML | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#Markup) |
+| `MaxDepth` | const | MaxDepth bounds how deeply repr, comparisons and serialisation recurse | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#MaxDepth) |
+| `MaxStrDigits` | const | MaxStrDigits is Python's default sys.get_int_max_str_digits(): the | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#MaxStrDigits) |
+| `ParseIntDigits` | func | ParseIntDigits checks a decimal digit string's length the way Python's | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#ParseIntDigits) |
 | `PlainConcat` | func | PlainConcat joins values into a plain string, calling [SoftStr] on each. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#PlainConcat) |
+| `RecursionError` | type | RecursionError is what [Repr] and [SoftStr] panic with for a value | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#RecursionError) |
+| `Repr` | func | Repr returns Python's repr() of v: strings single-quoted with | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#Repr) |
 | `SoftStr` | func | SoftStr returns the string form of v *without* escaping. It mirrors | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#SoftStr) |
+| `ValueError` | type | ValueError is what [Repr] and [SoftStr] panic with for an int too long | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#ValueError) |
 
 ## `github.com/jryberg/gojinja/pkg/ext`
 
@@ -266,37 +273,78 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 
 | Symbol | Kind | Synopsis | Reference |
 |---|---|---|---|
+| `AbsNumber` | func | AbsNumber is Python's abs() of a number: exact for an int (bool | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#AbsNumber) |
+| `Atan2` | func | Atan2 is C's atan2(). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Atan2) |
+| `AttrGetter` | type | AttrGetter is implemented by template-visible objects that resolve | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#AttrGetter) |
+| `BigInt` | func | BigInt returns v as a *big.Int when v is a Python int: any Go integer | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#BigInt) |
 | `BlockRenderFunc` | type | BlockRenderFunc renders one level of a block in the inheritance chain. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#BlockRenderFunc) |
-| `CallerFunc` | type | CallerFunc is the runtime contract for `caller()` produced by the | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#CallerFunc) |
+| `Bytes` | type | Bytes is Python's bytes, produced by str.encode. str() and repr() of | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Bytes) |
+| `CompareNumbers` | func | CompareNumbers compares two Python numbers (ints, bools, floats) | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#CompareNumbers) |
 | `Context` | type | Context carries the per-render variable bindings and inheritance state. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Context) |
+| `Cos` | func | Cos is C's cos(). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Cos) |
 | `Cycler` | type | Cycler cycles through a fixed list of values, returning the next value | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Cycler) |
+| `DictView` | type | DictView is what dict.keys(), dict.values() and dict.items() return: | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#DictView) |
+| `ErrIntToFloat` | var | ErrIntToFloat is Python's OverflowError for an int no float can hold. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#ErrIntToFloat) |
+| `ErrIntTooLarge` | var | ErrIntTooLarge is the error for an int result over MaxIntBits. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#ErrIntTooLarge) |
+| `ErrStopIteration` | var | ErrStopIteration is Python's StopIteration raised by a callable, such | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#ErrStopIteration) |
 | `EvalContext` | type | EvalContext holds eval-time flags that can be flipped by AST nodes during | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#EvalContext) |
 | `EvalContextEnvironment` | type | EvalContextEnvironment is the slice of the Environment that an EvalContext | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#EvalContextEnvironment) |
+| `Exp` | func | Exp is C's exp(). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Exp) |
+| `FallibleAttrGetter` | type | FallibleAttrGetter is an [AttrGetter] whose attributes can fail, as | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#FallibleAttrGetter) |
+| `FloatToInt` | func | FloatToInt is Python's int(float): truncated exactly, a ValueError | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#FloatToInt) |
+| `GroupTupleAttr` | func | GroupTupleAttr returns the grouper or list attribute of a tuple made by | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#GroupTupleAttr) |
+| `HashKey` | func | HashKey returns the key under which Python's dicts and sets file v: | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#HashKey) |
+| `Hypot` | func | Hypot is C's hypot(). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Hypot) |
+| `IntToFloat` | func | IntToFloat converts a Python int to a float like Python's float(int): | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#IntToFloat) |
+| `IsInt` | func | IsInt reports whether v is a Python int (bool excluded). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#IsInt) |
 | `IsMissing` | func | IsMissing returns true iff v is the [Missing] sentinel. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#IsMissing) |
+| `IsNotNumber` | func | IsNotNumber reports whether err is NumBinop's error for an operand | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#IsNotNumber) |
+| `IsNumber` | func | IsNumber reports whether v is a Python number (bool included). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#IsNumber) |
 | `IsUndefined` | func | IsUndefined reports whether v is an Undefined value (any mode). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#IsUndefined) |
+| `IsValueError` | func | IsValueError reports whether err is ParseInt's or ParseFloat's error | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#IsValueError) |
+| `Iterator` | type | Iterator is a Python iterator: the generator that filters such as map, | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Iterator) |
 | `Joiner` | type | Joiner emits a separator on every call but the first. Mirrors | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Joiner) |
 | `Lister` | type | Lister is satisfied by any list-like value whose elements can be | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Lister) |
+| `Log` | func | Log is C's log(). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Log) |
 | `LoopContext` | type | LoopContext is the value the Jinja `loop` variable holds inside a `&#123;% for %}` | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#LoopContext) |
+| `MaxCallDepth` | const | MaxCallDepth bounds nested template calls in one render. Python stops | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#MaxCallDepth) |
+| `MaxIntBits` | const | MaxIntBits bounds an int's size. Python's ints only stop at memory, | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#MaxIntBits) |
 | `Namespace` | type | Namespace is a mutable container of named values, equivalent to Jinja2's | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Namespace) |
 | `NamespaceEntry` | type | NamespaceEntry is a (name, value) pair returned by [Namespace.Items]. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NamespaceEntry) |
+| `NegateNumber` | func | NegateNumber is unary minus on a number. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NegateNumber) |
 | `NewBase` | func | NewBase returns a ModeBase Undefined. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewBase) |
 | `NewChainable` | func | NewChainable returns a ModeChainable Undefined. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewChainable) |
 | `NewContext` | func | NewContext constructs a Context with the supplied parent globals and a | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewContext) |
 | `NewCycler` | func | NewCycler builds a Cycler over items. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewCycler) |
 | `NewDebug` | func | NewDebug returns a ModeDebug Undefined. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewDebug) |
+| `NewDelegatingGenerator` | func | NewDelegatingGenerator is NewGenerator for a generator whose body is | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewDelegatingGenerator) |
 | `NewEvalContext` | func | NewEvalContext constructs an EvalContext for the given (env, template | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewEvalContext) |
+| `NewGenerator` | func | NewGenerator returns the generator a Python generator function fn | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewGenerator) |
+| `NewGroupTuple` | func | NewGroupTuple returns the groupby filter's (grouper, list) tuple, | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewGroupTuple) |
+| `NewIterator` | func | NewIterator returns an iterator of Python type typ over next. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewIterator) |
 | `NewJoiner` | func | NewJoiner returns a Joiner that emits sep between items (default ", "). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewJoiner) |
-| `NewLoopContext` | func | NewLoopContext constructs a LoopContext over items. depth is 0 for top- | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewLoopContext) |
-| `NewNamespace` | func | NewNamespace constructs a Namespace seeded from the given map. The map | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewNamespace) |
+| `NewLoopContext` | func | NewLoopContext constructs a LoopContext over the items next produces. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewLoopContext) |
+| `NewNamespace` | func | NewNamespace constructs a Namespace seeded from the given map, in | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewNamespace) |
 | `NewOrderedDict` | func | NewOrderedDict returns an empty OrderedDict ready for Set. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewOrderedDict) |
 | `NewOrderedDictFromPairs` | func | NewOrderedDictFromPairs builds an OrderedDict from a sequence of | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewOrderedDictFromPairs) |
 | `NewPyList` | func | NewPyList wraps an existing []any. The slice is adopted, not copied — | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewPyList) |
 | `NewStrict` | func | NewStrict returns a ModeStrict Undefined. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewStrict) |
+| `Next` | type | Next returns an iterator's next item, or ok=false once it is exhausted. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Next) |
+| `NormInt` | func | NormInt returns b as an int64 when it fits and as itself otherwise, | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NormInt) |
 | `NormalizeForTemplate` | func | NormalizeForTemplate walks v and rewrites every Go map it encounters | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NormalizeForTemplate) |
+| `NumBinop` | func | NumBinop applies the arithmetic operator op (+ - * / // % **) to two | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NumBinop) |
+| `ObjectTypeRepr` | func | ObjectTypeRepr mirrors jinja2.utils.object_type_repr: "None" for None, | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#ObjectTypeRepr) |
 | `OrderedDict` | type | OrderedDict is an insertion-ordered map[any]any — the runtime | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#OrderedDict) |
 | `OrderedDictFromMap` | func | OrderedDictFromMap returns a new OrderedDict containing m's entries in | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#OrderedDictFromMap) |
+| `ParseFloat` | func | ParseFloat is Python's float(s) for a string. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#ParseFloat) |
+| `ParseInt` | func | ParseInt is Python's int(s, base) for a string. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#ParseInt) |
 | `PassArg` | type | PassArg names the categories of "first-arg injection" that filters and | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#PassArg) |
-| `PyList` | type | PyList is the runtime representation of a list literal built inside a | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#PyList) |
+| `Pow` | func | Pow is C's pow() for the real cases (a negative base needs an | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Pow) |
+| `PyList` | type | PyList is the runtime representation of a Python list: list literals | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#PyList) |
+| `PyTypeName` | func | PyTypeName is the Python type name templates see for v, as used in | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#PyTypeName) |
+| `Range` | type | Range is Python's range object, which range() returns: an immutable | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Range) |
+| `Sin` | func | Sin is C's sin(). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Sin) |
+| `ToPyList` | func | ToPyList returns v with every []any and []string, at any depth inside | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#ToPyList) |
 | `Tuple` | type | Tuple is a fixed-size ordered sequence — gojinja's runtime | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Tuple) |
 | `Undefined` | type | Undefined is gojinja's representation of "no value at this name". It | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Undefined) |
 | `UndefinedFactory` | type | UndefinedFactory is the constructor signature an Environment registers | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#UndefinedFactory) |

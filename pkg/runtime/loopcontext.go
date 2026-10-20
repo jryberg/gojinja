@@ -3,66 +3,141 @@ package runtime
 import "fmt"
 
 // LoopContext is the value the Jinja `loop` variable holds inside a `{% for %}`
-// body. It tracks the current iteration index, the wrapped iterable, and
-// peeks ahead so `loop.last` and `loop.nextitem` can be answered.
-//
-// gojinja's LoopContext mirrors jinja2.runtime.LoopContext except it is
-// constructed from a Go slice (parsed once) rather than from an arbitrary
-// Python iterable. The evaluator turns iterables into []any before
-// constructing LoopContext.
+// body, a port of jinja2.runtime.LoopContext. It pulls items from the
+// iterable one at a time, peeking one ahead for `loop.last` and
+// `loop.nextitem`; `loop.length` of an iterable without a length, such
+// as a generator or a filtered loop, reads the rest of it.
 type LoopContext struct {
-	items []any
-	idx   int // current index, -1 before first iteration
+	next Next
+	// size is the iterable's len(), nil when it has none.
+	size func() int
 
-	depth0 int
+	index0 int
+	length int
+	sized  bool
 
-	lastChanged any
-	hasLastVal  bool
+	pending        []any // items read ahead to find the length
+	after          any
+	hasAfter       bool
+	current        any
+	before         any
+	hasLastChanged bool
+	lastChanged    any
 
-	// recurse, when set, is the closure for `{% for %}` recursive loops.
+	depth0  int
 	recurse func(iterable any, depth int) (any, error)
+	// undefined makes the environment's Undefined for previtem and
+	// nextitem.
+	undefined func(hint string) any
 
 	// Equal is Python equality, which Changed compares with; the
 	// evaluator sets it.
 	Equal func(a, b any) bool
 }
 
-// NewLoopContext constructs a LoopContext over items. depth is 0 for top-
-// level loops, ≥ 1 for recursive ones.
-func NewLoopContext(items []any, depth int, recurse func(any, int) (any, error)) *LoopContext {
-	return &LoopContext{items: items, idx: -1, depth0: depth, recurse: recurse}
+// NewLoopContext constructs a LoopContext over the items next produces.
+// size is the iterable's len(), or nil. depth is 0 for top-level loops,
+// ≥ 1 for recursive ones; undefined makes previtem's and nextitem's
+// Undefined.
+func NewLoopContext(next Next, size func() int, depth int, recurse func(any, int) (any, error), undefined func(hint string) any) *LoopContext {
+	return &LoopContext{next: next, size: size, index0: -1, depth0: depth, recurse: recurse, undefined: undefined}
 }
 
-// Length returns the iterable's total length (1-based).
-func (l *LoopContext) Length() int { return len(l.items) }
-
-// Iterate prepares LoopContext for the next iteration and returns the
-// current value plus ok=false at the end of the loop.
-func (l *LoopContext) Iterate() (any, bool) {
-	l.idx++
-	if l.idx >= len(l.items) {
-		return nil, false
+func (l *LoopContext) pull() (any, bool, error) {
+	if len(l.pending) > 0 {
+		v := l.pending[0]
+		l.pending = l.pending[1:]
+		return v, true, nil
 	}
-	return l.items[l.idx], true
+	return l.next()
+}
+
+// Length returns the iterable's length, reading the rest of an iterable
+// that has none.
+func (l *LoopContext) Length() (int, error) {
+	if l.sized {
+		return l.length, nil
+	}
+	if l.size != nil {
+		l.length = l.size()
+	} else {
+		for {
+			v, ok, err := l.next()
+			if err != nil {
+				return 0, err
+			}
+			if !ok {
+				break
+			}
+			l.pending = append(l.pending, v)
+		}
+		l.length = len(l.pending) + l.index0 + 1
+		if l.hasAfter {
+			l.length++
+		}
+	}
+	l.sized = true
+	return l.length, nil
+}
+
+// Iterate advances to the next item, returning ok=false at the end of
+// the loop.
+func (l *LoopContext) Iterate() (any, bool, error) {
+	var rv any
+	if l.hasAfter {
+		rv, l.after, l.hasAfter = l.after, nil, false
+	} else {
+		v, ok, err := l.pull()
+		if err != nil || !ok {
+			return nil, false, err
+		}
+		rv = v
+	}
+	l.index0++
+	l.before, l.current = l.current, rv
+	return rv, true, nil
+}
+
+// peek returns the next item without advancing, ok=false at the end.
+func (l *LoopContext) peek() (any, bool, error) {
+	if l.hasAfter {
+		return l.after, true, nil
+	}
+	v, ok, err := l.pull()
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	l.after, l.hasAfter = v, true
+	return v, true, nil
 }
 
 // Index returns the 1-based current index.
-func (l *LoopContext) Index() int { return l.idx + 1 }
+func (l *LoopContext) Index() int { return l.index0 + 1 }
 
 // Index0 returns the 0-based current index.
-func (l *LoopContext) Index0() int { return l.idx }
+func (l *LoopContext) Index0() int { return l.index0 }
 
 // Revindex returns 1-based countdown from the end.
-func (l *LoopContext) Revindex() int { return len(l.items) - l.idx }
+func (l *LoopContext) Revindex() (int, error) {
+	n, err := l.Length()
+	return n - l.index0, err
+}
 
 // Revindex0 returns 0-based countdown from the end.
-func (l *LoopContext) Revindex0() int { return len(l.items) - l.idx - 1 }
+func (l *LoopContext) Revindex0() (int, error) {
+	n, err := l.Length()
+	return n - l.index0 - 1, err
+}
 
 // First reports whether the current iteration is the first.
-func (l *LoopContext) First() bool { return l.idx == 0 }
+func (l *LoopContext) First() bool { return l.index0 == 0 }
 
-// Last reports whether the current iteration is the last.
-func (l *LoopContext) Last() bool { return l.idx == len(l.items)-1 }
+// Last reports whether the current iteration is the last, reading the
+// next item early.
+func (l *LoopContext) Last() (bool, error) {
+	_, ok, err := l.peek()
+	return !ok, err
+}
 
 // Depth is 1-based; top-level loop is 1.
 func (l *LoopContext) Depth() int { return l.depth0 + 1 }
@@ -72,36 +147,40 @@ func (l *LoopContext) Depth0() int { return l.depth0 }
 
 // PrevItem returns the previous iteration's value, or Undefined if first.
 func (l *LoopContext) PrevItem() any {
-	if l.idx <= 0 {
-		return NewBase("there is no previous item", "previtem", Missing, nil)
+	if l.First() {
+		return l.undefined("there is no previous item")
 	}
-	return l.items[l.idx-1]
+	return l.before
 }
 
 // NextItem returns the next iteration's value, or Undefined if last.
-func (l *LoopContext) NextItem() any {
-	if l.idx+1 >= len(l.items) {
-		return NewBase("there is no next item", "nextitem", Missing, nil)
+func (l *LoopContext) NextItem() (any, error) {
+	v, ok, err := l.peek()
+	if err != nil {
+		return nil, err
 	}
-	return l.items[l.idx+1]
+	if !ok {
+		return l.undefined("there is no next item"), nil
+	}
+	return v, nil
 }
 
 // Cycle returns args[index0 % len(args)]; used for round-robin classnames etc.
-func (l *LoopContext) Cycle(args ...any) any {
+func (l *LoopContext) Cycle(args ...any) (any, error) {
 	if len(args) == 0 {
-		return NewBase("no items for cycle", "cycle", Missing, nil)
+		return nil, fmt.Errorf("no items for cycling given")
 	}
-	return args[l.idx%len(args)]
+	return args[l.index0%len(args)], nil
 }
 
 // Changed reports whether values differ from the previous call's (true
 // on the first call), as Jinja2's loop.changed(*values) does.
 func (l *LoopContext) Changed(values ...any) bool {
 	cur := Tuple(values)
-	if l.hasLastVal && l.Equal != nil && l.Equal(l.lastChanged, cur) {
+	if l.hasLastChanged && l.Equal != nil && l.Equal(l.lastChanged, cur) {
 		return false
 	}
-	l.hasLastVal, l.lastChanged = true, cur
+	l.hasLastChanged, l.lastChanged = true, cur
 	return true
 }
 
@@ -115,9 +194,11 @@ func (l *LoopContext) Call(iterable any) (any, error) {
 	return l.recurse(iterable, l.depth0+1)
 }
 
-// String is Jinja2's LoopContext repr.
+// String is Jinja2's LoopContext repr. Finding the length can fail;
+// the repr then shows what is known.
 func (l *LoopContext) String() string {
-	return fmt.Sprintf("<LoopContext %d/%d>", l.Index(), l.Length())
+	n, _ := l.Length()
+	return fmt.Sprintf("<LoopContext %d/%d>", l.Index(), n)
 }
 
 // AttrGetter is implemented by template-visible objects that resolve
@@ -126,35 +207,48 @@ type AttrGetter interface {
 	Get(attr string) (any, bool)
 }
 
-// Get implements attribute access for the template's `loop.<name>` syntax.
-func (l *LoopContext) Get(attr string) (any, bool) {
+// FallibleAttrGetter is an [AttrGetter] whose attributes can fail, as
+// loop.length does when reading the rest of a generator raises.
+type FallibleAttrGetter interface {
+	GetAttr(attr string) (any, bool, error)
+}
+
+// GetAttr implements [FallibleAttrGetter].
+func (l *LoopContext) GetAttr(attr string) (any, bool, error) {
+	var v any
+	var err error
 	switch attr {
 	case "index":
-		return l.Index(), true
+		v = l.Index()
 	case "index0":
-		return l.Index0(), true
+		v = l.Index0()
 	case "revindex":
-		return l.Revindex(), true
+		v, err = l.Revindex()
 	case "revindex0":
-		return l.Revindex0(), true
+		v, err = l.Revindex0()
 	case "first":
-		return l.First(), true
+		v = l.First()
 	case "last":
-		return l.Last(), true
+		v, err = l.Last()
 	case "length":
-		return l.Length(), true
+		v, err = l.Length()
 	case "depth":
-		return l.Depth(), true
+		v = l.Depth()
 	case "depth0":
-		return l.Depth0(), true
+		v = l.Depth0()
 	case "previtem":
-		return l.PrevItem(), true
+		v = l.PrevItem()
 	case "nextitem":
-		return l.NextItem(), true
+		v, err = l.NextItem()
 	case "cycle":
-		return l.Cycle, true
+		v = l.Cycle
 	case "changed":
-		return l.Changed, true
+		v = l.Changed
+	default:
+		return nil, false, nil
 	}
-	return nil, false
+	if err != nil {
+		return nil, false, err
+	}
+	return v, true, nil
 }

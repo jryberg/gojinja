@@ -39,6 +39,8 @@ func PyTypeName(v any) string {
 		return undefinedClass[x.Mode]
 	case *Namespace:
 		return "Namespace"
+	case *Iterator:
+		return x.TypeName()
 	case *Range:
 		return "range"
 	case *DictView:
@@ -54,6 +56,8 @@ func PyTypeName(v any) string {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return "int"
+	case reflect.Func:
+		return "function"
 	}
 	return fmt.Sprintf("%T", v)
 }

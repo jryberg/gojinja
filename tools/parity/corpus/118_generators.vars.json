@@ -1,0 +1,6 @@
+{"users": [
+  {"name": "Ada", "age": 36, "active": true},
+  {"name": "Brian", "age": 41, "active": false},
+  {"name": "Cleo", "age": 36, "active": true},
+  {"name": "Dov", "age": 29, "active": false}
+], "prefs": {"theme": "dark", "lang": "sv"}}

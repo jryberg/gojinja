@@ -17,11 +17,13 @@ package eval
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jryberg/gojinja/pkg/ast"
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
@@ -277,52 +279,36 @@ func (e *evaluator) evalFor(n *ast.For, ctx *runtime.Context) error {
 	if err != nil {
 		return err
 	}
-	items, err := ToIterable(iter)
-	if err != nil {
-		return err
-	}
+	undefined := func(hint string) any { return e.eng.UndefinedFactory()(hint, "", runtime.Missing, nil) }
 	// Like Jinja2, every iteration (and the else body) runs in a fresh
 	// scope of its own: the targets, `loop` and any `{% set %}` in the
 	// body are gone when it ends. The loop's `if` filters the items of
-	// recursive calls too.
-	filter := func(items []any) ([]any, error) {
-		if n.Test == nil {
-			return items, nil
-		}
-		filtered := items[:0:0]
-		for _, it := range items {
-			scope := ctx.Child()
-			if err := assignTarget(n.Target, it, scope); err != nil {
-				return nil, err
-			}
-			tv, err := e.evalExprAny(n.Test.(ast.Expr), scope)
-			if err != nil {
-				return nil, err
-			}
-			ok, err := truth(tv)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				filtered = append(filtered, it)
-			}
-		}
-		return filtered, nil
-	}
-	if items, err = filter(items); err != nil {
-		return err
-	}
-	if len(items) == 0 {
-		return e.evalBody(n.Else, ctx.Child())
-	}
+	// recursive calls too, one item at a time as they are reached.
 	var recurse func(any, int) (any, error)
-	run := func(ev *evaluator, lc *runtime.LoopContext) error {
+	loop := func(ev *evaluator, iterable any, depth int) error {
+		next, err := Iterate(iterable)
+		if err != nil {
+			return err
+		}
+		size := Sizer(iterable)
+		if n.Test != nil {
+			size, next = nil, e.loopFilter(n, ctx, next)
+		}
+		lc := runtime.NewLoopContext(next, size, depth, recurse, undefined)
 		lc.Equal = func(a, b any) bool { ok, err := ValuesEqual(a, b); return err == nil && ok }
+		iterated := false
 		for {
-			v, ok := lc.Iterate()
-			if !ok {
-				return nil
+			if err := ev.checkCancel(); err != nil {
+				return err
 			}
+			v, ok, err := lc.Iterate()
+			if err != nil {
+				return err
+			}
+			if !ok {
+				break
+			}
+			iterated = true
 			scope := ctx.Child()
 			scope.Set("loop", lc)
 			if err := assignTarget(n.Target, v, scope); err != nil {
@@ -333,11 +319,15 @@ func (e *evaluator) evalFor(n *ast.For, ctx *runtime.Context) error {
 					continue
 				}
 				if err == errBreak {
-					return nil
+					break
 				}
 				return err
 			}
 		}
+		if !iterated {
+			return ev.evalBody(n.Else, ctx.Child())
+		}
+		return nil
 	}
 	if n.Recursive {
 		recurse = func(iterable any, depth int) (any, error) {
@@ -346,20 +336,9 @@ func (e *evaluator) evalFor(n *ast.For, ctx *runtime.Context) error {
 				return nil, err
 			}
 			defer leave()
-			its, err := ToIterable(iterable)
-			if err != nil {
-				return nil, err
-			}
-			if its, err = filter(its); err != nil {
-				return nil, err
-			}
 			var b strings.Builder
 			subEv := &evaluator{eng: e.eng, w: &b, goCtx: e.goCtx}
-			if len(its) == 0 {
-				if err := subEv.evalBody(n.Else, ctx.Child()); err != nil {
-					return nil, err
-				}
-			} else if err := run(subEv, runtime.NewLoopContext(its, depth, recurse)); err != nil {
+			if err := loop(subEv, iterable, depth); err != nil {
 				return nil, err
 			}
 			if ctx.Eval != nil && ctx.Eval.Autoescape {
@@ -368,7 +347,34 @@ func (e *evaluator) evalFor(n *ast.For, ctx *runtime.Context) error {
 			return b.String(), nil
 		}
 	}
-	return run(e, runtime.NewLoopContext(items, 0, recurse))
+	return loop(e, iter, 0)
+}
+
+// loopFilter applies a for loop's `if` to the items next produces.
+func (e *evaluator) loopFilter(n *ast.For, ctx *runtime.Context, next runtime.Next) runtime.Next {
+	return func() (any, bool, error) {
+		for {
+			it, ok, err := next()
+			if err != nil || !ok {
+				return nil, false, err
+			}
+			scope := ctx.Child()
+			if err := assignTarget(n.Target, it, scope); err != nil {
+				return nil, false, err
+			}
+			tv, err := e.evalExprAny(n.Test.(ast.Expr), scope)
+			if err != nil {
+				return nil, false, err
+			}
+			keep, err := truth(tv)
+			if err != nil {
+				return nil, false, err
+			}
+			if keep {
+				return it, true, nil
+			}
+		}
+	}
 }
 
 // assignTarget writes value to target, supporting Name, NSRef, and Tuple
@@ -393,10 +399,16 @@ func assignTarget(target ast.Node, value any, ctx *runtime.Context) error {
 	case *ast.Tuple:
 		items, err := ToIterable(value)
 		if err != nil {
-			return err
+			if runtime.IsUndefined(value) {
+				return err
+			}
+			return fmt.Errorf("cannot unpack non-iterable %s object", runtime.PyTypeName(value))
 		}
-		if len(items) != len(t.Items) {
-			return fmt.Errorf("cannot unpack %d values into %d targets", len(items), len(t.Items))
+		switch {
+		case len(items) > len(t.Items):
+			return fmt.Errorf("too many values to unpack (expected %d)", len(t.Items))
+		case len(items) < len(t.Items):
+			return fmt.Errorf("not enough values to unpack (expected %d, got %d)", len(t.Items), len(items))
 		}
 		for i, it := range t.Items {
 			if err := assignTarget(it, items[i], ctx); err != nil {
@@ -1176,6 +1188,19 @@ func Truthy(v any) bool {
 // yield their keys, strings their characters, Undefined nothing.
 func ToIterable(v any) ([]any, error) {
 	switch x := v.(type) {
+	case *runtime.Iterator:
+		// Reading an iterator to the end consumes it.
+		var out []any
+		for {
+			it, ok, err := x.Next()
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return out, nil
+			}
+			out = append(out, it)
+		}
 	case nil:
 		return nil, fmt.Errorf("'NoneType' object is not iterable")
 	case runtime.Tuple:
@@ -1256,6 +1281,90 @@ func ToIterable(v any) ([]any, error) {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("'%s' object is not iterable", runtime.PyTypeName(v))
+}
+
+// Iterate returns a Python iterator over v, read lazily: a list as it is
+// when each item is reached, a dict raising if its size changes, an
+// [runtime.Iterator] as it advances. Other iterables are read at once.
+func Iterate(v any) (runtime.Next, error) {
+	switch x := v.(type) {
+	case *runtime.Iterator:
+		return x.Next, nil
+	case *runtime.PyList:
+		i, done := 0, false
+		return func() (any, bool, error) {
+			if done || i >= x.Len() {
+				done = true
+				return nil, false, nil
+			}
+			i++
+			return x.Items()[i-1], true, nil
+		}, nil
+	case *runtime.OrderedDict:
+		return SizeChecked(x.Keys(), x.Len), nil
+	case *runtime.DictView:
+		return SizeChecked(x.Items(), x.Len), nil
+	}
+	items, err := ToIterable(v)
+	if err != nil {
+		return nil, err
+	}
+	return SliceNext(items), nil
+}
+
+// SliceNext iterates items.
+func SliceNext(items []any) runtime.Next {
+	i := 0
+	return func() (any, bool, error) {
+		if i >= len(items) {
+			return nil, false, nil
+		}
+		i++
+		return items[i-1], true, nil
+	}
+}
+
+// SizeChecked iterates a dict's items, failing for good like CPython's
+// dict iterators once the dict's size changes.
+func SizeChecked(items []any, size func() int) runtime.Next {
+	n, next, failed := size(), SliceNext(items), false
+	return func() (any, bool, error) {
+		if failed || size() != n {
+			failed = true
+			return nil, false, errDictChanged
+		}
+		return next()
+	}
+}
+
+var errDictChanged = errors.New("dictionary changed size during iteration")
+
+// Sizer returns the len() of v as the iterable changes, or nil for an
+// iterable without a length.
+func Sizer(v any) func() int {
+	switch x := v.(type) {
+	case *runtime.Iterator:
+		return nil
+	case *runtime.PyList:
+		return x.Len
+	case *runtime.OrderedDict:
+		return x.Len
+	case *runtime.DictView:
+		return x.Len
+	case *runtime.Range:
+		return x.Len
+	case string:
+		n := utf8.RuneCountInString(x)
+		return func() int { return n }
+	case escape.Markup:
+		n := utf8.RuneCountInString(string(x))
+		return func() int { return n }
+	}
+	items, err := ToIterable(v)
+	if err != nil {
+		return nil
+	}
+	return func() int { return len(items) }
 }
 
 func runeStrings(s string) []any {
