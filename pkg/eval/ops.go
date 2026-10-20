@@ -13,6 +13,17 @@ import (
 // the ast package's helper because it's lower-cased. The two stay in sync
 // by virtue of mirroring jinja2's _binop_to_func table.
 func applyBinop(op string, a, b any) (any, error) {
+	// str % args is printf-style formatting; it accepts any right operand,
+	// an Undefined included.
+	if op == "%" {
+		switch f := a.(type) {
+		case string:
+			return PercentFormat(f, b, false)
+		case escape.Markup:
+			s, err := PercentFormat(string(f), b, true)
+			return escape.Markup(s), err
+		}
+	}
 	if err := FailUndefined(a, b); err != nil {
 		return nil, err
 	}

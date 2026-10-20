@@ -1893,90 +1893,46 @@ func filterAttr(env *Environment, _ *runtime.Context, value any, args []any, _ m
 // filterFormat implements the `format` filter: Python printf-style
 // formatting.
 //
-// Signature: format(s, *args)
+// Signature: format(value, *args, **kwargs)
 //
-// Supports `%s`, `%d`, `%f`, `%x`, `%o`, `%b`, `%r` (Python repr), `%%`,
-// and width/precision flags (`%05d`, `%.2f`). `%s` always stringifies
-// via [escape.SoftStr] to match Python's `str()` semantics. A Markup
-// format string escapes its non-numeric arguments and returns Markup.
+// `value % args` (or `value % kwargs` when keywords are given) with
+// CPython's printf-style rules, via [eval.PercentFormat]: every
+// conversion type, flags, width and precision (including `*`), and
+// `%(name)s` keys. A Markup format string escapes its %s/%r arguments
+// and returns Markup.
 //
 // Example:
 //
 //	{{ '%s scored %d' | format('Alice', 95) }}   →  Alice scored 95
-func filterFormat(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
+//	{{ '%(n)s: %(v).1f' | format(n='pi', v=3.14159) }}  →  pi: 3.1
+func filterFormat(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	// soft_str(value) % (kwargs or args)
+	var operand any = runtime.Tuple(args)
+	if len(kwargs) > 0 {
+		operand = kwargs
+	}
 	m, isMarkup := value.(escape.Markup)
 	if !isMarkup {
-		return pythonFormat(escape.SoftStr(value), args), nil
-	}
-	// Markup % args escapes every non-numeric argument.
-	escaped := make([]any, len(args))
-	for i, a := range args {
-		if _, ok := numAsFloat(a); ok {
-			escaped[i] = a
-		} else {
-			escaped[i] = escape.Escape(a)
+		s, err := eval.PercentFormat(escape.SoftStr(value), operand, false)
+		if err != nil {
+			return nil, formatError(err)
 		}
+		return s, nil
 	}
-	return escape.Markup(pythonFormat(string(m), escaped)), nil
+	s, err := eval.PercentFormat(string(m), operand, true)
+	if err != nil {
+		return nil, formatError(err)
+	}
+	return escape.Markup(s), nil
 }
 
-// pythonFormat applies a Python-style printf format string to args. The
-// supported conversions are the cross-language overlap with Go's fmt
-// plus `%r` (Python's repr) and `%s` always stringifying via SoftStr to
-// match Python's str(). Anything else passes through to fmt.Sprintf.
-func pythonFormat(format string, args []any) string {
-	var b strings.Builder
-	argIdx := 0
-	for i := 0; i < len(format); i++ {
-		c := format[i]
-		if c != '%' {
-			b.WriteByte(c)
-			continue
-		}
-		// Find the conversion: scan flags + width + precision + verb.
-		end := i + 1
-		for end < len(format) {
-			v := format[end]
-			if (v >= '0' && v <= '9') || v == '-' || v == '+' || v == ' ' || v == '#' || v == '.' {
-				end++
-				continue
-			}
-			break
-		}
-		if end >= len(format) {
-			b.WriteString(format[i:])
-			return b.String()
-		}
-		spec := format[i:end]
-		verb := format[end]
-		i = end
-		switch verb {
-		case '%':
-			b.WriteByte('%')
-		case 's':
-			if argIdx >= len(args) {
-				b.WriteString(spec + string(verb))
-				continue
-			}
-			b.WriteString(fmt.Sprintf(spec+"s", escape.SoftStr(args[argIdx])))
-			argIdx++
-		case 'r':
-			if argIdx >= len(args) {
-				b.WriteString(spec + string(verb))
-				continue
-			}
-			b.WriteString(escape.Repr(args[argIdx]))
-			argIdx++
-		default:
-			if argIdx >= len(args) {
-				b.WriteString(spec + string(verb))
-				continue
-			}
-			b.WriteString(fmt.Sprintf(spec+string(verb), args[argIdx]))
-			argIdx++
-		}
+// formatError keeps template errors (an undefined argument) as they are
+// and reports formatting failures as filter argument errors.
+func formatError(err error) error {
+	if _, ok := gjerrors.AsTemplateError(err); ok {
+		return err
 	}
-	return b.String()
+	return gjerrors.NewFilterArgumentError(err.Error())
 }
 
 // ------------------------------------------------------ higher-order filters
