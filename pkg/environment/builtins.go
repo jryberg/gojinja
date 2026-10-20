@@ -631,21 +631,29 @@ func filterInt(_ *Environment, _ *runtime.Context, value any, args []any, kwargs
 	return v, nil
 }
 
-// errPyType marks a TypeError from int() or float().
-var errPyType = errors.New("unsupported type")
+// nonIterable is Python's TypeError for iterating v.
+func nonIterable(v any) string {
+	return fmt.Sprintf("'%s' object is not iterable", runtime.PyTypeName(v))
+}
+
+// pyTypeError is a TypeError from int() or float().
+type pyTypeError struct{ msg string }
+
+func (e pyTypeError) Error() string { return e.msg }
 
 func intTypeError(v any) error {
-	return fmt.Errorf("int() argument must be a string, a bytes-like object or a real number, not '%s': %w", runtime.PyTypeName(v), errPyType)
+	return pyTypeError{fmt.Sprintf("int() argument must be a string, a bytes-like object or a real number, not '%s'", runtime.PyTypeName(v))}
 }
 
 func floatTypeError(v any) error {
-	return fmt.Errorf("float() argument must be a string or a real number, not '%s': %w", runtime.PyTypeName(v), errPyType)
+	return pyTypeError{fmt.Sprintf("float() argument must be a string or a real number, not '%s'", runtime.PyTypeName(v))}
 }
 
 // pyConversionError reports whether err is the TypeError or ValueError
 // do_int and do_float fall back to the default on.
 func pyConversionError(err error) bool {
-	return errors.Is(err, errPyType) || runtime.IsValueError(err)
+	var te pyTypeError
+	return errors.As(err, &te) || runtime.IsValueError(err)
 }
 
 // pyInt is Python's int(value) — or int(value, base) for a string.
@@ -654,13 +662,17 @@ func pyInt(value, base any) (any, error) {
 	case string:
 		b, err := indexArg(base)
 		if err != nil {
-			return nil, errPyType
+			return nil, intTypeError(base)
 		}
 		return runtime.ParseInt(x, b)
-	case escape.Markup:
-		return pyInt(string(x), base)
-	case runtime.Bytes:
-		return pyInt(string(x), base)
+	case escape.Markup, runtime.Bytes:
+		// The error shows the object itself: Markup('x'), b'x'.
+		v, err := pyInt(escape.SoftStr(x), base)
+		if runtime.IsValueError(err) {
+			b, _ := indexArg(base)
+			err = escape.ValueError{Msg: fmt.Sprintf("invalid literal for int() with base %d: %s", b, escape.Repr(x))}
+		}
+		return v, err
 	case bool:
 		if x {
 			return int64(1), nil
@@ -687,10 +699,15 @@ func pyFloat(value any) (float64, error) {
 		return 0, nil
 	case string:
 		return runtime.ParseFloat(x)
-	case escape.Markup:
-		return runtime.ParseFloat(string(x))
-	case runtime.Bytes:
-		return runtime.ParseFloat(string(x))
+	case escape.Markup, runtime.Bytes:
+		f, err := runtime.ParseFloat(escape.SoftStr(x))
+		if runtime.IsValueError(err) {
+			err = escape.ValueError{Msg: "could not convert string to float: " + escape.Repr(x)}
+		}
+		return f, err
+	case runtime.Undefined:
+		// Undefined.__float__ raises its own error.
+		return 0, x.Fail()
 	}
 	if runtime.IsInt(value) {
 		return runtime.IntToFloat(value)
@@ -801,10 +818,18 @@ func filterLast(env *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	}
 	x, err := iterArg("last", value)
 	if err != nil {
-		return nil, err
+		if runtime.IsUndefined(value) {
+			return nil, err
+		}
+		// next(iter(reversed(value))) fails at reversed().
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("'%s' object is not reversible", runtime.PyTypeName(value)))
 	}
 	if len(x) == 0 {
 		return env.undefined("No last item, sequence was empty.", "", runtime.Missing, nil), nil
+	}
+	// reversed() indexes a Markup, which gives Markup characters.
+	if _, ok := value.(escape.Markup); ok {
+		return escape.Markup(x[len(x)-1].(string)), nil
 	}
 	return x[len(x)-1], nil
 }
@@ -828,7 +853,7 @@ func filterLast(env *Environment, _ *runtime.Context, value any, _ []any, _ map[
 func filterSort(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	x, err := eval.ToIterable(value)
 	if err != nil || value == nil {
-		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("sort: cannot sort %T", value))
+		return nil, gjerrors.NewFilterArgumentError(nonIterable(value))
 	}
 	// Python's signature: sort(reverse=False, case_sensitive=False, attribute=None)
 	reverse, caseSensitive := false, false
@@ -1155,6 +1180,9 @@ func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, k
 			items = append(items, runtime.Tuple{k, m[k]})
 		}
 	default:
+		if u, ok := value.(runtime.Undefined); ok {
+			return nil, u.Fail()
+		}
 		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("'%s' object has no attribute 'items'", runtime.PyTypeName(value)))
 	}
 	key := func(item any) (any, error) {
@@ -1271,11 +1299,20 @@ func filterTruncate(_ *Environment, _ *runtime.Context, value any, args []any, k
 	if err != nil {
 		return nil, err
 	}
-	rs := []rune(s)
-	if len(rs) <= length+leeway {
+	// len(s) of the value itself, which is returned as it is when short.
+	n, err := filterLength(nil, nil, value, nil, nil)
+	if err != nil {
+		return nil, gjerrors.NewTemplateRuntimeError(err.Error())
+	}
+	if n.(int) <= length+leeway {
 		return value, nil
 	}
-	head := string(rs[:length-utf8.RuneCountInString(end)])
+	cut := length - utf8.RuneCountInString(end)
+	if err := truncateNonString(value, cut, killWords); err != nil {
+		return nil, err
+	}
+	rs := []rune(s)
+	head := string(rs[:cut])
 	if !killWords {
 		// s[:cut].rsplit(" ", 1)[0]
 		if idx := strings.LastIndex(head, " "); idx >= 0 {
@@ -1289,12 +1326,40 @@ func filterTruncate(_ *Environment, _ *runtime.Context, value any, args []any, k
 	return head + end, nil
 }
 
+// truncateNonString is the error do_truncate meets slicing a value that
+// is not a string, s[:cut], and adding the end or calling rsplit on it.
+func truncateNonString(value any, cut int, killWords bool) error {
+	pick := func(killed, kept string) error {
+		if killWords {
+			return methodError("%s", killed)
+		}
+		return methodError("%s", kept)
+	}
+	switch value.(type) {
+	case string, escape.Markup:
+		return nil
+	case []any, *runtime.PyList:
+		return pick(`can only concatenate list (not "str") to list`, "'list' object has no attribute 'rsplit'")
+	case runtime.Tuple:
+		return pick(`can only concatenate tuple (not "str") to tuple`, "'tuple' object has no attribute 'rsplit'")
+	case runtime.Bytes:
+		return pick("can't concat str to bytes", "a bytes-like object is required, not 'str'")
+	case *runtime.Range:
+		return pick("unsupported operand type(s) for +: 'range' and 'str'", "'range' object has no attribute 'rsplit'")
+	case *runtime.OrderedDict, map[string]any, map[any]any:
+		// A dict looks the slice up as a key.
+		return methodError("slice(None, %d, None)", cut)
+	}
+	return methodError("'%s' object is not subscriptable", runtime.PyTypeName(value))
+}
+
 // filterWordcount implements the `wordcount` filter: count "words" in a
 // string.
 //
 // Signature: wordcount(s)
 //
-// A word is a maximal run of `[A-Za-z0-9_]`. Anything else is a separator.
+// A word is a maximal run of Unicode letters, digits and underscores,
+// Python's `\w`. Anything else is a separator.
 //
 // Example:
 //
@@ -1327,6 +1392,20 @@ func filterWordcount(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 //
 //	{{ "a\nb\nc" | indent(2, true) }}  →  "  a\n  b\n  c"
 func filterIndent(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	// do_indent starts with s += "\n", then calls s.splitlines().
+	switch x := value.(type) {
+	case string, escape.Markup:
+	case runtime.Undefined:
+		return nil, x.Fail()
+	case []any, *runtime.PyList:
+		return nil, methodError("'list' object has no attribute 'splitlines'")
+	case runtime.Tuple:
+		return nil, methodError(`can only concatenate tuple (not "str") to tuple`)
+	case runtime.Bytes:
+		return nil, methodError("can't concat str to bytes")
+	default:
+		return nil, methodError("unsupported operand type(s) for +=: '%s' and 'str'", runtime.PyTypeName(value))
+	}
 	s := escape.SoftStr(value)
 	// width is a string used as-is, or a count of spaces (" " * width).
 	pad := "    "
@@ -1761,7 +1840,7 @@ func iterArg(filter string, value any) ([]any, error) {
 		if runtime.IsUndefined(value) {
 			return nil, err
 		}
-		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("%s: %T is not iterable", filter, value))
+		return nil, gjerrors.NewFilterArgumentError(nonIterable(value))
 	}
 	return items, nil
 }

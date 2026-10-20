@@ -203,7 +203,7 @@ func (w *jsonWalker) prep(v any) (any, error) {
 		}
 		items = x.Items()
 	case *runtime.Range, *runtime.DictView, *runtime.Iterator, *runtime.LoopContext, *runtime.Callable,
-		*runtime.Cycler, *runtime.Joiner, *runtime.BlockReference, runtime.Undefined, complex128:
+		*runtime.Cycler, *runtime.Joiner, *runtime.BlockReference, *runtime.TemplateModule, runtime.Undefined, complex128:
 		//lint:ignore ST1005 json.dumps's exact message
 		return nil, fmt.Errorf("Object of type %s is not JSON serializable", runtime.PyTypeName(v))
 	default:

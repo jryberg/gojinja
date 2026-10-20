@@ -88,13 +88,25 @@ func ObjectTypeRepr(v any) string {
 		return "None"
 	}
 	name := PyTypeName(v)
-	switch v.(type) {
-	case escape.Markup:
-		return "markupsafe.Markup object"
-	case Undefined, *LoopContext:
+	if _, ok := v.(Undefined); ok {
 		return "jinja2.runtime." + name + " object"
-	case *Namespace, *Cycler, *Joiner:
-		return "jinja2.utils." + name + " object"
+	}
+	if module, ok := pyModules[name]; ok {
+		return module + "." + name + " object"
 	}
 	return name + " object"
+}
+
+// pyModules are the modules of the Python classes object_type_repr
+// qualifies, by class name; builtins have none.
+var pyModules = map[string]string{
+	"Markup":            "markupsafe",
+	"LoopContext":       "jinja2.runtime",
+	"Macro":             "jinja2.runtime",
+	"BlockReference":    "jinja2.runtime",
+	"TemplateReference": "jinja2.runtime",
+	"Namespace":         "jinja2.utils",
+	"Cycler":            "jinja2.utils",
+	"Joiner":            "jinja2.utils",
+	"TemplateModule":    "jinja2.environment",
 }

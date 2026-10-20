@@ -631,30 +631,84 @@ func applyEvalOption(ec *runtime.EvalContext, key string, v any) {
 
 // =============================================================== includes
 
+// getTemplate is get_template for extends and import: the name must be
+// a string. An undefined name raises, a list cannot be a template cache
+// key, and any other value is a name no loader has.
+func (e *evaluator) getTemplate(v any) (*ast.Template, string, error) {
+	switch x := v.(type) {
+	case string:
+		t, err := e.eng.LoadTemplate(x)
+		return t, x, err
+	case escape.Markup:
+		t, err := e.eng.LoadTemplate(string(x))
+		return t, string(x), err
+	case runtime.Undefined:
+		return nil, "", x.Fail()
+	}
+	if _, err := runtime.HashKey(v); err != nil {
+		return nil, "", err
+	}
+	return nil, "", gjerrors.NewTemplateNotFound(escape.SoftStr(v), "")
+}
+
+// selectTemplate is get_or_select_template for an include: a name, or
+// the first of a list of names that exists. Only a missing template moves
+// on to the next name; an undefined one is skipped, any other error
+// stops the search.
+func (e *evaluator) selectTemplate(v any) (*ast.Template, string, error) {
+	switch x := v.(type) {
+	case string:
+		t, err := e.eng.LoadTemplate(x)
+		return t, x, err
+	case escape.Markup:
+		t, err := e.eng.LoadTemplate(string(x))
+		return t, string(x), err
+	case runtime.Undefined:
+		return nil, "", x.Fail()
+	}
+	names, err := ToIterable(v)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(names) == 0 {
+		return nil, "", gjerrors.NewTemplatesNotFound(nil, "Tried to select from an empty list of templates.")
+	}
+	tried := make([]any, len(names))
+	for i, nv := range names {
+		tried[i] = escape.SoftStr(nv)
+		if u, ok := nv.(runtime.Undefined); ok {
+			tried[i] = u.Fail().Error()
+			continue
+		}
+		name, ok := eqStr(nv)
+		if !ok {
+			continue
+		}
+		t, err := e.eng.LoadTemplate(name)
+		if err == nil {
+			return t, name, nil
+		}
+		var nf *gjerrors.TemplateNotFound
+		if !errors.As(err, &nf) {
+			return nil, "", err
+		}
+	}
+	return nil, "", gjerrors.NewTemplatesNotFound(tried, "")
+}
+
 func (e *evaluator) evalInclude(n *ast.Include, ctx *runtime.Context) error {
 	v, err := e.evalExprAny(n.Template, ctx)
 	if err != nil {
 		return err
 	}
-	names := stringList(v)
-	var loaded *ast.Template
-	var lastErr error
-	for _, name := range names {
-		t, err := e.eng.LoadTemplate(name)
-		if err == nil {
-			loaded = t
-			break
-		}
-		lastErr = err
-	}
-	if loaded == nil {
-		if n.IgnoreMissing {
+	loaded, name, err := e.selectTemplate(v)
+	if err != nil {
+		var nf *gjerrors.TemplateNotFound
+		var nfs *gjerrors.TemplatesNotFound
+		if n.IgnoreMissing && (errors.As(err, &nf) || errors.As(err, &nfs)) {
 			return nil
 		}
-		if lastErr != nil {
-			return lastErr
-		}
-		return gjerrors.NewTemplateNotFound(v, "")
+		return err
 	}
 	// The included template gets a context of its own over the caller's
 	// names, so its assignments stay inside it.
@@ -667,8 +721,10 @@ func (e *evaluator) evalInclude(n *ast.Include, ctx *runtime.Context) error {
 		if g, ok := e.eng.(globalsProvider); ok {
 			parent.MergeMap(g.Globals())
 		}
-		subCtx = runtime.NewContext(names[0], ctx.Env, parent, ctx.Eval)
+		subCtx = runtime.NewContext(name, ctx.Env, parent, ctx.Eval)
 	}
+	// It is rendered with its own autoescape setting.
+	subCtx.Eval = ctx.Eval.For(name)
 	// Like a standalone render, the included template runs with its own
 	// inheritance chain's blocks and its own extends state.
 	if bp, ok := e.eng.(blocksProvider); ok {
@@ -742,11 +798,7 @@ func (e *evaluator) evalExtends(n *ast.Extends, ctx *runtime.Context) error {
 	if err != nil {
 		return err
 	}
-	names := stringList(v)
-	if len(names) == 0 {
-		return gjerrors.NewTemplateNotFound("", "")
-	}
-	parent, err := e.eng.LoadTemplate(names[0])
+	parent, _, err := e.getTemplate(v)
 	if err != nil {
 		return err
 	}
@@ -769,49 +821,53 @@ func (e *evaluator) evalImport(n *ast.Import, ctx *runtime.Context) error {
 	if err != nil {
 		return err
 	}
-	names := stringList(v)
-	if len(names) == 0 {
-		return gjerrors.NewTemplateNotFound("", "")
-	}
-	tpl, err := e.eng.LoadTemplate(names[0])
+	tpl, name, err := e.getTemplate(v)
 	if err != nil {
 		return err
+	}
+	// Without context, a template is imported once per render, as
+	// Jinja2 caches its default module.
+	if !n.WithContext && ctx.Eval != nil {
+		if m, ok := ctx.Eval.Module(name); ok {
+			ctx.Set(n.Target, m)
+			return nil
+		}
 	}
 	parent := ctx.Parent
 	if !n.WithContext {
 		parent = importParent(e.eng)
 	}
-	subCtx := runtime.NewContext(names[0], ctx.Env, parent, ctx.Eval)
+	subCtx := runtime.NewContext(name, ctx.Env, parent, ctx.Eval.For(name))
 	if n.WithContext {
 		for k, v := range ctx.Locals() {
 			subCtx.Set(k, v)
 		}
 	}
-	if err := e.runImportedBody(tpl.Body, subCtx); err != nil {
-		return err
-	}
-	exported := make(map[string]any, len(subCtx.Vars))
-	for k, v := range subCtx.Vars {
-		exported[k] = v
-	}
-	ctx.Set(n.Target, exported)
-	return nil
-}
-
-// runImportedBody evaluates an imported template's body for its
-// side-effects (macro definitions, `{% set %}` assignments, etc.) while
-// discarding any inline output. Python's compiler routes imported
-// templates' output to a discard buffer; without this, a stray trailing
-// newline or stray `{{ … }}` in the imported file leaks into the
-// caller's render output.
-func (e *evaluator) runImportedBody(body []ast.Node, ctx *runtime.Context) error {
-	leave, err := enter(ctx)
+	body, err := e.runImportedBody(tpl.Body, subCtx)
 	if err != nil {
 		return err
 	}
+	m := runtime.NewTemplateModule(name, subCtx.Vars, body)
+	if !n.WithContext && ctx.Eval != nil {
+		ctx.Eval.SetModule(name, m)
+	}
+	ctx.Set(n.Target, m)
+	return nil
+}
+
+// runImportedBody evaluates an imported template's body for its names
+// (macros, `{% set %}` assignments) and returns its output, which a
+// module prints as and which never reaches the importing template.
+func (e *evaluator) runImportedBody(body []ast.Node, ctx *runtime.Context) (string, error) {
+	leave, err := enter(ctx)
+	if err != nil {
+		return "", err
+	}
 	defer leave()
-	sub := &evaluator{eng: e.eng, w: io.Discard, goCtx: e.goCtx}
-	return sub.evalTemplate(body, ctx)
+	var b strings.Builder
+	sub := &evaluator{eng: e.eng, w: &b, goCtx: e.goCtx}
+	err = sub.evalTemplate(body, ctx)
+	return b.String(), err
 }
 
 // importParent returns a globals-only parent OrderedDict — used for
@@ -829,11 +885,7 @@ func (e *evaluator) evalFromImport(n *ast.FromImport, ctx *runtime.Context) erro
 	if err != nil {
 		return err
 	}
-	names := stringList(v)
-	if len(names) == 0 {
-		return gjerrors.NewTemplateNotFound("", "")
-	}
-	tpl, err := e.eng.LoadTemplate(names[0])
+	tpl, name, err := e.getTemplate(v)
 	if err != nil {
 		return err
 	}
@@ -841,13 +893,13 @@ func (e *evaluator) evalFromImport(n *ast.FromImport, ctx *runtime.Context) erro
 	if !n.WithContext {
 		parent = importParent(e.eng)
 	}
-	subCtx := runtime.NewContext(names[0], ctx.Env, parent, ctx.Eval)
+	subCtx := runtime.NewContext(name, ctx.Env, parent, ctx.Eval.For(name))
 	if n.WithContext {
 		for k, v := range ctx.Locals() {
 			subCtx.Set(k, v)
 		}
 	}
-	if err := e.runImportedBody(tpl.Body, subCtx); err != nil {
+	if _, err := e.runImportedBody(tpl.Body, subCtx); err != nil {
 		return err
 	}
 	for _, entry := range n.Names {
@@ -857,7 +909,7 @@ func (e *evaluator) evalFromImport(n *ast.FromImport, ctx *runtime.Context) erro
 			// Undefined whose hint flags the export miss; the error
 			// surfaces only when something actually tries to use it.
 			factory := e.eng.UndefinedFactory()
-			hint := fmt.Sprintf("the template %q (imported on line %d) does not export the requested name %q", names[0], n.Position().Lineno, entry.Name)
+			hint := fmt.Sprintf("the template %q (imported on line %d) does not export the requested name %q", name, n.Position().Lineno, entry.Name)
 			v = factory(hint, entry.Name, nil, nil)
 		}
 		alias := entry.Alias
@@ -895,6 +947,9 @@ type macroValue struct {
 	// later macro definitions in the same module visible too —
 	// recursion across imported macros works).
 	DefCtx *runtime.Context
+	// Autoescape is the defining template's setting where the macro was
+	// defined, which its body escapes by.
+	Autoescape bool
 }
 
 // TypeName is the Python type name.
@@ -915,6 +970,7 @@ func (e *evaluator) evalMacroDef(n *ast.Macro, ctx *runtime.Context) error {
 		CatchKwargs:    catchKw,
 		AccessesCaller: hasCaller,
 		DefCtx:         ctx,
+		Autoescape:     ctx.Eval != nil && ctx.Eval.Autoescape,
 	}
 	ctx.Set(n.Name, mv)
 	return nil
@@ -1035,7 +1091,15 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 	parent := runtime.NewOrderedDict()
 	parent.MergeOrderedDict(defCtx.Parent)
 	parent.MergeMap(defCtx.Locals())
-	frame := runtime.NewContext(ctx.Name, ctx.Env, parent, ctx.Eval)
+	// The body escapes as the template defining the macro does; the
+	// caller's setting decides below whether the result is Markup.
+	ev := ctx.Eval
+	if ev != nil {
+		c := *ev
+		c.Autoescape = mv.Autoescape
+		ev = &c
+	}
+	frame := runtime.NewContext(ctx.Name, ctx.Env, parent, ev)
 	remainingKw := make(map[string]any, len(kwargs))
 	for k, v := range kwargs {
 		remainingKw[k] = v
@@ -1139,6 +1203,7 @@ func (e *evaluator) evalCallBlock(n *ast.CallBlock, ctx *runtime.Context) error 
 		CatchKwargs:    catchKw,
 		AccessesCaller: hasCaller,
 		DefCtx:         ctx,
+		Autoescape:     ctx.Eval != nil && ctx.Eval.Autoescape,
 	}
 	v, err := e.CallMacro(mv, ctx, args, kwargs, order, caller)
 	if err != nil {
@@ -1392,23 +1457,4 @@ func runeStrings(s string) []any {
 // missingParam is the value of a macro parameter the call did not pass.
 func missingParam(eng Engine, name string) runtime.Undefined {
 	return eng.UndefinedFactory()("parameter "+escape.Repr(name)+" was not provided", name, runtime.Missing, nil)
-}
-
-// stringList turns a single string or a list of strings into []string.
-// Used by include / extends for selecting templates.
-func stringList(v any) []string {
-	if s, ok := v.(string); ok {
-		return []string{s}
-	}
-	items, err := ToIterable(v)
-	if err != nil {
-		return nil
-	}
-	out := make([]string, 0, len(items))
-	for _, it := range items {
-		if s, ok := it.(string); ok {
-			out = append(out, s)
-		}
-	}
-	return out
 }

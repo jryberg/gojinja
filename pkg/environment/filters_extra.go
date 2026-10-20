@@ -129,6 +129,19 @@ func filterWordwrap(env *Environment, _ *runtime.Context, value any, args []any,
 	if v, ok := paramArg(args, kwargs, 3, "break_on_hyphens"); ok {
 		breakHyphens = eval.Truthy(v)
 	}
+	// do_wordwrap calls s.splitlines() on the value itself.
+	switch x := value.(type) {
+	case string, escape.Markup:
+	case runtime.Undefined:
+		return nil, x.Fail()
+	case runtime.Bytes:
+		if len(x) == 0 {
+			return "", nil
+		}
+		return nil, methodError("cannot use a string pattern on a bytes-like object")
+	default:
+		return nil, methodError("'%s' object has no attribute 'splitlines'", runtime.PyTypeName(value))
+	}
 	// Each line is wrapped on its own, so existing newlines are kept.
 	var paras []string
 	for _, line := range pySplitlines(escape.SoftStr(value), false) {
@@ -190,6 +203,9 @@ func filterRandom(env *Environment, _ *runtime.Context, value any, _ []any, _ ma
 	}
 	i := rand.IntN(len(x))
 	switch value.(type) {
+	case escape.Markup:
+		// random.choice(seq) is seq[i], a Markup character.
+		return escape.Markup(x[i].(string)), nil
 	case map[string]any, map[any]any, *runtime.OrderedDict:
 		// random.choice(seq) is seq[i].
 		v, err := env.GetItem(value, int64(i))
@@ -225,6 +241,9 @@ func filterXmlattr(_ *Environment, ctx *runtime.Context, value any, args []any, 
 		d, ok = runtime.NormalizeForTemplate(value).(*runtime.OrderedDict)
 	}
 	if !ok || d == nil {
+		if u, ok := value.(runtime.Undefined); ok {
+			return nil, u.Fail()
+		}
 		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("'%s' object has no attribute 'items'", runtime.PyTypeName(value)))
 	}
 	autospace := true

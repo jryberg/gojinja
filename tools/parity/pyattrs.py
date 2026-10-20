@@ -56,6 +56,7 @@ OBJECTS = {
     "Macro": macro,
     "BlockReference": BlockReference("b", None, [], 0),
     "TemplateReference": TemplateReference(None),
+    "TemplateModule": env.from_string("").module,
     # The caller's own Go values, as instances of a Python class.
     "object": UserObject(),
     # Classes, by qualified name.

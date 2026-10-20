@@ -239,21 +239,7 @@ func loadDictLoader(dir string) (gj.Loader, error) {
 		}
 		m[strings.TrimSuffix(n, ".j2")] = string(raw)
 	}
-	return mapLoader(m), nil
-}
-
-// mapLoader is an in-memory name→source map. Mirrors loader.Dict, kept
-// local to the parity tool because the upstream Dict's not-found error
-// is wrapped in TemplateNotFound — this one returns a plain error so
-// the parity script's logging stays simple.
-type mapLoader map[string]string
-
-func (m mapLoader) GetSource(name string) (gj.Source, error) {
-	src, ok := m[name]
-	if !ok {
-		return gj.Source{}, fmt.Errorf("template not found: %s", name)
-	}
-	return gj.Source{Code: src, Filename: name}, nil
+	return gj.DictLoader(m), nil
 }
 
 func renderPython(python, script, tmpl, vars, loaderDir string) (string, error) {

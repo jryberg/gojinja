@@ -373,7 +373,8 @@ func (e *Environment) GetTemplate(name string) (*Template, error) {
 	}
 	e.mu.RUnlock()
 	if e.loader == nil {
-		return nil, gjerrors.NewTemplateNotFound(name, "no loader configured")
+		// Python raises TypeError, which ignore missing does not catch.
+		return nil, gjerrors.NewTemplateRuntimeError("no loader for this environment specified")
 	}
 	src, err := e.loader.GetSource(name)
 	if err != nil {
@@ -749,7 +750,11 @@ func (e *Environment) CallFilter(name string, ctx *runtime.Context, value any, a
 			return nil, u.Fail()
 		}
 	}
-	if f.sig == nil || !lazyFilters[name] {
+	// The builtins get a list itself, as Python's filters do: those
+	// returning their input return the same list, and the lazy ones read
+	// it as it is when each item is reached. Registered filters get a
+	// plain slice.
+	if f.sig == nil {
 		value = unwrapPyList(value)
 	}
 	args = unwrapPyListArgs(args)
@@ -779,16 +784,6 @@ var strictUndefinedFilters = map[string]bool{
 	// Generators, which only use the value when read.
 	"map": true, "select": true, "reject": true, "selectattr": true,
 	"rejectattr": true, "unique": true, "batch": true, "slice": true,
-}
-
-// lazyFilters are the builtin filters that get a list itself, not a
-// copy: those that read it as it is when each item is reached, as
-// Python's generators and reverse iterators do, and attr, whose methods
-// act on it.
-var lazyFilters = map[string]bool{
-	"map": true, "select": true, "reject": true, "selectattr": true,
-	"rejectattr": true, "unique": true, "batch": true, "slice": true,
-	"reverse": true, "attr": true,
 }
 
 // strictUndefinedTests are the builtin tests that accept a

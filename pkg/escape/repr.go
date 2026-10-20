@@ -23,6 +23,12 @@ func (RecursionError) Error() string {
 }
 
 // viewRepr is implemented by dict views, whose repr is dict_keys([...]).
+// customRepr is implemented by objects whose repr is not their str(),
+// such as an imported TemplateModule.
+type customRepr interface {
+	Repr() string
+}
+
 type viewRepr interface {
 	ReprView() (string, []any)
 }
@@ -125,6 +131,8 @@ func (st *reprState) repr(v any) string {
 		return st.list(v, x.Items())
 	case attrsRepr:
 		return st.attrs(x)
+	case customRepr:
+		return x.Repr()
 	case fmt.Stringer:
 		return x.String()
 	}

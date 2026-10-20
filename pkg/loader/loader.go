@@ -150,7 +150,11 @@ type Prefix struct {
 	Delimiter string // default "/"
 }
 
-// Loader is the in-package interface every loader implements.
+// Loader is the in-package interface every loader implements. A
+// template the loader does not have is reported with
+// errors.TemplateNotFound, as Jinja2's loaders raise TemplateNotFound:
+// `{% include ... ignore missing %}` and template lists skip only that
+// error, and any other one stops the render.
 type Loader interface {
 	GetSource(name string) (Source, error)
 }

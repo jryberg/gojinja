@@ -12,14 +12,15 @@ import (
 	"github.com/jryberg/gojinja/pkg/escape"
 )
 
-// errValue marks Python's ValueError from int() and float() parsing.
-var errValue = errors.New("invalid literal")
-
 // IsValueError reports whether err is ParseInt's or ParseFloat's error
-// for a string Python cannot convert.
+// for a string Python cannot convert: Python's ValueError.
 func IsValueError(err error) bool {
 	var ve escape.ValueError
-	return errors.Is(err, errValue) || errors.As(err, &ve)
+	return errors.As(err, &ve)
+}
+
+func valueError(format string, a ...any) error {
+	return escape.ValueError{Msg: fmt.Sprintf(format, a...)}
 }
 
 // asciiDigits strips Python's whitespace and turns Unicode decimal
@@ -93,7 +94,7 @@ func digitValue(r rune) int {
 // ParseInt is Python's int(s, base) for a string.
 func ParseInt(s string, base int) (any, error) {
 	if base != 0 && (base < 2 || base > 36) {
-		return nil, fmt.Errorf("int() base must be >= 2 and <= 36, or 0: %w", errValue)
+		return nil, valueError("int() base must be >= 2 and <= 36, or 0")
 	}
 	orig := s
 	s = asciiDigits(s)
@@ -136,7 +137,7 @@ func ParseInt(s string, base int) (any, error) {
 }
 
 func invalidInt(s string, base int) error {
-	return fmt.Errorf("invalid literal for int() with base %d: %s: %w", base, escape.Repr(s), errValue)
+	return valueError("invalid literal for int() with base %d: %s", base, escape.Repr(s))
 }
 
 // ParseFloat is Python's float(s) for a string.
@@ -175,7 +176,7 @@ func ParseFloat(s string) (float64, error) {
 }
 
 func invalidFloat(s string) error {
-	return fmt.Errorf("could not convert string to float: %s: %w", escape.Repr(s), errValue)
+	return valueError("could not convert string to float: %s", escape.Repr(s))
 }
 
 // FloatToInt is Python's int(float): truncated exactly, a ValueError
@@ -183,7 +184,7 @@ func invalidFloat(s string) error {
 func FloatToInt(f float64) (any, error) {
 	switch {
 	case math.IsNaN(f):
-		return nil, fmt.Errorf("cannot convert float NaN to integer: %w", errValue)
+		return nil, valueError("cannot convert float NaN to integer")
 	case math.IsInf(f, 0):
 		return nil, errors.New("cannot convert float infinity to integer")
 	}

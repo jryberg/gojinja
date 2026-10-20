@@ -28,6 +28,45 @@ type EvalContext struct {
 	// includes, imports, recursive loops) of the render; a pointer, so
 	// Save/Revert copies share it.
 	depth *int
+	// modules holds the render's imported modules, by template name, so
+	// importing a template again without context gives the same module.
+	modules *map[string]*TemplateModule
+}
+
+// For is the eval context of the template name rendered within e's
+// render, as an include or import is: its own autoescape setting, and
+// e's call depth and imported modules.
+func (e *EvalContext) For(name string) *EvalContext {
+	if e == nil {
+		return nil
+	}
+	c := *e
+	c.Name, c.Volatile = name, false
+	if c.Env != nil {
+		c.Autoescape = c.Env.AutoescapeFor(name)
+	}
+	return &c
+}
+
+// Module returns the module of the template name imported earlier in
+// the render without context.
+func (e *EvalContext) Module(name string) (*TemplateModule, bool) {
+	if e.modules == nil || *e.modules == nil {
+		return nil, false
+	}
+	m, ok := (*e.modules)[name]
+	return m, ok
+}
+
+// SetModule records the module of the template name.
+func (e *EvalContext) SetModule(name string, m *TemplateModule) {
+	if e.modules == nil {
+		e.modules = new(map[string]*TemplateModule)
+	}
+	if *e.modules == nil {
+		*e.modules = map[string]*TemplateModule{}
+	}
+	(*e.modules)[name] = m
 }
 
 var errRecursion = errors.New("maximum recursion depth exceeded")
@@ -60,7 +99,7 @@ func (e *EvalContext) Leave() { *e.depth-- }
 // false (gojinja's safer default is normally enforced at the Environment
 // level, not at this struct).
 func NewEvalContext(env EvalContextEnvironment, name string) *EvalContext {
-	ec := &EvalContext{Env: env, Name: name, depth: new(int)}
+	ec := &EvalContext{Env: env, Name: name, depth: new(int), modules: new(map[string]*TemplateModule)}
 	if env != nil {
 		ec.Autoescape = env.AutoescapeFor(name)
 	}
