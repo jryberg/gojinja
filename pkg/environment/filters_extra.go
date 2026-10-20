@@ -29,7 +29,7 @@ import (
 //	  {{ kind }}: {{ group | length }}
 //	{% endfor %}
 func filterGroupby(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	items, err := mapSequenceArg(value)
+	items, err := iterArg("groupby", value)
 	if err != nil {
 		return nil, err
 	}
@@ -189,8 +189,11 @@ func filterPprint(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 //
 //	{{ ['rock', 'paper', 'scissors'] | random }}
 func filterRandom(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	x, ok := asAnySlice(value)
-	if !ok || len(x) == 0 {
+	x, err := iterArg("random", value)
+	if err != nil {
+		return nil, err
+	}
+	if len(x) == 0 {
 		return runtime.NewBase("", "random", value, nil), nil
 	}
 	r := rand.New(rand.NewSource(int64(len(x)))) // deterministic-ish
@@ -288,16 +291,15 @@ var urlRegex = regexp.MustCompile(`(?i)(?:https?://[^\s<>"]+|www\.[^\s<>"]+|[a-z
 // `trim_url_limit` truncates display text (the href stays full).
 // `nofollow=True` adds `rel="nofollow"`.
 //
-// Divergence from Python: `rel="noopener"` is added by default for
-// http(s)/www/bare-domain links (Python's default is empty). `mailto:`
-// links never get rel="noopener" since there's no cross-origin concern.
+// The input is escaped first unless it is already Markup, and the result
+// is Markup only under autoescape (as in Python). `rel="noopener"` is
+// added for http(s)/www/bare-domain links; `mailto:` links never get it.
 //
 // Example:
 //
 //	{{ "Visit https://example.com" | urlize }}
 //	→  Visit <a href="https://example.com" rel="noopener">https://example.com</a>
-func filterUrlize(env *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	s := escape.SoftStr(value)
+func filterUrlize(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	trim := 0
 	nofollow := false
 	target := ""
@@ -321,7 +323,8 @@ func filterUrlize(env *Environment, _ *runtime.Context, value any, args []any, _
 		}
 	}
 
-	out := urlRegex.ReplaceAllStringFunc(escape.SoftStr(escape.Escape(s)), func(match string) string {
+	// escape() leaves a Markup subject as is.
+	out := urlRegex.ReplaceAllStringFunc(string(escape.Escape(value)), func(match string) string {
 		var href, text string
 		isEmail := false
 		switch {
@@ -370,5 +373,8 @@ func filterUrlize(env *Environment, _ *runtime.Context, value any, args []any, _
 		return fmt.Sprintf(`<a href="%s"%s>%s</a>`, href, attrStr, text)
 	})
 	_ = env // signature parity
-	return escape.Markup(out), nil
+	if autoescapeOn(ctx) {
+		return escape.Markup(out), nil
+	}
+	return out, nil
 }

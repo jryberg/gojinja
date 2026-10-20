@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
@@ -14,6 +15,9 @@ import (
 func applyBinop(op string, a, b any) (any, error) {
 	if err := FailUndefined(a, b); err != nil {
 		return nil, err
+	}
+	if out, ok := markupBinop(op, a, b); ok {
+		return out, nil
 	}
 	if op == "+" {
 		if as, ok := a.(string); ok {
@@ -105,6 +109,40 @@ func applyBinop(op string, a, b any) (any, error) {
 		return numPow(la, lb), nil
 	}
 	return nil, fmt.Errorf("unknown binary operator %q", op)
+}
+
+// markupBinop applies markupsafe's Markup operators: `+` escapes the str
+// operand and `*` repeats, both returning Markup.
+func markupBinop(op string, a, b any) (any, bool) {
+	am, aIsMarkup := a.(escape.Markup)
+	bm, bIsMarkup := b.(escape.Markup)
+	if !aIsMarkup && !bIsMarkup {
+		return nil, false
+	}
+	switch op {
+	case "+":
+		if aIsMarkup {
+			if _, ok := eqStr(b); ok {
+				return am + escape.Escape(b), true
+			}
+		} else if _, ok := a.(string); ok {
+			return escape.Escape(a) + bm, true
+		}
+	case "*":
+		m := am
+		n, ok := asInt(b)
+		if !aIsMarkup {
+			m = bm
+			n, ok = asInt(a)
+		}
+		if ok {
+			if n < 0 {
+				n = 0
+			}
+			return escape.Markup(strings.Repeat(string(m), n)), true
+		}
+	}
+	return nil, false
 }
 
 // repeatSeq implements Python's `seq * n` for lists and tuples, keeping
@@ -243,8 +281,8 @@ func orderValues(op string, a, b any) (bool, error) {
 			}
 		}
 	}
-	if as, ok := a.(string); ok {
-		if bs, ok := b.(string); ok {
+	if as, ok := eqStr(a); ok {
+		if bs, ok := eqStr(b); ok {
 			switch op {
 			case "lt":
 				return as < bs, nil
@@ -262,12 +300,13 @@ func orderValues(op string, a, b any) (bool, error) {
 
 func inValue(needle, haystack any) (bool, error) {
 	switch col := haystack.(type) {
-	case string:
-		s, ok := needle.(string)
+	case string, escape.Markup:
+		hay, _ := eqStr(col)
+		s, ok := eqStr(needle)
 		if !ok {
-			return false, fmt.Errorf("'in' string requires string left-hand")
+			return false, fmt.Errorf("'in <string>' requires string as left operand, not %T", needle)
 		}
-		return strings.Contains(col, s), nil
+		return strings.Contains(hay, s), nil
 	case []any:
 		return containsAny(needle, col)
 	case *runtime.PyList:

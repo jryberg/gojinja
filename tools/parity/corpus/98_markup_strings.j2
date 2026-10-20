@@ -1,0 +1,9 @@
+{%- set m = 'a<b c'|e -%}
+{{ m|list }}|{{ m|length }}|{{ m|first }}|{{ m|last }}|{{ m|min }}|{{ m|max }}|{{ m|reverse }}|{{ m|sort|join }}
+{{ m|unique|list }}|{{ m|batch(2)|list }}|{{ m|slice(2)|list }}|{{ m|join('-') }}|{{ m|map('upper')|list }}|{{ m|select|list|length }}
+{{ m is string }}|{{ m is sequence }}|{{ m is iterable }}|{{ 'a' in m }}|{{ m in 'xa&lt;b cy' }}|{{ m == 'a&lt;b c' }}|{{ m < 'b' }}
+{{ m + '<' }}|{{ '<' + m }}|{{ m * 2 }}|{{ m[0] }}|{{ m[1:5] }}|{% for c in m %}[{{ c }}]{% endfor %}
+{{ m.upper() }}|{{ m.split(' ') }}|{{ m.replace('a', '<') }}|{{ m.center(12, '*') }}|{{ m.join(['<', '>']) }}|{{ m.rsplit(' ', 1) }}
+{{ m|upper }}|{{ m|trim('a') }}|{{ m|center(12) }}|{{ m|replace('a', '<') }}|{{ m|truncate(5, true, '<', 0) }}|{{ m|striptags }}|{{ m|string }}
+{{ s|first }}|{{ s|last }}|{{ s|min }}|{{ s|max }}|{{ s|unique|list }}|{{ s|batch(2)|list }}|{{ d|first }}|{{ d|last }}|{{ d|reverse|list }}|{{ d|select|list }}
+{{ 'é'|length }}|{{ 'aé'[-1] }}|{{ 'aéb'[1:] }}|{{ 'ab'.center(5, '*') }}|{{ 'abc'|center(8) }}|{{ 'a&lt;b'|striptags }}|{{ 'foo bar'|truncate(5, false, '!', 0) }}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // stringMethod returns a synthetic Go callable mirroring Python's str
@@ -28,17 +29,7 @@ func stringMethod(s, attr string) any {
 			return pythonTitle(s)
 		}
 	case "capitalize":
-		return func() string {
-			if s == "" {
-				return ""
-			}
-			rs := []rune(s)
-			rs[0] = unicode.ToUpper(rs[0])
-			for i := 1; i < len(rs); i++ {
-				rs[i] = unicode.ToLower(rs[i])
-			}
-			return string(rs)
-		}
+		return func() string { return pyCapitalize(s) }
 	case "swapcase":
 		return func() string {
 			rs := []rune(s)
@@ -265,21 +256,42 @@ func stringMethod(s, attr string) any {
 		}
 	case "center":
 		return func(args ...any) string {
-			w := argInt(args, 0, 0)
-			fill := argString(args, 1, " ")
-			if fill == "" {
-				fill = " "
-			}
-			if len(s) >= w {
-				return s
-			}
-			total := w - len(s)
-			left := total / 2
-			right := total - left
-			return strings.Repeat(fill[:1], left) + s + strings.Repeat(fill[:1], right)
+			return pyCenter(s, argInt(args, 0, 0), argString(args, 1, " "))
 		}
 	}
 	return nil
+}
+
+// pyCapitalize is str.capitalize: first character upper-cased, the rest
+// lower-cased.
+func pyCapitalize(s string) string {
+	if s == "" {
+		return ""
+	}
+	rs := []rune(s)
+	rs[0] = unicode.ToUpper(rs[0])
+	for i := 1; i < len(rs); i++ {
+		rs[i] = unicode.ToLower(rs[i])
+	}
+	return string(rs)
+}
+
+// pyCenter is str.center: widths count characters, and an odd margin
+// puts the extra fill on the left when width is odd (CPython's
+// `left = marg/2 + (marg & width & 1)`).
+func pyCenter(s string, width int, fill string) string {
+	n := utf8.RuneCountInString(s)
+	if n >= width {
+		return s
+	}
+	f, _ := utf8.DecodeRuneInString(fill)
+	if fill == "" {
+		f = ' '
+	}
+	marg := width - n
+	left := marg/2 + (marg & width & 1)
+	pad := string(f)
+	return strings.Repeat(pad, left) + s + strings.Repeat(pad, marg-left)
 }
 
 // stripFunc applies one of the stdlib trim functions, defaulting cutset

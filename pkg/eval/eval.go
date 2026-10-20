@@ -1098,11 +1098,11 @@ func ToIterable(v any) ([]any, error) {
 		}
 		return out, nil
 	case string:
-		out := make([]any, 0, len(x))
-		for _, r := range x {
-			out = append(out, string(r))
-		}
-		return out, nil
+		return runeStrings(x), nil
+	case escape.Markup:
+		// Python iterates a Markup like the str it subclasses: plain str
+		// characters of the escaped text.
+		return runeStrings(string(x)), nil
 	case map[string]any:
 		// Go map iteration is randomised. Lex-sort for deterministic
 		// output — matches the policy used by `.items()/.keys()/.values()`
@@ -1151,6 +1151,14 @@ func ToIterable(v any) ([]any, error) {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("eval: value of type %T is not iterable", v)
+}
+
+func runeStrings(s string) []any {
+	out := make([]any, 0, len(s))
+	for _, r := range s {
+		out = append(out, string(r))
+	}
+	return out
 }
 
 // stringList turns a single string or a list of strings into []string.

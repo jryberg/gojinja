@@ -2,12 +2,14 @@ package environment
 
 import (
 	"fmt"
+	"html"
 	"math"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
@@ -193,7 +195,22 @@ func namespaceCtor(args []any, kwargs map[string]any) (any, error) {
 //
 //	{{ "hello" | upper }}  →  HELLO
 func filterUpper(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	return strings.ToUpper(escape.SoftStr(value)), nil
+	return keepMarkup(value, strings.ToUpper(escape.SoftStr(value))), nil
+}
+
+// keepMarkup returns s as Markup when value was Markup. Python's string
+// filters call soft_str(), which keeps a Markup a Markup, and Markup's
+// str methods return Markup.
+func keepMarkup(value any, s string) any {
+	if _, ok := value.(escape.Markup); ok {
+		return escape.Markup(s)
+	}
+	return s
+}
+
+// autoescapeOn reports whether the active eval context autoescapes.
+func autoescapeOn(ctx *runtime.Context) bool {
+	return ctx != nil && ctx.Eval != nil && ctx.Eval.Autoescape
 }
 
 // filterLower implements the `lower` filter: convert a value to lowercase.
@@ -206,7 +223,7 @@ func filterUpper(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 //
 //	{{ "HELLO" | lower }}  →  hello
 func filterLower(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	return strings.ToLower(escape.SoftStr(value)), nil
+	return keepMarkup(value, strings.ToLower(escape.SoftStr(value))), nil
 }
 
 // filterTitle implements the `title` filter: title-case a string.
@@ -264,11 +281,7 @@ func jinjaTitle(s string) string {
 //
 //	{{ "hello WORLD" | capitalize }}  →  Hello world
 func filterCapitalize(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	s := escape.SoftStr(value)
-	if s == "" {
-		return s, nil
-	}
-	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:]), nil
+	return keepMarkup(value, pyCapitalize(escape.SoftStr(value))), nil
 }
 
 // filterTrim implements the `trim` filter: strip surrounding characters.
@@ -287,10 +300,10 @@ func filterTrim(_ *Environment, _ *runtime.Context, value any, args []any, _ map
 	s := escape.SoftStr(value)
 	if len(args) > 0 {
 		if cut, ok := args[0].(string); ok {
-			return strings.Trim(s, cut), nil
+			return keepMarkup(value, strings.Trim(s, cut)), nil
 		}
 	}
-	return strings.TrimSpace(s), nil
+	return keepMarkup(value, strings.TrimSpace(s)), nil
 }
 
 // filterLength implements the `length` filter (alias `count`): return the
@@ -298,9 +311,8 @@ func filterTrim(_ *Environment, _ *runtime.Context, value any, args []any, _ map
 //
 // Signature: length(value)
 //
-// Strings: byte length (matches Python's `len()` on `str` for ASCII;
-// multi-byte UTF-8 characters count as multiple bytes — same as Python's
-// `bytes` and gojinja's other byte-oriented operations).
+// Strings and Markup: number of characters, like Python's `len()` on a
+// `str`.
 // Sequences and mappings: number of elements / key-value pairs.
 // Undefined: 0 for ModeBase / ModeChainable; ModeStrict raises through Iter.
 //
@@ -312,7 +324,9 @@ func filterTrim(_ *Environment, _ *runtime.Context, value any, args []any, _ map
 func filterLength(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	switch x := value.(type) {
 	case string:
-		return len(x), nil
+		return utf8.RuneCountInString(x), nil
+	case escape.Markup:
+		return utf8.RuneCountInString(string(x)), nil
 	case []any:
 		return len(x), nil
 	case runtime.Tuple:
@@ -350,6 +364,9 @@ func filterLength(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 //	{{ true  | string }}  →  True
 //	{{ none  | string }}  →  None
 func filterString(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
+	if m, ok := value.(escape.Markup); ok {
+		return m, nil
+	}
 	return escape.SoftStr(value), nil
 }
 
@@ -438,17 +455,18 @@ func filterDefault(_ *Environment, _ *runtime.Context, value any, args []any, _ 
 //
 // `attribute` (positional or keyword) extracts the named attribute from
 // each item before stringifying. Strings are iterated as runes (matching
-// Python's `sep.join(string)`).
+// Python's `sep.join(string)`). Under autoescape, a Markup separator or
+// item makes the result Markup with every other part escaped.
 //
 // Example:
 //
 //	{{ [1, 2, 3]     | join('-') }}                  →  1-2-3
 //	{{ users         | join(', ', attribute='name') }}  →  Alice, Bob
 //	{{ "abc"         | join('.') }}                  →  a.b.c
-func filterJoin(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	sep := ""
+func filterJoin(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	var sep any = ""
 	if len(args) > 0 {
-		sep = escape.SoftStr(args[0])
+		sep = args[0]
 	}
 	// Optional `attribute` kwarg / second positional — extract that
 	// attribute from each element before joining.
@@ -458,35 +476,41 @@ func filterJoin(env *Environment, _ *runtime.Context, value any, args []any, kwa
 	} else if v, ok := kwargs["attribute"].(string); ok {
 		attr = v
 	}
-	stringify := func(it any) (string, error) {
+	items, err := iterArg("join", value)
+	if err != nil {
+		return nil, err
+	}
+	vals := make([]any, len(items))
+	_, markup := sep.(escape.Markup)
+	for i, it := range items {
 		if attr != "" {
-			v, err := env.GetAttr(it, attr)
-			if err != nil {
-				return "", err
+			if it, err = env.GetAttr(it, attr); err != nil {
+				return nil, err
 			}
-			it = v
 		}
 		if err := eval.FailStrict(it); err != nil {
-			return "", err
-		}
-		return escape.SoftStr(it), nil
-	}
-	items, err := eval.ToIterable(value)
-	if err != nil {
-		if runtime.IsUndefined(value) {
 			return nil, err
 		}
-		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("join: cannot join %T", value))
-	}
-	parts := make([]string, len(items))
-	for i, it := range items {
-		s, err := stringify(it)
-		if err != nil {
-			return nil, err
+		if _, ok := it.(escape.Markup); ok {
+			markup = true
 		}
-		parts[i] = s
+		vals[i] = it
 	}
-	return strings.Join(parts, sep), nil
+	// Under autoescape a Markup separator or item makes Python join as
+	// Markup, escaping everything that is not already Markup.
+	conv := escape.SoftStr
+	if markup && autoescapeOn(ctx) {
+		conv = func(v any) string { return string(escape.Escape(v)) }
+	}
+	parts := make([]string, len(vals))
+	for i, v := range vals {
+		parts[i] = conv(v)
+	}
+	out := strings.Join(parts, conv(sep))
+	if markup && autoescapeOn(ctx) {
+		return escape.Markup(out), nil
+	}
+	return out, nil
 }
 
 // filterReplace implements the `replace` filter: replace occurrences of
@@ -500,19 +524,32 @@ func filterJoin(env *Environment, _ *runtime.Context, value any, args []any, kwa
 //
 //	{{ "Hello World"   | replace('World', 'Go') }}  →  Hello Go
 //	{{ "aaaa"          | replace('a', 'b', 2) }}    →  bbaa
-func filterReplace(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
+func filterReplace(_ *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	if len(args) < 2 {
 		return nil, gjerrors.NewFilterArgumentError("replace requires (old, new) args")
 	}
 	old := escape.SoftStr(args[0])
-	new_ := escape.SoftStr(args[1])
 	count := -1
 	if len(args) >= 3 {
 		if n, ok := asInt(args[2]); ok {
 			count = n
 		}
 	}
-	return strings.Replace(escape.SoftStr(value), old, new_, count), nil
+	if !autoescapeOn(ctx) {
+		return strings.Replace(escape.SoftStr(value), old, escape.SoftStr(args[1]), count), nil
+	}
+	// Under autoescape Python escapes the subject when old or new is
+	// Markup, then Markup.replace escapes the replacement.
+	_, oldMarkup := args[0].(escape.Markup)
+	_, newMarkup := args[1].(escape.Markup)
+	subject := value
+	if oldMarkup || newMarkup {
+		subject = escape.Escape(value)
+	}
+	if m, ok := subject.(escape.Markup); ok {
+		return escape.Markup(strings.Replace(string(m), old, string(escape.Escape(args[1])), count)), nil
+	}
+	return strings.Replace(escape.SoftStr(subject), old, escape.SoftStr(args[1]), count), nil
 }
 
 // filterReverse implements the `reverse` filter: reverse a string or
@@ -520,8 +557,9 @@ func filterReplace(_ *Environment, _ *runtime.Context, value any, args []any, _ 
 //
 // Signature: reverse(value)
 //
-// Strings are reversed by rune (multi-byte safe). Lists return a new
-// reversed slice; the original is left unmodified.
+// Strings are reversed by character, and a Markup stays Markup. Any
+// other iterable (lists, tuples, a dict's keys) returns a new reversed
+// list; the original is left unmodified.
 //
 // Example:
 //
@@ -530,20 +568,31 @@ func filterReplace(_ *Environment, _ *runtime.Context, value any, args []any, _ 
 func filterReverse(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	switch x := value.(type) {
 	case string:
-		runes := []rune(x)
-		for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
-			runes[i], runes[j] = runes[j], runes[i]
-		}
-		return string(runes), nil
-	case []any, runtime.Tuple:
-		items, _ := asAnySlice(x)
-		out := make([]any, len(items))
-		for i, it := range items {
-			out[len(items)-1-i] = it
-		}
-		return out, nil
+		return reverseRunes(x), nil
+	case escape.Markup:
+		// value[::-1] on a Markup is a Markup.
+		return escape.Markup(reverseRunes(string(x))), nil
 	}
-	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("reverse: cannot reverse %T", value))
+	items, err := eval.ToIterable(value)
+	if err != nil || value == nil {
+		if runtime.IsUndefined(value) {
+			return nil, err
+		}
+		return nil, gjerrors.NewFilterArgumentError("argument must be iterable")
+	}
+	out := make([]any, len(items))
+	for i, it := range items {
+		out[len(items)-1-i] = it
+	}
+	return out, nil
+}
+
+func reverseRunes(s string) string {
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
 }
 
 // filterAbs implements the `abs` filter: absolute value of a number.
@@ -749,41 +798,42 @@ func filterList(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 //
 // Signature: first(seq)
 //
-// Empty sequences and non-sequences yield an Undefined value (matching
-// Python's `first` returning `Undefined`, not raising).
+// Works on any iterable: a string's first character, a dict's first key.
+// An empty iterable yields an Undefined value; a non-iterable raises.
 //
 // Example:
 //
 //	{{ [1, 2, 3]  | first }}  →  1
 func filterFirst(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	if x, ok := asAnySlice(value); ok {
-		if len(x) == 0 {
-			return runtime.NewBase("", "first", value, nil), nil
-		}
-		return x[0], nil
+	x, err := iterArg("first", value)
+	if err != nil {
+		return nil, err
 	}
-	return runtime.NewBase("", "first", value, nil), nil
+	if len(x) == 0 {
+		return runtime.NewBase("", "first", value, nil), nil
+	}
+	return x[0], nil
 }
 
 // filterLast implements the `last` filter: last item of a sequence.
 //
 // Signature: last(seq)
 //
-// Empty sequences and non-sequences yield an Undefined value. NOTE: don't
-// use this on generators or maps — only ordered sequences have a defined
-// "last".
+// Works on any iterable: a string's last character, a dict's last key.
+// An empty iterable yields an Undefined value; a non-iterable raises.
 //
 // Example:
 //
 //	{{ [1, 2, 3]  | last }}  →  3
 func filterLast(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	if x, ok := asAnySlice(value); ok {
-		if len(x) == 0 {
-			return runtime.NewBase("", "last", value, nil), nil
-		}
-		return x[len(x)-1], nil
+	x, err := iterArg("last", value)
+	if err != nil {
+		return nil, err
 	}
-	return runtime.NewBase("", "last", value, nil), nil
+	if len(x) == 0 {
+		return runtime.NewBase("", "last", value, nil), nil
+	}
+	return x[len(x)-1], nil
 }
 
 // filterSort implements the `sort` filter: sort a sequence.
@@ -972,8 +1022,11 @@ func lookupDottedAttr(env *Environment, obj any, path string) (any, error) {
 //	{{ [3, 1, 2]   | min }}                       →  1
 //	{{ users       | min(attribute='age') }}      →  youngest user
 func filterMin(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	x, ok := asAnySlice(value)
-	if !ok || len(x) == 0 {
+	x, err := iterArg("min", value)
+	if err != nil {
+		return nil, err
+	}
+	if len(x) == 0 {
 		return runtime.NewBase("", "min", value, nil), nil
 	}
 	keyFn := minMaxKeyFn(env, args, kwargs)
@@ -1002,8 +1055,11 @@ func filterMin(env *Environment, _ *runtime.Context, value any, args []any, kwar
 //	{{ [3, 1, 2]   | max }}                       →  3
 //	{{ users       | max(attribute='score') }}    →  top-scoring user
 func filterMax(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	x, ok := asAnySlice(value)
-	if !ok || len(x) == 0 {
+	x, err := iterArg("max", value)
+	if err != nil {
+		return nil, err
+	}
+	if len(x) == 0 {
 		return runtime.NewBase("", "max", value, nil), nil
 	}
 	keyFn := minMaxKeyFn(env, args, kwargs)
@@ -1194,9 +1250,9 @@ func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, _
 //	{{ [1, 2, 1, 3]            | unique }}  →  [1, 2, 3]
 //	{{ ['Foo', 'foo', 'BAR']   | unique }}  →  ['Foo', 'BAR']
 func filterUnique(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	x, ok := asAnySlice(value)
-	if !ok {
-		return nil, gjerrors.NewFilterArgumentError("unique requires a sequence")
+	x, err := iterArg("unique", value)
+	if err != nil {
+		return nil, err
 	}
 	caseSensitive := false
 	if len(args) > 0 {
@@ -1231,9 +1287,9 @@ func filterUnique(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 //	{{ [1, 2, 3, 4, 5]      | batch(2) }}     →  [[1, 2], [3, 4], [5]]
 //	{{ [1, 2, 3, 4, 5]      | batch(2, 0) }}  →  [[1, 2], [3, 4], [5, 0]]
 func filterBatch(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	x, ok := asAnySlice(value)
-	if !ok {
-		return nil, gjerrors.NewFilterArgumentError("batch requires a sequence")
+	x, err := iterArg("batch", value)
+	if err != nil {
+		return nil, err
 	}
 	if len(args) < 1 {
 		return nil, gjerrors.NewFilterArgumentError("batch requires linecount")
@@ -1276,9 +1332,9 @@ func filterBatch(_ *Environment, _ *runtime.Context, value any, args []any, _ ma
 //
 //	{{ [1, 2, 3, 4, 5]   | slice(3) }}  →  [[1, 2], [3, 4], [5]]
 func filterSlice(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	x, ok := asAnySlice(value)
-	if !ok {
-		return nil, gjerrors.NewFilterArgumentError("slice requires a sequence")
+	x, err := iterArg("slice", value)
+	if err != nil {
+		return nil, err
 	}
 	if len(args) < 1 {
 		return nil, gjerrors.NewFilterArgumentError("slice requires count")
@@ -1318,7 +1374,9 @@ func filterSlice(_ *Environment, _ *runtime.Context, value any, args []any, _ ma
 //
 // Strings shorter than `length + leeway` are returned unchanged.
 // `killwords=False` (the default) breaks at the last whitespace before
-// the cut so words aren't split mid-word.
+// the cut so words aren't split mid-word. Lengths count characters. A
+// Markup input stays Markup and its `end` is escaped; `length` shorter
+// than `end` or a negative `leeway` raises.
 //
 // Example:
 //
@@ -1327,6 +1385,7 @@ func filterTruncate(_ *Environment, _ *runtime.Context, value any, args []any, k
 	s := escape.SoftStr(value)
 	length := 255
 	killWords := false
+	var endVal any = "..."
 	end := "..."
 	leeway := 5
 	if len(args) > 0 {
@@ -1344,10 +1403,11 @@ func filterTruncate(_ *Environment, _ *runtime.Context, value any, args []any, k
 		killWords = v
 	}
 	if len(args) > 2 {
-		end = escape.SoftStr(args[2])
+		endVal = args[2]
 	} else if v, ok := kwargs["end"]; ok {
-		end = escape.SoftStr(v)
+		endVal = v
 	}
+	end = escape.SoftStr(endVal)
 	if len(args) > 3 {
 		if n, ok := asInt(args[3]); ok {
 			leeway = n
@@ -1357,21 +1417,28 @@ func filterTruncate(_ *Environment, _ *runtime.Context, value any, args []any, k
 			leeway = n
 		}
 	}
-	if len(s) <= length+leeway {
-		return s, nil
+	if n := utf8.RuneCountInString(end); length < n {
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("expected length >= %d, got %d", n, length))
 	}
-	if killWords {
-		return s[:length-len(end)] + end, nil
+	if leeway < 0 {
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("expected leeway >= 0, got %d", leeway))
 	}
-	cut := length - len(end)
-	if cut < 0 {
-		cut = 0
+	rs := []rune(s)
+	if len(rs) <= length+leeway {
+		return value, nil
 	}
-	idx := strings.LastIndex(s[:cut], " ")
-	if idx > 0 {
-		return s[:idx] + end, nil
+	head := string(rs[:length-utf8.RuneCountInString(end)])
+	if !killWords {
+		// s[:cut].rsplit(" ", 1)[0]
+		if idx := strings.LastIndex(head, " "); idx >= 0 {
+			head = head[:idx]
+		}
 	}
-	return s[:cut] + end, nil
+	// A Markup subject stays Markup, and Markup + str escapes the end.
+	if _, ok := value.(escape.Markup); ok {
+		return escape.Markup(head) + escape.Escape(endVal), nil
+	}
+	return head + end, nil
 }
 
 // filterWordcount implements the `wordcount` filter: count "words" in a
@@ -1437,7 +1504,7 @@ func filterIndent(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 		}
 		lines[i] = pad + line
 	}
-	return strings.Join(lines, "\n"), nil
+	return keepMarkup(value, strings.Join(lines, "\n")), nil
 }
 
 // filterStripTags implements the `striptags` filter: drop HTML tags and
@@ -1446,7 +1513,8 @@ func filterIndent(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 // Signature: striptags(s)
 //
 // `<!-- ... -->` spans are removed entirely (including content). Whitespace
-// runs are collapsed to a single space.
+// runs are collapsed to a single space and HTML entities are unescaped,
+// like markupsafe's Markup.striptags().
 //
 // Example:
 //
@@ -1479,9 +1547,10 @@ func filterStripTags(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 			b.WriteRune(r)
 		}
 	}
-	// Collapse whitespace runs.
+	// Collapse whitespace runs, then unescape entities like markupsafe's
+	// Markup.striptags().
 	out := strings.Fields(b.String())
-	return strings.Join(out, " "), nil
+	return html.UnescapeString(strings.Join(out, " ")), nil
 }
 
 // filterCenter implements the `center` filter: pad a string with spaces
@@ -1489,11 +1558,13 @@ func filterStripTags(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 //
 // Signature: center(s, width=80)
 //
-// Strings that already exceed `width` are returned unchanged.
+// Strings that already exceed `width` are returned unchanged. An odd
+// margin puts the extra space where Python's str.center does.
 //
 // Example:
 //
 //	{{ "hi" | center(6) }}  →  "  hi  "
+//	{{ "hi" | center(5) }}  →  "  hi "
 func filterCenter(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	width := 80
@@ -1502,13 +1573,7 @@ func filterCenter(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 			width = n
 		}
 	}
-	if len(s) >= width {
-		return s, nil
-	}
-	pad := width - len(s)
-	left := pad / 2
-	right := pad - left
-	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right), nil
+	return keepMarkup(value, pyCenter(s, width, " ")), nil
 }
 
 // filterRound implements the `round` filter: round a number to N decimal
@@ -1732,14 +1797,27 @@ func filterAttr(env *Environment, _ *runtime.Context, value any, args []any, _ m
 //
 // Supports `%s`, `%d`, `%f`, `%x`, `%o`, `%b`, `%r` (Python repr), `%%`,
 // and width/precision flags (`%05d`, `%.2f`). `%s` always stringifies
-// via [escape.SoftStr] to match Python's `str()` semantics.
+// via [escape.SoftStr] to match Python's `str()` semantics. A Markup
+// format string escapes its non-numeric arguments and returns Markup.
 //
 // Example:
 //
 //	{{ '%s scored %d' | format('Alice', 95) }}   →  Alice scored 95
 func filterFormat(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	s := escape.SoftStr(value)
-	return pythonFormat(s, args), nil
+	m, isMarkup := value.(escape.Markup)
+	if !isMarkup {
+		return pythonFormat(escape.SoftStr(value), args), nil
+	}
+	// Markup % args escapes every non-numeric argument.
+	escaped := make([]any, len(args))
+	for i, a := range args {
+		if _, ok := numAsFloat(a); ok {
+			escaped[i] = a
+		} else {
+			escaped[i] = escape.Escape(a)
+		}
+	}
+	return escape.Markup(pythonFormat(string(m), escaped)), nil
 }
 
 // pythonFormat applies a Python-style printf format string to args. The
@@ -1822,7 +1900,7 @@ func pythonFormat(format string, args []any) string {
 //	{{ users       | map(attribute='name') | list }}  →  list of names
 func filterMap(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	// Python: map(seq, ...) treats None / missing as empty.
-	x, err := mapSequenceArg(value)
+	x, err := iterArg("map", value)
 	if err != nil {
 		return nil, err
 	}
@@ -1862,34 +1940,18 @@ func filterMap(env *Environment, ctx *runtime.Context, value any, args []any, kw
 	return nil, gjerrors.NewFilterArgumentError("map requires a filter name or attribute=")
 }
 
-// mapSequenceArg accepts the lenient sequence types Jinja2's map filter
-// allows: lists, tuples, None (yields empty), strings (iterated as
-// chars), and Undefined (empty). Returns []any.
-func mapSequenceArg(value any) ([]any, error) {
-	switch x := value.(type) {
-	case nil:
-		return nil, nil
-	case []any:
-		return x, nil
-	case runtime.Tuple:
-		return []any(x), nil
-	case []string:
-		out := make([]any, len(x))
-		for i, s := range x {
-			out[i] = s
+// iterArg returns the items a filter iterates, as Python's iter() would:
+// strings and Markup yield their characters, mappings their keys, and an
+// Undefined nothing (a StrictUndefined raises).
+func iterArg(filter string, value any) ([]any, error) {
+	items, err := eval.ToIterable(value)
+	if err != nil {
+		if runtime.IsUndefined(value) {
+			return nil, err
 		}
-		return out, nil
-	case string:
-		out := make([]any, 0, len(x))
-		for _, r := range x {
-			out = append(out, string(r))
-		}
-		return out, nil
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("%s: %T is not iterable", filter, value))
 	}
-	if u, ok := value.(runtime.Undefiner); ok && u.IsUndefined() {
-		return nil, nil
-	}
-	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("map/select/reject: %T is not iterable", value))
+	return items, nil
 }
 
 // filterSelect implements the `select` filter: keep items where a test
@@ -1965,7 +2027,7 @@ func filterRejectAttr(env *Environment, ctx *runtime.Context, value any, args []
 // keep=true means "include items where the test passes"; attr (if set)
 // means "test the named attribute of each item, not the item itself".
 func selectReject(env *Environment, ctx *runtime.Context, value any, args []any, keep bool, attr string) (any, error) {
-	x, err := mapSequenceArg(value)
+	x, err := iterArg("select", value)
 	if err != nil {
 		return nil, err
 	}
@@ -2179,7 +2241,7 @@ func testDivisibleBy(_ *Environment, _ *runtime.Context, value any, args []any, 
 // StrictUndefined, whose `len()` fails.
 func testSequence(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch x := value.(type) {
-	case []any, string, runtime.Tuple, map[string]any, map[any]any, *runtime.OrderedDict:
+	case []any, string, escape.Markup, []string, runtime.Tuple, map[string]any, map[any]any, *runtime.OrderedDict:
 		return true, nil
 	case runtime.Undefined:
 		return x.Mode != runtime.ModeStrict, nil
@@ -2209,7 +2271,7 @@ func testMapping(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 // empty; a StrictUndefined raises.
 func testIterable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch x := value.(type) {
-	case []any, runtime.Tuple, string, map[string]any, map[any]any, *runtime.OrderedDict:
+	case []any, runtime.Tuple, string, escape.Markup, []string, map[string]any, map[any]any, *runtime.OrderedDict:
 		return true, nil
 	case runtime.Undefined:
 		if _, err := x.Iter(); err != nil {

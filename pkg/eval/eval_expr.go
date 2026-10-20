@@ -239,9 +239,13 @@ func (e *evaluator) evalCondExpr(n *ast.CondExpr, ctx *runtime.Context) (any, er
 	return e.eng.UndefinedFactory()("", "", nil, nil), nil
 }
 
+// evalConcat implements `~`. Under autoescape it mirrors Python's
+// markup_join: once any operand is Markup the result is Markup and every
+// other operand is escaped.
 func (e *evaluator) evalConcat(n *ast.Concat, ctx *runtime.Context) (any, error) {
-	var b []byte
-	for _, x := range n.Nodes {
+	vals := make([]any, len(n.Nodes))
+	markup := false
+	for i, x := range n.Nodes {
 		v, err := e.evalExprAny(x, ctx)
 		if err != nil {
 			return nil, err
@@ -249,7 +253,22 @@ func (e *evaluator) evalConcat(n *ast.Concat, ctx *runtime.Context) (any, error)
 		if err := FailStrict(v); err != nil {
 			return nil, err
 		}
-		b = append(b, escape.SoftStr(v)...)
+		if _, ok := v.(escape.Markup); ok {
+			markup = true
+		}
+		vals[i] = v
+	}
+	markup = markup && ctx.Eval != nil && ctx.Eval.Autoescape
+	var b []byte
+	for _, v := range vals {
+		if markup {
+			b = append(b, escape.Escape(v)...)
+		} else {
+			b = append(b, escape.SoftStr(v)...)
+		}
+	}
+	if markup {
+		return escape.Markup(b), nil
 	}
 	return string(b), nil
 }

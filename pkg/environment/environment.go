@@ -983,7 +983,7 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 		if m := e.strFormatMethod(x, attr); m != nil {
 			return m, nil
 		}
-		if m := stringMethod(string(x), attr); m != nil {
+		if m := markupMethod(x, attr); m != nil {
 			return m, nil
 		}
 	case []any:
@@ -1126,24 +1126,14 @@ func (e *Environment) GetItem(obj any, arg any) (any, error) {
 		}
 		return x[idx], nil
 	case string:
-		if sv, ok := arg.(ast.SliceVal); ok {
-			return sliceString(x, sv), nil
+		return e.getStringItem(obj, x, arg)
+	case escape.Markup:
+		// Markup.__getitem__ returns Markup.
+		v, err := e.getStringItem(obj, string(x), arg)
+		if s, ok := v.(string); ok {
+			return escape.Markup(s), err
 		}
-		idx, ok := asInt(arg)
-		if !ok {
-			// String indexed by string falls back to attribute access.
-			if k, ok := arg.(string); ok {
-				return e.GetAttr(obj, k)
-			}
-			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("string indices must be integers, not %T", arg))
-		}
-		if idx < 0 {
-			idx += len(x)
-		}
-		if idx < 0 || idx >= len(x) {
-			return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
-		}
-		return string(x[idx]), nil
+		return v, err
 	}
 	// Fallback: try attribute access.
 	if k, ok := arg.(string); ok {
@@ -1225,6 +1215,29 @@ func sliceString(s string, sv ast.SliceVal) string {
 		}
 	}
 	return b.String()
+}
+
+// getStringItem indexes or slices s by code point, as Python does.
+func (e *Environment) getStringItem(obj any, s string, arg any) (any, error) {
+	if sv, ok := arg.(ast.SliceVal); ok {
+		return sliceString(s, sv), nil
+	}
+	idx, ok := asInt(arg)
+	if !ok {
+		// String indexed by string falls back to attribute access.
+		if k, ok := arg.(string); ok {
+			return e.GetAttr(obj, k)
+		}
+		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("string indices must be integers, not %T", arg))
+	}
+	rs := []rune(s)
+	if idx < 0 {
+		idx += len(rs)
+	}
+	if idx < 0 || idx >= len(rs) {
+		return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
+	}
+	return string(rs[idx]), nil
 }
 
 // normaliseSlice resolves a SliceVal into concrete (start, stop, step)
