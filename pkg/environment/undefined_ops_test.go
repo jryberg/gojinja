@@ -34,8 +34,9 @@ func renderOrErr(t *testing.T, e *Environment, src string) string {
 	return out
 }
 
-// Expected values come from rendering the same templates with Python
-// Jinja2 at the pinned reference commit, once per Undefined class.
+// Expected values come from rendering the same templates with the Jinja2
+// pinned in tools/parity/requirements.txt, once per
+// Undefined class.
 func TestUndefinedSemantics(t *testing.T) {
 	modes := []runtime.UndefinedFactory{runtime.NewBase, runtime.NewChainable, runtime.NewDebug, runtime.NewStrict}
 	names := []string{"Undefined", "ChainableUndefined", "DebugUndefined", "StrictUndefined"}

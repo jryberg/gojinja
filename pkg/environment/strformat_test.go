@@ -65,8 +65,8 @@ func TestStringFormatUnsafeChainRaises(t *testing.T) {
 	}
 }
 
-// Expected values come from rendering the same templates with Python
-// Jinja2 3.1.6.
+// Expected values come from rendering the same templates with the Jinja2
+// pinned in tools/parity/requirements.txt.
 func TestStringFormatSpec(t *testing.T) {
 	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
 	cases := []struct{ src, want string }{

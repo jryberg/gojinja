@@ -7,9 +7,9 @@ import (
 	"github.com/jryberg/gojinja/pkg/escape"
 )
 
-// Expected values come from rendering the same templates with Jinja2
-// 3.1.6 / MarkupSafe 3.0.4 (the parity venv), with autoescape on and
-// off. m and n are Markup values, s the plain-str counterpart of m.
+// Expected values come from rendering the same templates with the
+// Jinja2 and MarkupSafe pinned in tools/parity/requirements.txt, with
+// autoescape on and off. m and n are Markup values, s the plain-str counterpart of m.
 func TestMarkupIsAString(t *testing.T) {
 	vars := func() map[string]any {
 		return map[string]any{"m": escape.Markup("aBc d"), "n": escape.Markup("a&lt;b"), "s": "aBc d"}

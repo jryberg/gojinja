@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// Expected values come from rendering the same templates with Python
-// Jinja2 at the pinned reference commit.
+// Expected values come from rendering the same templates with the Jinja2
+// pinned in tools/parity/requirements.txt.
 
 // Port of TestTestsCase.test_sameas / test_no_paren_for_arg1 plus
 // identity checks on values that are uncomparable in Go.
