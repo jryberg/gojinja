@@ -299,7 +299,7 @@ func pyCenter(s string, width int, fill string) string {
 // strips whitespace).
 func stripFunc(s, chars string, fn func(string, string) string) string {
 	if chars == "" {
-		return strings.TrimFunc(s, unicode.IsSpace)
+		return strings.TrimFunc(s, pyIsSpace)
 	}
 	return fn(s, chars)
 }
@@ -343,26 +343,41 @@ func rsplitToAny(s, sep string, max int) []any {
 }
 
 func splitlines(s string, keep bool) []any {
-	out := []any{}
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' || s[i] == '\r' {
-			end := i
-			if keep {
-				end = i + 1
-				if s[i] == '\r' && i+1 < len(s) && s[i+1] == '\n' {
-					end = i + 2
-					i++
-				}
-			} else if s[i] == '\r' && i+1 < len(s) && s[i+1] == '\n' {
-				i++
-			}
-			out = append(out, s[start:end])
-			start = i + 1
-		}
+	lines := pySplitlines(s, keep)
+	out := make([]any, len(lines))
+	for i, l := range lines {
+		out[i] = l
 	}
-	if start < len(s) {
-		out = append(out, s[start:])
+	return out
+}
+
+// pySplitlines is str.splitlines: it breaks on \n, \r, \r\n, \v, \f,
+// \x1c-\x1e, \x85, \u2028 and \u2029, keeping the breaks when keep is
+// set.
+func pySplitlines(s string, keep bool) []string {
+	var out []string
+	rs := []rune(s)
+	start := 0
+	for i := 0; i < len(rs); i++ {
+		switch rs[i] {
+		case '\n', '\r', '\v', '\f', 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029:
+		default:
+			continue
+		}
+		end := i + 1
+		if rs[i] == '\r' && end < len(rs) && rs[end] == '\n' {
+			end++
+		}
+		if keep {
+			out = append(out, string(rs[start:end]))
+		} else {
+			out = append(out, string(rs[start:i]))
+		}
+		start = end
+		i = end - 1
+	}
+	if start < len(rs) {
+		out = append(out, string(rs[start:]))
 	}
 	return out
 }

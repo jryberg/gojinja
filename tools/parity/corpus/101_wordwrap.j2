@@ -1,0 +1,6 @@
+{{ text|wordwrap(12) }}
+---
+{{ text|wordwrap(12, break_on_hyphens=false, wrapstring=' / ') }}
+---
+{{ 'supercalifragilisticexpialidocious and well-known co-op foo--bar'|wordwrap(9) }}|{{ 'supercalifragilisticexpialidocious x'|wordwrap(9, false) }}
+{{ 'über straße naïve façade\nkept  line\r\nend'|wordwrap(6) }}|{{ 'a\x0bb\x0cc\x85d\u2028e'.splitlines() }}|{{ ' \x1ca\x1f '.strip() }}

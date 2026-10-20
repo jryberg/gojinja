@@ -98,7 +98,7 @@ func TestUrlizePort(t *testing.T) {
 		{`{{ 'x'|urlize(extra_schemes=['bad scheme']) }}`, "", true},
 		{`{{ 'go https://a.com/' ~ 'x' * 30|urlize(10) }}`, "", true},
 		{`{{ 'http://[::1]:80/x https://10.0.0.1:8080 www.xn--bcher-kva.example'|urlize }}`, "<a href=\"http://[::1]:80/x\" rel=\"noopener\">http://[::1]:80/x</a> <a href=\"https://10.0.0.1:8080\" rel=\"noopener\">https://10.0.0.1:8080</a> <a href=\"https://www.xn--bcher-kva.example\" rel=\"noopener\">www.xn--bcher-kva.example</a>", false},
-		{`{{ 'a  b\tc\nhttp://a.com x'|urlize }}`, "a  b\tc\n<a href=\"http://a.com\" rel=\"noopener\">http://a.com</a>\u00a0x", false},
+		{`{{ 'a  b\tc\nhttp://a.com\u00a0x'|urlize }}`, "a  b\tc\n<a href=\"http://a.com\" rel=\"noopener\">http://a.com</a>\u00a0x", false},
 		{`{{ ('<b>' ~ 'http://a.com')|urlize }}`, "&lt;b&gt;http://a.com", false},
 		{`{{ 'http://a.com'|e|urlize }}`, "<a href=\"http://a.com\" rel=\"noopener\">http://a.com</a>", false},
 	}

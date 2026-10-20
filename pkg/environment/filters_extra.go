@@ -110,58 +110,52 @@ func filterGroupby(env *Environment, _ *runtime.Context, value any, args []any, 
 // filterWordwrap implements the `wordwrap` filter: break long lines at
 // word boundaries.
 //
-// Signature: wordwrap(s, width=79)
+// Signature: wordwrap(s, width=79, break_long_words=True, wrapstring=None, break_on_hyphens=True)
 //
-// Existing newlines are preserved; only lines longer than `width` get
-// rewrapped at whitespace.
+// A port of Python's textwrap.wrap: each existing line is wrapped on its
+// own at whitespace and after hyphens (break_on_hyphens), words longer
+// than `width` are split (break_long_words), and lines are joined with
+// `wrapstring`, which defaults to the environment's newline sequence.
 //
 // Example:
 //
 //	{{ "the quick brown fox" | wordwrap(10) }}
 //	→  "the quick\nbrown fox"
-func filterWordwrap(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	s := escape.SoftStr(value)
-	width := 79
+func filterWordwrap(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	var widthVal any = int64(79)
 	if v, ok := paramArg(args, kwargs, 0, "width"); ok {
-		// TextWrapper first checks `width <= 0`.
-		bad, err := eval.Compare("lteq", v, int64(0))
+		widthVal = v
+	}
+	breakLong := true
+	if v, ok := paramArg(args, kwargs, 1, "break_long_words"); ok {
+		breakLong = eval.Truthy(v)
+	}
+	wrapstring := env.lexerOpts.NewlineSequence
+	if v, ok := paramArg(args, kwargs, 2, "wrapstring"); ok && v != nil {
+		wrapstring = escape.SoftStr(v)
+	}
+	breakHyphens := true
+	if v, ok := paramArg(args, kwargs, 3, "break_on_hyphens"); ok {
+		breakHyphens = eval.Truthy(v)
+	}
+	// Each line is wrapped on its own, so existing newlines are kept.
+	var paras []string
+	for _, line := range pySplitlines(escape.SoftStr(value), false) {
+		// TextWrapper rejects width <= 0 whenever it wraps a line.
+		bad, err := eval.Compare("lteq", widthVal, int64(0))
 		if err != nil {
 			return nil, gjerrors.NewFilterArgumentError(err.Error())
 		}
 		if bad {
-			return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("invalid width %v (must be > 0)", escape.SoftStr(v)))
+			return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("invalid width %v (must be > 0)", escape.SoftStr(widthVal)))
 		}
-		if width, err = indexArg(v); err != nil {
+		width, err := indexArg(widthVal)
+		if err != nil {
 			return nil, err
 		}
+		paras = append(paras, strings.Join(textWrap(line, width, breakLong, breakHyphens), wrapstring))
 	}
-	var out []string
-	for _, para := range strings.Split(s, "\n") {
-		if len(para) <= width {
-			out = append(out, para)
-			continue
-		}
-		words := strings.Fields(para)
-		var line strings.Builder
-		for _, w := range words {
-			if line.Len() == 0 {
-				line.WriteString(w)
-				continue
-			}
-			if line.Len()+1+len(w) > width {
-				out = append(out, line.String())
-				line.Reset()
-				line.WriteString(w)
-				continue
-			}
-			line.WriteByte(' ')
-			line.WriteString(w)
-		}
-		if line.Len() > 0 {
-			out = append(out, line.String())
-		}
-	}
-	return strings.Join(out, "\n"), nil
+	return strings.Join(paras, wrapstring), nil
 }
 
 // filterPprint implements the `pprint` filter: pretty-print any value as

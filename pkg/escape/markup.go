@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Markup is a string the engine has marked as already-safe for HTML
@@ -352,10 +353,16 @@ func pyStringRepr(s string) string {
 			b.WriteByte('\\')
 			b.WriteRune(r)
 		default:
-			if r < 0x20 || r == 0x7f {
-				fmt.Fprintf(&b, `\x%02x`, r)
-			} else {
+			// Python's repr escapes what str.isprintable rejects.
+			switch {
+			case r == ' ' || unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S):
 				b.WriteRune(r)
+			case r <= 0xff:
+				fmt.Fprintf(&b, `\x%02x`, r)
+			case r <= 0xffff:
+				fmt.Fprintf(&b, `\u%04x`, r)
+			default:
+				fmt.Fprintf(&b, `\U%08x`, r)
 			}
 		}
 	}
