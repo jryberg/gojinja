@@ -1,0 +1,5 @@
+{{ 'straße ǆ ﬁx'.upper() }}|{{ 'ΟΔΟΣ ΑΣ'.lower() }}|{{ 'Straße'.casefold() }}|{{ "they're bill's ǆ".title() }}|{{ 'ǆa'.capitalize() }}|{{ 'Hello ß'.swapcase() }}
+{{ 'a,b,c'.partition(',') }}|{{ 'a,b,c'.rpartition(',') }}|{{ 'TestHook'.removeprefix('Test') }}|{{ 'a\tbc\td'.expandtabs(4) }}|{{ 'abc'.translate({97: 'X', 98: none}) }}|{{ 'abc'.maketrans('ab', 'xy') }}
+{{ 'éab'.find('a') }}|{{ 'abcabc'.count('b', -3, -1) }}|{{ 'abc'.endswith('b', 0, 2) }}|{{ 'é'.ljust(3, '.') }}|{{ '-é'.zfill(4) }}|{{ 'a b c'.split(None, 1) }}|{{ '  a  b  '.rsplit(None, 1) }}|{{ '  ab  '.lstrip() }}
+{{ '²'.isdigit() }}|{{ '½'.isnumeric() }}|{{ '٣'.isdecimal() }}|{{ 'é_1'.isidentifier() }}|{{ 'Ab Cd'.istitle() }}|{{ 'é'.isascii() }}|{{ 'a\n'.isprintable() }}|{{ '\x1c'.isspace() }}
+{{ 'héllo'.encode() }}|{{ 'é'.encode('latin-1') }}|{{ 'é€'.encode('ascii', 'backslashreplace') }}|{{ 'héllo'.encode().decode() }}|{{ 'é'.encode('utf-16-le')|list }}|{{ 'ß'|upper }}|{{ 'ǅx-σΣ'|title }}

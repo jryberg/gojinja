@@ -992,6 +992,10 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 		if m := stringMethod(x, attr); m != nil {
 			return m, nil
 		}
+	case runtime.Bytes:
+		if m := bytesMethod(x, attr); m != nil {
+			return m, nil
+		}
 	case escape.Markup:
 		if m := e.strFormatMethod(x, attr); m != nil {
 			return m, nil
@@ -1098,6 +1102,21 @@ func (e *Environment) GetItem(obj any, arg any) (any, error) {
 		return e.getSeqItem(obj, x, arg, true)
 	case string:
 		return e.getStringItem(obj, x, arg)
+	case runtime.Bytes:
+		// Indexing bytes gives an int; slicing gives bytes.
+		items := make([]any, len(x))
+		for i, c := range x {
+			items[i] = int64(c)
+		}
+		v, err := e.getSeqItem(obj, items, arg, false)
+		if part, ok := v.([]any); ok {
+			out := make(runtime.Bytes, len(part))
+			for i, it := range part {
+				out[i] = byte(it.(int64))
+			}
+			return out, err
+		}
+		return v, err
 	case escape.Markup:
 		// Markup.__getitem__ returns Markup.
 		v, err := e.getStringItem(obj, string(x), arg)

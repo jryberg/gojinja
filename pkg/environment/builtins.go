@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
@@ -189,13 +188,14 @@ func namespaceCtor(args []any, kwargs map[string]any) (any, error) {
 //
 // Signature: upper(s)
 //
-// Stringifies via [escape.SoftStr] then applies [strings.ToUpper] (Unicode-aware).
+// Stringifies via [escape.SoftStr] then applies Python's str.upper (full
+// Unicode case mapping, so "ß" becomes "SS").
 //
 // Example:
 //
 //	{{ "hello" | upper }}  →  HELLO
 func filterUpper(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	return keepMarkup(value, strings.ToUpper(escape.SoftStr(value))), nil
+	return keepMarkup(value, pyUpper(escape.SoftStr(value))), nil
 }
 
 // keepMarkup returns s as Markup when value was Markup. Python's string
@@ -217,13 +217,14 @@ func autoescapeOn(ctx *runtime.Context) bool {
 //
 // Signature: lower(s)
 //
-// Stringifies via [escape.SoftStr] then applies [strings.ToLower] (Unicode-aware).
+// Stringifies via [escape.SoftStr] then applies Python's str.lower (full
+// Unicode case mapping, including the final-sigma rule).
 //
 // Example:
 //
 //	{{ "HELLO" | lower }}  →  hello
 func filterLower(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	return keepMarkup(value, strings.ToLower(escape.SoftStr(value))), nil
+	return keepMarkup(value, pyLower(escape.SoftStr(value))), nil
 }
 
 // filterTitle implements the `title` filter: title-case a string.
@@ -243,28 +244,19 @@ func filterTitle(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 
 // jinjaTitle implements `do_title` from jinja2/filters.py.
 func jinjaTitle(s string) string {
-	isWordSep := func(r rune) bool {
-		switch r {
-		case ' ', '\t', '\n', '\r', '\f', '\v',
-			'-', '(', '{', '[', '<':
-			return true
-		}
-		return false
-	}
+	// do_title: re.split(r"([-\s({\[<]+)", s), then each piece becomes
+	// piece[0].upper() + piece[1:].lower().
+	isSep := func(r rune) bool { return pyIsSpace(r) || strings.ContainsRune("-({[<", r) }
+	rs := []rune(s)
 	var b strings.Builder
-	atStart := true
-	for _, r := range s {
-		if isWordSep(r) {
-			b.WriteRune(r)
-			atStart = true
-			continue
+	for i := 0; i < len(rs); {
+		j := i + 1
+		for j < len(rs) && isSep(rs[j]) == isSep(rs[i]) {
+			j++
 		}
-		if atStart {
-			b.WriteRune(unicode.ToUpper(r))
-			atStart = false
-		} else {
-			b.WriteRune(unicode.ToLower(r))
-		}
+		b.WriteString(pyUpper(string(rs[i])))
+		b.WriteString(pyLower(string(rs[i+1 : j])))
+		i = j
 	}
 	return b.String()
 }
@@ -340,6 +332,8 @@ func filterLength(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 		return utf8.RuneCountInString(x), nil
 	case escape.Markup:
 		return utf8.RuneCountInString(string(x)), nil
+	case runtime.Bytes:
+		return len(x), nil
 	case []any:
 		return len(x), nil
 	case runtime.Tuple:
@@ -2332,7 +2326,7 @@ func testIterable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 func testLowerStr(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	// Python tests str(value), so non-strings are checked by their text.
 	s := escape.SoftStr(value)
-	return s == strings.ToLower(s) && containsLetter(s), nil
+	return pyIsLower(s), nil
 }
 
 // testUpperStr implements the `upper` test: true if the value is a string
@@ -2342,16 +2336,7 @@ func testLowerStr(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 func testUpperStr(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	// Python tests str(value), so non-strings are checked by their text.
 	s := escape.SoftStr(value)
-	return s == strings.ToUpper(s) && containsLetter(s), nil
-}
-
-func containsLetter(s string) bool {
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-			return true
-		}
-	}
-	return false
+	return pyIsUpper(s), nil
 }
 
 // testEq implements the `eq` / `equalto` / `==` test: equality comparison.
@@ -2536,24 +2521,6 @@ func testIsTest(env *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	}
 	_, exists := env.tests[name]
 	return exists, nil
-}
-
-// ----------------- sequence helpers -----------------
-
-// asAnySlice unwraps []any, runtime.Tuple or *runtime.PyList to a flat
-// []any view.
-func asAnySlice(v any) ([]any, bool) {
-	switch x := v.(type) {
-	case []any:
-		return x, true
-	case runtime.Tuple:
-		return []any(x), true
-	case *runtime.PyList:
-		if x != nil {
-			return x.Items(), true
-		}
-	}
-	return nil, false
 }
 
 func numAsFloat(v any) (float64, bool) {

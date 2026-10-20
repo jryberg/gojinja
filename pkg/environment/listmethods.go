@@ -249,3 +249,38 @@ func pythonOrderLess(a, b any) bool {
 	// Fallback: stable cross-type ordering via type name.
 	return fmt.Sprintf("%T", a) < fmt.Sprintf("%T", b)
 }
+
+// argInt returns args[i] as an int, or def when it is absent or not a
+// number.
+func argInt(args []any, i int, def int) int {
+	if i >= len(args) || args[i] == nil {
+		return def
+	}
+	switch x := args[i].(type) {
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	}
+	return def
+}
+
+// clampSlice resolves Python slice bounds start:end for a sequence of
+// the given length.
+func clampSlice(length, start, end int) (int, int) {
+	if start < 0 {
+		start += length
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end < 0 {
+		end += length
+	}
+	if end > length {
+		end = length
+	}
+	return start, end
+}

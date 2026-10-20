@@ -1,7 +1,6 @@
 package environment
 
 import (
-	"reflect"
 	"strings"
 
 	"github.com/jryberg/gojinja/pkg/escape"
@@ -15,11 +14,15 @@ import (
 var markupWrapped = map[string]bool{
 	"capitalize": true, "title": true, "lower": true, "upper": true,
 	"replace": true, "ljust": true, "rjust": true, "lstrip": true,
-	"rstrip": true, "center": true, "strip": true, "swapcase": true,
-	"zfill": true, "split": true, "rsplit": true, "splitlines": true,
+	"rstrip": true, "center": true, "strip": true, "translate": true,
+	"expandtabs": true, "swapcase": true, "zfill": true, "casefold": true,
+	"removeprefix": true, "removesuffix": true, "partition": true,
+	"rpartition": true, "split": true, "rsplit": true, "splitlines": true,
 }
 
-var markupType = reflect.TypeFor[escape.Markup]()
+// markupEscapedArg is the argument markupsafe escapes before calling the
+// str method: replace's replacement and the padding methods' fill.
+var markupEscapedArg = map[string]int{"replace": 1, "ljust": 1, "rjust": 1, "center": 1}
 
 // markupMethod returns str method attr bound to a Markup receiver with
 // markupsafe's semantics: wrapped methods return Markup, `replace`
@@ -39,65 +42,29 @@ func markupMethod(m escape.Markup, attr string) any {
 			return escape.Markup(strings.Join(parts, string(m))), nil
 		}
 	}
-	base := stringMethod(string(m), attr)
-	if base == nil || !markupWrapped[attr] {
-		return base
+	base, ok := stringMethod(string(m), attr).(KwargsCallable)
+	if !ok || !markupWrapped[attr] {
+		return stringMethod(string(m), attr)
 	}
-	switch f := base.(type) {
-	case func(any, any, ...any) string: // replace
-		return func(old, repl any, args ...any) escape.Markup {
-			return escape.Markup(f(old, string(escape.Escape(repl)), args...))
+	return KwargsCallable(func(args []any, kwargs map[string]any) (any, error) {
+		if i, ok := markupEscapedArg[attr]; ok && i < len(args) {
+			args = append([]any(nil), args...)
+			args[i] = string(escape.Escape(args[i]))
 		}
-	case func(...any) string:
-		if attr == "ljust" || attr == "rjust" || attr == "center" {
-			return func(args ...any) escape.Markup {
-				if len(args) > 1 {
-					args = append([]any(nil), args...)
-					args[1] = string(escape.Escape(args[1]))
-				}
-				return escape.Markup(f(args...))
-			}
+		v, err := base(args, kwargs)
+		if err != nil {
+			return nil, err
 		}
-	}
-	return markupResults(base)
-}
-
-// markupResults wraps fn so its string results become Markup and the
-// strings inside a returned list or tuple become Markup too.
-func markupResults(fn any) any {
-	fv := reflect.ValueOf(fn)
-	ft := fv.Type()
-	in := make([]reflect.Type, ft.NumIn())
-	for i := range in {
-		in[i] = ft.In(i)
-	}
-	out := make([]reflect.Type, ft.NumOut())
-	for i := range out {
-		out[i] = ft.Out(i)
-		if out[i].Kind() == reflect.String {
-			out[i] = markupType
+		switch x := v.(type) {
+		case string:
+			return escape.Markup(x), nil
+		case []any:
+			return markupItems(x), nil
+		case runtime.Tuple:
+			return runtime.Tuple(markupItems(x)), nil
 		}
-	}
-	wt := reflect.FuncOf(in, out, ft.IsVariadic())
-	return reflect.MakeFunc(wt, func(args []reflect.Value) []reflect.Value {
-		var res []reflect.Value
-		if ft.IsVariadic() {
-			res = fv.CallSlice(args)
-		} else {
-			res = fv.Call(args)
-		}
-		for i, r := range res {
-			switch v := r.Interface().(type) {
-			case string:
-				res[i] = reflect.ValueOf(escape.Markup(v))
-			case []any:
-				res[i] = reflect.ValueOf(markupItems(v))
-			case runtime.Tuple:
-				res[i] = reflect.ValueOf(runtime.Tuple(markupItems(v)))
-			}
-		}
-		return res
-	}).Interface()
+		return v, nil
+	})
 }
 
 func markupItems(items []any) []any {

@@ -82,6 +82,8 @@ Renders every curated template through both gojinja and canonical Python Jinja2 
 
 The Python side always runs the Jinja2 release pinned in `tools/parity/requirements.txt` — kept at the latest release that has passed the 14-day age rule — from a project venv at `.venv-parity/`. `make parity` (and `make parity-external`) create the venv on first use and rebuild it whenever the requirements change; `make parity-venv` prints the versions in use. To move to a newer Jinja2 release, edit nothing but the lock: re-run the `uv pip compile` command at the top of `tools/parity/requirements.in` (it excludes uploads newer than 14 days), then `make parity`. Dependabot proposes these bumps weekly.
 
+Two Go files are generated from that same Python, and `make parity` fails while either is stale: `pkg/environment/signatures_table.go` (the Python signatures of the builtin filters and tests, `make signatures`) and `pkg/environment/strtables_table.go` (the Unicode data Python's str methods use beyond Go's `unicode` package, `make strtables`; Go and the venv's Python must share a Unicode version). Regenerate them after moving the pin.
+
 The corpus is **a regression gate, not a coverage menu**. New features ship with corpus cases that lock in their parity. When a case fails, the right response is to fix gojinja so the diff disappears — never to delete or weaken the case. Documented divergences (the small handful tabulated in [`docs/divergences.md`](docs/divergences.md)) are the only valid reason a Python template might *not* render identically in gojinja.
 
 ### Corpus layout

@@ -1056,6 +1056,8 @@ func Truthy(v any) bool {
 		return len(x) != 0
 	case escape.Markup:
 		return len(x) != 0
+	case runtime.Bytes:
+		return len(x) != 0
 	case []any:
 		return len(x) != 0
 	case runtime.Tuple:
@@ -1103,6 +1105,12 @@ func ToIterable(v any) ([]any, error) {
 		// Python iterates a Markup like the str it subclasses: plain str
 		// characters of the escaped text.
 		return runeStrings(string(x)), nil
+	case runtime.Bytes:
+		out := make([]any, len(x))
+		for i, c := range x {
+			out[i] = int64(c)
+		}
+		return out, nil
 	case map[string]any:
 		// Go map iteration is randomised. Lex-sort for deterministic
 		// output — matches the policy used by `.items()/.keys()/.values()`

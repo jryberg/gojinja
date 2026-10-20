@@ -50,6 +50,10 @@ func valuesEqual(a, b any, depth int) (bool, error) {
 		bs, ok := eqStr(b)
 		return ok && as == bs, nil
 	}
+	if ab, ok := a.(runtime.Bytes); ok {
+		bb, ok := b.(runtime.Bytes)
+		return ok && string(ab) == string(bb), nil
+	}
 	if al, aTuple, ok := eqSeq(a); ok {
 		bl, bTuple, ok := eqSeq(b)
 		if !ok || aTuple != bTuple || len(al) != len(bl) {

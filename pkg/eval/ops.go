@@ -32,6 +32,18 @@ func applyBinop(op string, a, b any) (any, error) {
 	if out, ok := markupBinop(op, a, b); ok {
 		return out, nil
 	}
+	if ab, ok := a.(runtime.Bytes); ok {
+		switch bb := b.(type) {
+		case runtime.Bytes:
+			if op == "+" {
+				return append(append(runtime.Bytes{}, ab...), bb...), nil
+			}
+		default:
+			if n, ok := asInt(b); ok && op == "*" {
+				return runtime.Bytes(strings.Repeat(string(ab), max(n, 0))), nil
+			}
+		}
+	}
 	if op == "+" {
 		if as, ok := a.(string); ok {
 			if bs, ok := b.(string); ok {

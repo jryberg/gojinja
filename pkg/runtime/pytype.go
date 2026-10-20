@@ -26,6 +26,8 @@ func PyTypeName(v any) string {
 		return "list"
 	case Tuple:
 		return "tuple"
+	case Bytes:
+		return "bytes"
 	case map[string]any, map[any]any, *OrderedDict:
 		return "dict"
 	case Undefined:

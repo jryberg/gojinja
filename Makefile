@@ -1,4 +1,4 @@
-.PHONY: test vet lint audit tidy build parity parity-venv signatures signatures-check parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall docs docs-serve docs-check
+.PHONY: test vet lint audit tidy build parity parity-venv signatures signatures-check strtables strtables-check parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall docs docs-serve docs-check
 
 GO ?= go
 
@@ -62,9 +62,20 @@ signatures-check: parity-venv
 	@$(PARITY_PYTHON) -I tools/parity/signatures.py | gofmt | diff -u $(SIGNATURES_GO) - \
 		|| { echo "$(SIGNATURES_GO) is stale for the pinned Jinja2; run 'make signatures'"; exit 1; }
 
+# Unicode data for Python's str methods, generated from the venv's Python.
+STRTABLES_GO := pkg/environment/strtables_table.go
+
+strtables: parity-venv
+	$(PARITY_PYTHON) -I tools/parity/strtables.py > $(STRTABLES_GO)
+	gofmt -w $(STRTABLES_GO)
+
+strtables-check: parity-venv
+	@$(PARITY_PYTHON) -I tools/parity/strtables.py | gofmt | diff -q $(STRTABLES_GO) - >/dev/null \
+		|| { echo "$(STRTABLES_GO) is stale for the pinned Python; run 'make strtables'"; exit 1; }
+
 # Parity harness: renders every corpus template through both gojinja and
 # Python Jinja2 (via tools/parity/parity.py) and diffs the outputs.
-parity: parity-venv signatures-check
+parity: parity-venv signatures-check strtables-check
 	$(GO) run ./tools/parity -python $(PARITY_PYTHON)
 
 # External parity: validates gojinja against real-world templates fetched
