@@ -32,3 +32,6 @@ PROMPT.md
 /docs/site/content/templates/filters/_generated/
 /docs/site/content/templates/tests/_generated/
 /docs/site/content/templates/globals/_generated/
+
+# Python bytecode from the parity tooling.
+__pycache__/

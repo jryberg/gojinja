@@ -1,4 +1,4 @@
-.PHONY: test vet lint audit tidy build parity parity-venv signatures signatures-check strtables strtables-check codectables codectables-check parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall docs docs-serve docs-check
+.PHONY: test vet lint audit tidy build parity parity-venv signatures signatures-check strtables strtables-check codectables codectables-check unicodenames unicodenames-check parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall docs docs-serve docs-check
 
 GO ?= go
 
@@ -55,38 +55,49 @@ parity-venv: $(PARITY_VENV)/.installed
 SIGNATURES_GO := pkg/environment/signatures_table.go
 
 signatures: parity-venv
-	$(PARITY_PYTHON) -I tools/parity/signatures.py > $(SIGNATURES_GO)
+	$(PARITY_PYTHON) -I -B tools/parity/signatures.py > $(SIGNATURES_GO)
 	gofmt -w $(SIGNATURES_GO)
 
 signatures-check: parity-venv
-	@$(PARITY_PYTHON) -I tools/parity/signatures.py | gofmt | diff -u $(SIGNATURES_GO) - \
+	@$(PARITY_PYTHON) -I -B tools/parity/signatures.py | gofmt | diff -u $(SIGNATURES_GO) - \
 		|| { echo "$(SIGNATURES_GO) is stale for the pinned Jinja2; run 'make signatures'"; exit 1; }
 
 # Unicode data for Python's str methods, generated from the venv's Python.
 STRTABLES_GO := pkg/environment/strtables_table.go
 
 strtables: parity-venv
-	$(PARITY_PYTHON) -I tools/parity/strtables.py > $(STRTABLES_GO)
+	$(PARITY_PYTHON) -I -B tools/parity/strtables.py > $(STRTABLES_GO)
 	gofmt -w $(STRTABLES_GO)
 
 strtables-check: parity-venv
-	@$(PARITY_PYTHON) -I tools/parity/strtables.py | gofmt | diff -q $(STRTABLES_GO) - >/dev/null \
+	@$(PARITY_PYTHON) -I -B tools/parity/strtables.py | gofmt | diff -q $(STRTABLES_GO) - >/dev/null \
 		|| { echo "$(STRTABLES_GO) is stale for the pinned Python; run 'make strtables'"; exit 1; }
 
 # Python's codec tables and aliases, generated from the venv's Python.
 CODECTABLES_GO := pkg/environment/codectables_table.go
 
 codectables: parity-venv
-	$(PARITY_PYTHON) -I tools/parity/codectables.py > $(CODECTABLES_GO)
+	$(PARITY_PYTHON) -I -B tools/parity/codectables.py > $(CODECTABLES_GO)
 	gofmt -w $(CODECTABLES_GO)
 
 codectables-check: parity-venv
-	@$(PARITY_PYTHON) -I tools/parity/codectables.py | gofmt | diff -q $(CODECTABLES_GO) - >/dev/null \
+	@$(PARITY_PYTHON) -I -B tools/parity/codectables.py | gofmt | diff -q $(CODECTABLES_GO) - >/dev/null \
 		|| { echo "$(CODECTABLES_GO) is stale for the pinned Python; run 'make codectables'"; exit 1; }
+
+# Unicode character names for \N{...}, generated from the venv's Python.
+UNICODENAMES_GO := internal/unicodename/names_table.go
+
+unicodenames: parity-venv
+	$(PARITY_PYTHON) -I -B tools/parity/unicodenames.py > $(UNICODENAMES_GO)
+	gofmt -w $(UNICODENAMES_GO)
+
+unicodenames-check: parity-venv
+	@$(PARITY_PYTHON) -I -B tools/parity/unicodenames.py | gofmt | diff -q $(UNICODENAMES_GO) - >/dev/null \
+		|| { echo "$(UNICODENAMES_GO) is stale for the pinned Python; run 'make unicodenames'"; exit 1; }
 
 # Parity harness: renders every corpus template through both gojinja and
 # Python Jinja2 (via tools/parity/parity.py) and diffs the outputs.
-parity: parity-venv signatures-check strtables-check codectables-check
+parity: parity-venv signatures-check strtables-check codectables-check unicodenames-check
 	$(GO) run ./tools/parity -python $(PARITY_PYTHON)
 
 # External parity: validates gojinja against real-world templates fetched

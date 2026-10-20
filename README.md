@@ -470,7 +470,7 @@ These are deliberate divergences. Each was a conscious trade-off, not an oversig
 |---|---|---|
 | `enable_async` / `async def` filters / `async for` | Different runtime model; Go has no `await`. | `Template.RenderContext(ctx, vars)` cancels mid-render through `context.Context`. |
 | Python-runtime serialization (the `pickle` module) | Python-runtime specific. | Use `pkg/cache.Filesystem` for cross-process AST caching. |
-| `\N{NAME}` Unicode-named escapes in string literals | Requires shipping a 32K-entry Unicode names table. | Other Python escapes (`\n`, `\xNN`, `\uNNNN`, `\UNNNNNNNN`, octal `\NNN`) all work. |
+| Lone surrogates (`"\ud800"`, malformed `utf-7` / `unicode_escape` input) | Go strings are UTF-8 and cannot hold half a surrogate pair. | They become U+FFFD; avoid relying on lone surrogates. |
 | Memcached bytecode cache | Avoid hard external deps. | Userland adapter satisfying the `Cache` interface. |
 | `PackageLoader` (Python zipfile-aware) | Replaced by `EmbedLoader`. | Use `embed.FS`. |
 | Python `__html__` / `__str__` dunder dispatch on arbitrary objects | Go has no dunder methods. | User Go types implement `escape.HTMLer` (for safe HTML) or `fmt.Stringer` (for custom string form). |

@@ -7,6 +7,8 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/jryberg/gojinja/internal/pyescape"
+	"github.com/jryberg/gojinja/internal/unicodename"
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
@@ -197,9 +199,9 @@ func pyEncode(s, encoding, errorsMode string) (runtime.Bytes, error) {
 	case kindUTF7:
 		return encodeUTF7(rs), nil
 	case kindUnicodeEscape:
-		return encodeUnicodeEscape(rs, false), nil
+		return pyescape.Encode(rs, false), nil
 	case kindRawUnicodeEscape:
-		return encodeUnicodeEscape(rs, true), nil
+		return pyescape.Encode(rs, true), nil
 	case kindPunycode:
 		return punycodeEncode(rs), nil
 	case kindUndefined:
@@ -257,6 +259,14 @@ func encodeSingleByte(c codec, rs []rune, errorsMode string) (runtime.Bytes, err
 			for _, r := range rs[i:end] {
 				repl = append(repl, []rune(fmt.Sprintf("&#%d;", r))...)
 			}
+		case "namereplace":
+			for _, r := range rs[i:end] {
+				if name, ok := unicodename.Name(r); ok {
+					repl = append(repl, []rune(`\N{`+name+"}")...)
+				} else {
+					repl = append(repl, []rune(strings.Trim(charRepr(r), "'"))...)
+				}
+			}
 		default:
 			return nil, fmt.Errorf("unknown error handler name '%s'", errorsMode)
 		}
@@ -303,6 +313,8 @@ func (d decodeErrors) fail(start, end int, reason string) error {
 		for _, x := range d.b[start:end] {
 			fmt.Fprintf(d.sb, `\x%02x`, x)
 		}
+	case "xmlcharrefreplace", "namereplace":
+		return fmt.Errorf("don't know how to handle UnicodeDecodeError in error callback")
 	default:
 		return fmt.Errorf("unknown error handler name '%s'", d.mode)
 	}
@@ -332,9 +344,9 @@ func pyDecode(b []byte, encoding, errorsMode string) (string, error) {
 	case kindUTF7:
 		return decodeUTF7(b, d)
 	case kindUnicodeEscape:
-		return decodeUnicodeEscape(b, d, false)
+		return pyescape.Decode(b, false, &sb, d.fail)
 	case kindRawUnicodeEscape:
-		return decodeUnicodeEscape(b, d, true)
+		return pyescape.Decode(b, true, &sb, d.fail)
 	case kindPunycode:
 		return punycodeDecode(b, errorsMode)
 	case kindTable:
@@ -658,184 +670,6 @@ func decodeUTF7(b []byte, d decodeErrors) (string, error) {
 		if err := d.fail(start, len(b), "unterminated shift sequence"); err != nil {
 			return "", err
 		}
-	}
-	return sb.String(), nil
-}
-
-// encodeUnicodeEscape is the unicode_escape encoder, or with raw set the
-// raw_unicode_escape encoder, which only escapes characters above 0xff.
-func encodeUnicodeEscape(rs []rune, raw bool) runtime.Bytes {
-	out := runtime.Bytes{}
-	for _, r := range rs {
-		switch {
-		case r >= 0x10000:
-			out = fmt.Appendf(out, `\U%08x`, r)
-		case r >= 0x100:
-			out = fmt.Appendf(out, `\u%04x`, r)
-		case raw:
-			out = append(out, byte(r))
-		case r == '\\':
-			out = append(out, `\\`...)
-		case r == '\t':
-			out = append(out, `\t`...)
-		case r == '\n':
-			out = append(out, `\n`...)
-		case r == '\r':
-			out = append(out, `\r`...)
-		case r < 0x20 || r >= 0x7f:
-			out = fmt.Appendf(out, `\x%02x`, r)
-		default:
-			out = append(out, byte(r))
-		}
-	}
-	return out
-}
-
-func hexValue(c byte) (rune, bool) {
-	switch {
-	case c >= '0' && c <= '9':
-		return rune(c - '0'), true
-	case c >= 'a' && c <= 'f':
-		return rune(c-'a') + 10, true
-	case c >= 'A' && c <= 'F':
-		return rune(c-'A') + 10, true
-	}
-	return 0, false
-}
-
-// decodeUnicodeEscape is the unicode_escape decoder (bytes read as
-// Latin-1, Python string-literal escapes interpreted), or with raw set
-// the raw_unicode_escape decoder, which only knows \u and \U.
-func decodeUnicodeEscape(b []byte, d decodeErrors, raw bool) (string, error) {
-	sb := d.sb
-	for s := 0; s < len(b); {
-		if b[s] != '\\' {
-			sb.WriteRune(rune(b[s]))
-			s++
-			continue
-		}
-		start := s
-		if raw {
-			// \u escapes count only after an odd number of backslashes.
-			j := s
-			for j < len(b) && b[j] == '\\' {
-				j++
-			}
-			n := j - s
-			if n%2 == 0 || j >= len(b) || b[j] != 'u' && b[j] != 'U' {
-				sb.WriteString(strings.Repeat(`\`, n))
-				s = j
-				continue
-			}
-			sb.WriteString(strings.Repeat(`\`, n-1))
-			start = j - 1
-			s = j
-		} else {
-			s++
-			if s >= len(b) {
-				if err := d.fail(start, s, `\ at end of string`); err != nil {
-					return "", err
-				}
-				break
-			}
-		}
-		c := b[s]
-		s++
-		digits := 0
-		switch c {
-		case '\n':
-			continue
-		case '\\', '\'', '"':
-			sb.WriteByte(c)
-			continue
-		case 'b':
-			sb.WriteByte('\b')
-			continue
-		case 'f':
-			sb.WriteByte('\f')
-			continue
-		case 't':
-			sb.WriteByte('\t')
-			continue
-		case 'n':
-			sb.WriteByte('\n')
-			continue
-		case 'r':
-			sb.WriteByte('\r')
-			continue
-		case 'v':
-			sb.WriteByte('\v')
-			continue
-		case 'a':
-			sb.WriteByte('\a')
-			continue
-		case '0', '1', '2', '3', '4', '5', '6', '7':
-			v := rune(c - '0')
-			for k := 0; k < 2 && s < len(b) && b[s] >= '0' && b[s] <= '7'; k++ {
-				v = v*8 + rune(b[s]-'0')
-				s++
-			}
-			sb.WriteRune(v)
-			continue
-		case 'x':
-			digits = 2
-		case 'u':
-			digits = 4
-		case 'U':
-			digits = 8
-		case 'N':
-			// \N{name}. A malformed escape fails like CPython's; resolving
-			// a name would need Unicode's name table, which gojinja does
-			// not ship (see the \N{NAME} divergence for string literals).
-			reason := "malformed \\N character escape"
-			if s < len(b) && b[s] == '{' {
-				end := strings.IndexByte(string(b[s+1:]), '}')
-				switch {
-				case end < 0:
-					s = len(b)
-				case end == 0:
-					s++
-				default:
-					return "", fmt.Errorf("'%s' codec can't decode bytes %s: \\N{...} escapes are not supported", d.codec, positionRange(start, s+end+2))
-				}
-			}
-			if err := d.fail(start, s, reason); err != nil {
-				return "", err
-			}
-			continue
-		default:
-			// Unknown escapes are kept, the byte read as Latin-1.
-			sb.WriteByte('\\')
-			sb.WriteRune(rune(c))
-			continue
-		}
-		var v rune
-		k := 0
-		for ; k < digits && s < len(b); k++ {
-			h, ok := hexValue(b[s])
-			if !ok {
-				break
-			}
-			v = v<<4 | h
-			s++
-		}
-		if k < digits {
-			names := map[int]string{2: `\xXX`, 4: `\uXXXX`, 8: `\UXXXXXXXX`}
-			if err := d.fail(start, s, "truncated "+names[digits]+" escape"); err != nil {
-				return "", err
-			}
-			continue
-		}
-		if v > 0x10ffff {
-			if err := d.fail(start, s, "illegal Unicode character"); err != nil {
-				return "", err
-			}
-			continue
-		}
-		if v >= 0xd800 && v < 0xe000 {
-			v = utf8.RuneError
-		}
-		sb.WriteRune(v)
 	}
 	return sb.String(), nil
 }

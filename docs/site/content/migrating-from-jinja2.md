@@ -74,9 +74,7 @@ short version:
 
 - `enable_async` / `async def` filters — use
   [`context.Context`](https://pkg.go.dev/context) cancellation instead.
-- `\N{LATIN SMALL LETTER A}`-style Unicode named escapes inside string
-  literals (everything else — `\n`, `\t`, `\xNN`, `\uNNNN`, `\UNNNNNNNN`,
-  octal — is supported). See [divergences](divergences.md) for the
-  rationale.
+- Lone surrogates such as `"\ud800"`: Go strings cannot hold them, so
+  they become U+FFFD. See [divergences](divergences.md).
 - Memcached bytecode cache as a built-in — implement the small `Cache`
   interface and you have it.

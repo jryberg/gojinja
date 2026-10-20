@@ -307,16 +307,22 @@ func TestFloatLiterals(t *testing.T) {
 // ------------------------------------------------------- string literals
 
 func TestStringEscapeSequences(t *testing.T) {
-	// Mirrors test_string_escapes minus the \N{NAME} case (deliberate divergence — see docs/divergences.md).
+	// Mirrors test_string_escapes: the repr of each character, then
+	// \N{HOT SPRINGS}.
 	cases := map[string]string{
-		`'a\nb'`:       "a\nb",
-		`'\t'`:         "\t",
-		`'\x41'`:       "A",
-		`'♨'`:          "♨",
-		`'\U00002668'`: "♨",
-		`'\\'`:         "\\",
-		`"\""`:         `"`,
-		`'\''`:         `'`,
+		`'\x00'`:            "\x00",
+		`'\u2668'`:          "\u2668",
+		`'ä'`:               "ä",
+		`'\r'`:              "\r",
+		`"\N{HOT SPRINGS}"`: "\u2668",
+		`'a\nb'`:            "a\nb",
+		`'\t'`:              "\t",
+		`'\x41'`:            "A",
+		`'♨'`:               "♨",
+		`'\U00002668'`:      "♨",
+		`'\\'`:              "\\",
+		`"\""`:              `"`,
+		`'\''`:              `'`,
 	}
 	for src, want := range cases {
 		toks := values(t, "{{ "+src+" }}")
@@ -336,11 +342,43 @@ func TestStringEscapeSequences(t *testing.T) {
 	}
 }
 
-func TestStringNamedEscapeRejected(t *testing.T) {
-	// We deliberately do not support \N{NAME}.
-	_, err := valuesOpts(t, `{{ "\N{HOT SPRINGS}" }}`, DefaultOptions())
-	if err == nil {
-		t.Fatal("expected error for \\N{NAME}, got nil")
+// Jinja2 decodes literals with unicode-escape after an ASCII
+// backslashreplace; expected values come from the Jinja2 pinned in
+// tools/parity/requirements.txt.
+func TestStringLiteralEscapesMatchPython(t *testing.T) {
+	cases := []struct{ src, want, err string }{
+		{`"\N{latin small letter a}"`, "a", ""},
+		{`"\N{LATIN CAPITAL LETTER GHA}"`, "\u01a2", ""},
+		{`"\N{HANGUL SYLLABLE GAG}"`, "\uac01", ""},
+		{`"\N{CJK UNIFIED IDEOGRAPH-4E00}"`, "\u4e00", ""},
+		{`"\é"`, `\xe9`, ""},
+		{`"\101\x41\u0041"`, "AAA", ""},
+		{`"\q"`, `\q`, ""},
+		// Lone surrogates cannot live in a Go string (see the divergences).
+		{`"\ud800"`, "\ufffd", ""},
+		{`"\N{NOPE}"`, "", "unknown Unicode character name"},
+		{`"\N"`, "", `malformed \N character escape`},
+		{`"\N{}"`, "", `malformed \N character escape`},
+		{`"\x4"`, "", `truncated \xXX escape`},
+		{`"\U00110000"`, "", "illegal Unicode character"},
+	}
+	for _, c := range cases {
+		toks, err := valuesOpts(t, "{{ "+c.src+" }}", DefaultOptions())
+		if c.err != "" {
+			if err == nil || !strings.Contains(err.Error(), c.err) {
+				t.Errorf("%s: got error %v, want %q", c.src, err, c.err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: unexpected error %v", c.src, err)
+			continue
+		}
+		for _, tk := range toks {
+			if tk.Kind == TokenString && tk.Value != c.want {
+				t.Errorf("%s decoded to %q, want %q", c.src, tk.Value, c.want)
+			}
+		}
 	}
 }
 
