@@ -1096,6 +1096,22 @@ func (e *Environment) GetItem(obj any, arg any) (any, error) {
 		return e.getSeqItem(obj, x, arg, false)
 	case *runtime.PyList:
 		return e.getSeqItem(obj, x.Items(), arg, false)
+	case *runtime.Range:
+		if sv, ok := arg.(ast.SliceVal); ok {
+			start, stop, step := normaliseSlice(x.Len(), sv)
+			if step == 0 {
+				return nil, gjerrors.NewTemplateRuntimeError("slice step cannot be zero")
+			}
+			return &runtime.Range{Start: x.At(start), Stop: x.At(stop), Step: x.Step * step}, nil
+		}
+		if i, ok := seqIndex(arg); ok {
+			if i < 0 {
+				i += x.Len()
+			}
+			if i >= 0 && i < x.Len() {
+				return x.At(i), nil
+			}
+		}
 	case runtime.Tuple:
 		return e.getSeqItem(obj, x, arg, true)
 	case string:

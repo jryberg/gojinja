@@ -106,7 +106,7 @@ func applyBinop(op string, a, b any) (any, error) {
 	}
 	la, lb, ok := numericPair(a, b)
 	if !ok {
-		return nil, fmt.Errorf("unsupported operand types for %s: %T and %T", op, a, b)
+		return nil, fmt.Errorf("unsupported operand type(s) for %s: '%s' and '%s'", op, runtime.PyTypeName(a), runtime.PyTypeName(b))
 	}
 	switch op {
 	case "+":
@@ -410,6 +410,8 @@ func inValue(needle, haystack any) (bool, error) {
 		_, ok := col.Get(needle)
 		return ok, nil
 	case *runtime.DictView:
+		return col.Contains(needle, SameOrEqual)
+	case *runtime.Range:
 		return col.Contains(needle, SameOrEqual)
 	case runtime.Undefined:
 		// Mirrors Python: iterating Undefined (default mode) yields the

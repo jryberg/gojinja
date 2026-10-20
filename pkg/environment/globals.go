@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
+	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
@@ -12,47 +13,50 @@ import (
 //
 // Signature: range(stop) | range(start, stop) | range(start, stop, step)
 //
-// Returns a list of integers (not a lazy iterator). The result size is
-// bounded by [Environment.maxRange] (default 100000); exceeding the
-// limit raises a TemplateRuntimeError. The bound is a hardening
-// divergence from Python — see [WithRangeLimit].
+// Returns a [runtime.Range], Python's range object: it prints as
+// range(0, 5), slices into another range and has start, stop, step,
+// index() and count(). Like Jinja2's sandboxed safe_range, a range
+// longer than [Environment.maxRange] (default 100000) is an error; the
+// bound always applies here and is configurable — see [WithRangeLimit].
 //
 // Example:
 //
 //	{% for i in range(5) %}{{ i }} {% endfor %}      →  0 1 2 3 4
 //	{% for i in range(2, 8, 2) %}{{ i }} {% endfor %}  →  2 4 6
-func globalRange(e *Environment) func(...int) ([]any, error) {
-	return func(args ...int) ([]any, error) {
-		var start, stop, step int
-		switch len(args) {
-		case 0:
-			return nil, gjerrors.NewTemplateRuntimeError("range() requires at least 1 argument")
+func globalRange(e *Environment) KwargsCallable {
+	return func(args []any, kwargs map[string]any) (any, error) {
+		if len(kwargs) > 0 {
+			for k := range kwargs {
+				return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("safe_range() got an unexpected keyword argument %s", escape.Repr(k)))
+			}
+		}
+		if err := argCount("range", args, 1, 3); err != nil {
+			return nil, err
+		}
+		ints := make([]int, len(args))
+		for i, a := range args {
+			n, err := indexArg(a)
+			if err != nil {
+				return nil, err
+			}
+			ints[i] = n
+		}
+		r := &runtime.Range{Step: 1}
+		switch len(ints) {
 		case 1:
-			start, stop, step = 0, args[0], 1
+			r.Stop = ints[0]
 		case 2:
-			start, stop, step = args[0], args[1], 1
+			r.Start, r.Stop = ints[0], ints[1]
 		case 3:
-			start, stop, step = args[0], args[1], args[2]
-		default:
-			return nil, gjerrors.NewTemplateRuntimeError("range() takes 1-3 arguments")
+			r.Start, r.Stop, r.Step = ints[0], ints[1], ints[2]
 		}
-		if step == 0 {
-			return nil, gjerrors.NewTemplateRuntimeError("range() step argument must not be zero")
+		if r.Step == 0 {
+			return nil, gjerrors.NewTemplateRuntimeError("range() arg 3 must not be zero")
 		}
-		size := 0
-		if step > 0 && start < stop {
-			size = (stop - start + step - 1) / step
-		} else if step < 0 && start > stop {
-			size = (start - stop + (-step) - 1) / (-step)
+		if r.Len() > e.maxRange {
+			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("Range too big. The sandbox blocks ranges larger than MAX_RANGE (%d).", e.maxRange))
 		}
-		if size > e.maxRange {
-			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("range size %d exceeds limit %d", size, e.maxRange))
-		}
-		out := make([]any, 0, size)
-		for i := start; (step > 0 && i < stop) || (step < 0 && i > stop); i += step {
-			out = append(out, i)
-		}
-		return out, nil
+		return r, nil
 	}
 }
 

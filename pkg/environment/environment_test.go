@@ -212,7 +212,7 @@ func TestRangeBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tpl.RenderContext(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "exceeds limit") {
+	if _, err := tpl.RenderContext(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "Range too big. The sandbox blocks ranges larger than MAX_RANGE (10).") {
 		t.Fatalf("expected range-limit error, got %v", err)
 	}
 }

@@ -59,6 +59,9 @@ func writeHashKey(b *strings.Builder, v any) error {
 		}
 		b.WriteByte(')')
 		return nil
+	case *Range:
+		b.WriteString(x.hashKey())
+		return nil
 	case Undefined:
 		// Every Undefined of a kind compares equal to the others.
 		fmt.Fprintf(b, "u%d", x.Mode)

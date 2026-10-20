@@ -1192,7 +1192,7 @@ func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, k
 			items = append(items, runtime.Tuple{k, m[k]})
 		}
 	default:
-		return nil, gjerrors.NewFilterArgumentError("dictsort requires a mapping")
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("'%s' object has no attribute 'items'", runtime.PyTypeName(value)))
 	}
 	key := func(item any) any {
 		v := item.(runtime.Tuple)[pos]
@@ -2289,7 +2289,8 @@ func modEquals(value, n, want any) (bool, error) {
 // StrictUndefined, whose `len()` fails.
 func testSequence(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch x := value.(type) {
-	case []any, string, escape.Markup, []string, runtime.Tuple, map[string]any, map[any]any, *runtime.OrderedDict:
+	case []any, string, escape.Markup, []string, runtime.Tuple, map[string]any, map[any]any, *runtime.OrderedDict,
+		*runtime.PyList, *runtime.Range, runtime.Bytes:
 		return true, nil
 	case runtime.Undefined:
 		return x.Mode != runtime.ModeStrict, nil
@@ -2319,7 +2320,8 @@ func testMapping(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 // empty; a StrictUndefined raises.
 func testIterable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
 	switch x := value.(type) {
-	case []any, runtime.Tuple, string, escape.Markup, []string, map[string]any, map[any]any, *runtime.OrderedDict:
+	case []any, runtime.Tuple, string, escape.Markup, []string, map[string]any, map[any]any, *runtime.OrderedDict,
+		*runtime.PyList, *runtime.Range, *runtime.DictView, runtime.Bytes:
 		return true, nil
 	case runtime.Undefined:
 		if _, err := x.Iter(); err != nil {

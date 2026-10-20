@@ -34,6 +34,8 @@ func PyTypeName(v any) string {
 		return undefinedClass[x.Mode]
 	case *Namespace:
 		return "Namespace"
+	case *Range:
+		return "range"
 	case *DictView:
 		return x.TypeName()
 	case *LoopContext:

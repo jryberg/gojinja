@@ -1148,6 +1148,8 @@ func Truthy(v any) bool {
 		return x.Len() != 0
 	case *runtime.DictView:
 		return x.Len() != 0
+	case *runtime.Range:
+		return x.Len() != 0
 	case map[any]any:
 		return len(x) != 0
 	case map[string]any:
@@ -1235,6 +1237,8 @@ func ToIterable(v any) ([]any, error) {
 		return x.Keys(), nil
 	case *runtime.DictView:
 		return x.Items(), nil
+	case *runtime.Range:
+		return x.List(), nil
 	}
 	if u, ok := v.(runtime.Undefined); ok {
 		return u.Iter()

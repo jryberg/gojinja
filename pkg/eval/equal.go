@@ -54,6 +54,13 @@ func valuesEqual(a, b any, depth int) (bool, error) {
 		bb, ok := b.(runtime.Bytes)
 		return ok && string(ab) == string(bb), nil
 	}
+	if ar, ok := a.(*runtime.Range); ok {
+		br, ok := b.(*runtime.Range)
+		return ok && ar.Equal(br), nil
+	}
+	if _, ok := b.(*runtime.Range); ok {
+		return false, nil
+	}
 	if av, ok := a.(*runtime.DictView); ok {
 		return viewEqual(av, b, depth)
 	}
