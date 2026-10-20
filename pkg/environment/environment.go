@@ -879,6 +879,9 @@ type KwargsCallable func(args []any, kwargs map[string]any) (any, error)
 // Call invokes a callable. The sandbox is consulted in Phase 19; for now,
 // Go functions are dispatched through reflection.
 func (e *Environment) Call(ctx *runtime.Context, callee any, args []any, kwargs map[string]any) (any, error) {
+	if c, ok := callee.(*runtime.Callable); ok {
+		callee = c.Fn
+	}
 	if callee == nil {
 		return nil, gjerrors.NewTemplateRuntimeError("cannot call nil")
 	}
@@ -890,14 +893,16 @@ func (e *Environment) Call(ctx *runtime.Context, callee any, args []any, kwargs 
 	switch fn := callee.(type) {
 	case *runtime.Joiner:
 		return fn.Call(), nil
+	case *runtime.BlockReference:
+		if len(args) != 0 || len(kwargs) != 0 {
+			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("BlockReference.__call__() takes 1 positional argument but %d were given", len(args)+1))
+		}
+		return fn.Render()
 	case *runtime.LoopContext:
 		if len(args) != 1 || len(kwargs) != 0 {
 			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("LoopContext.__call__() takes 2 positional arguments but %d were given", len(args)+1))
 		}
 		return fn.Call(args[0])
-	case func() (any, error):
-		// `super()` binding — see eval.callBlockAtDepth.
-		return fn()
 	case KwargsCallable:
 		return fn(args, kwargs)
 	case orderedKwargsFunc, dictClass:
@@ -973,6 +978,14 @@ func (e *Environment) Call(ctx *runtime.Context, callee any, args []any, kwargs 
 
 // GetAttr fetches obj.attr through the sandbox-aware predicate.
 func (e *Environment) GetAttr(obj any, attr string) (any, error) {
+	v, err := e.getAttr(obj, attr)
+	if err != nil || v == nil {
+		return v, err
+	}
+	return bindMethod(obj, attr, v), nil
+}
+
+func (e *Environment) getAttr(obj any, attr string) (any, error) {
 	// Built-in types with custom attribute resolution.
 	switch x := obj.(type) {
 	case *runtime.Cycler:
@@ -1051,6 +1064,25 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 	case *runtime.PyList:
 		if m := listMethod(e, nil, x, attr); m != nil {
 			return m, nil
+		}
+	case *runtime.DictView:
+		if attr == "isdisjoint" && x.Kind != "values" {
+			return KwargsCallable(func(args []any, kwargs map[string]any) (any, error) {
+				if err := oneArg(x.TypeName()+".isdisjoint", args, kwargs); err != nil {
+					return nil, err
+				}
+				items, err := eval.ToIterable(args[0])
+				if err != nil {
+					return nil, err
+				}
+				for _, it := range items {
+					in, err := x.Contains(it, eval.SameOrEqual)
+					if err != nil || in {
+						return false, err
+					}
+				}
+				return true, nil
+			}), nil
 		}
 	}
 	if u, ok := obj.(runtime.Undefiner); ok && u.IsUndefined() {

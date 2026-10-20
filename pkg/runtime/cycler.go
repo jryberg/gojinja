@@ -1,5 +1,7 @@
 package runtime
 
+import "fmt"
+
 // Cycler cycles through a fixed list of values, returning the next value
 // on each call. Mirrors jinja2.utils.Cycler. Templates use it via the
 // `cycler` global: `{% set row = cycler('odd', 'even') %}{{ row.next() }}`.
@@ -47,6 +49,9 @@ func (c *Cycler) Get(attr string) (any, bool) {
 	return nil, false
 }
 
+// String is Python's repr of a Cycler object.
+func (c *Cycler) String() string { return fmt.Sprintf("<jinja2.utils.Cycler object at %p>", c) }
+
 // Joiner emits a separator on every call but the first. Mirrors
 // jinja2.utils.Joiner. Templates use it via the `joiner` global:
 // `{% set j = joiner(', ') %}{% for x in xs %}{{ j() }}{{ x }}{% endfor %}`.
@@ -71,3 +76,6 @@ func (j *Joiner) Call() string {
 	}
 	return j.sep
 }
+
+// String is Python's repr of a Joiner object.
+func (j *Joiner) String() string { return fmt.Sprintf("<jinja2.utils.Joiner object at %p>", j) }

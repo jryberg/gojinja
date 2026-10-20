@@ -39,7 +39,11 @@ func loadRegistries(repoRoot string) ([]Entry, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", path, err)
 		}
-		entries = append(entries, walkRegistrations(f, seen)...)
+		found, err := walkRegistrations(f, seen)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		entries = append(entries, found...)
 	}
 	return entries, nil
 }
@@ -53,8 +57,10 @@ func loadRegistries(repoRoot string) ([]Entry, error) {
 //
 // The "kind" comes from the map name; the func ident is the leaf
 // identifier of the RHS.
-func walkRegistrations(f *ast.File, seen map[string]bool) []Entry {
+func walkRegistrations(f *ast.File, seen map[string]bool) ([]Entry, error) {
 	var out []Entry
+	var errs []string
+	names := map[string]bool{} // "kind/name" → already registered
 	ast.Inspect(f, func(n ast.Node) bool {
 		assign, ok := n.(*ast.AssignStmt)
 		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
@@ -90,8 +96,14 @@ func walkRegistrations(f *ast.File, seen map[string]bool) []Entry {
 		}
 		funcName := extractFuncIdent(assign.Rhs[0])
 		if funcName == "" {
+			errs = append(errs, fmt.Sprintf("cannot find the function registered as %s %q", kind, name))
 			return true
 		}
+		// A name registered in both branches of an if is one entry.
+		if names[kind+"/"+name] {
+			return true
+		}
+		names[kind+"/"+name] = true
 		key := kind + "/" + funcName
 		alias := seen[key]
 		seen[key] = true
@@ -103,12 +115,19 @@ func walkRegistrations(f *ast.File, seen map[string]bool) []Entry {
 		})
 		return true
 	})
-	return out
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return out, nil
 }
 
 // callableConversions are the func types builtins are converted to when
 // registered; the documented func is the converted one.
 var callableConversions = map[string]bool{"KwargsCallable": true, "orderedKwargsFunc": true, "dictClass": true}
+
+// callableWrappers are the runtime constructors that give a builtin its
+// Python repr; the documented func is their last argument.
+var callableWrappers = map[string]bool{"NewFunction": true, "NewClass": true}
 
 // extractFuncIdent walks an RHS expression and returns the bottom-most
 // function identifier. Handles the small set of shapes the registry
@@ -145,13 +164,16 @@ func extractFuncIdent(e ast.Expr) string {
 		// Either a conversion such as `KwargsCallable(globalJoiner)` or
 		// `dictClass(globalDict)` — use the only arg (it should be an
 		// Ident) — or a call such as `globalRange(e)` — use the callee.
-		if id, ok := x.Fun.(*ast.Ident); ok {
-			if callableConversions[id.Name] && len(x.Args) == 1 {
-				if arg, ok := x.Args[0].(*ast.Ident); ok {
-					return arg.Name
-				}
+		switch fn := x.Fun.(type) {
+		case *ast.Ident:
+			if callableConversions[fn.Name] && len(x.Args) == 1 {
+				return extractFuncIdent(x.Args[0])
 			}
-			return id.Name
+			return fn.Name
+		case *ast.SelectorExpr:
+			if callableWrappers[fn.Sel.Name] && len(x.Args) > 0 {
+				return extractFuncIdent(x.Args[len(x.Args)-1])
+			}
 		}
 	}
 	return ""

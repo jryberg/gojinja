@@ -32,6 +32,13 @@ func valuesEqual(a, b any, depth int) (bool, error) {
 	if it, ok := a.(*runtime.Iterator); ok {
 		return it == b, nil
 	}
+	if ac, ok := a.(*runtime.Callable); ok {
+		bc, ok := b.(*runtime.Callable)
+		return ok && (ac == bc || runtime.SameMethod(ac, bc)), nil
+	}
+	if _, ok := b.(*runtime.Callable); ok {
+		return false, nil
+	}
 	if it, ok := b.(*runtime.Iterator); ok {
 		return it == a, nil
 	}

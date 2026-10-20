@@ -41,6 +41,10 @@ func PyTypeName(v any) string {
 		return "Namespace"
 	case *Iterator:
 		return x.TypeName()
+	case *Callable:
+		return x.TypeName()
+	case *BlockReference:
+		return "BlockReference"
 	case *Range:
 		return "range"
 	case *DictView:

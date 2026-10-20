@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"reflect"
 	"slices"
 	"strings"
 	"unicode/utf16"
@@ -197,10 +198,15 @@ func (w *jsonWalker) prep(v any) (any, error) {
 			return []any{}, nil
 		}
 		items = x.Items()
-	case *runtime.Range, *runtime.DictView, *runtime.Iterator, *runtime.LoopContext, complex128:
+	case *runtime.Range, *runtime.DictView, *runtime.Iterator, *runtime.LoopContext, *runtime.Callable,
+		*runtime.Cycler, *runtime.Joiner, *runtime.BlockReference, complex128:
 		//lint:ignore ST1005 json.dumps's exact message
 		return nil, fmt.Errorf("Object of type %s is not JSON serializable", runtime.PyTypeName(v))
 	default:
+		if reflect.ValueOf(v).Kind() == reflect.Func {
+			//lint:ignore ST1005 json.dumps's exact message
+			return nil, fmt.Errorf("Object of type %s is not JSON serializable", runtime.PyTypeName(v))
+		}
 		return v, nil
 	}
 	w.depth++

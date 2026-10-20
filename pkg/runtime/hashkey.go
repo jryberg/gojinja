@@ -80,6 +80,13 @@ func writeHashKey(b *strings.Builder, v any) error {
 		return nil
 	case *PyList, []any, []string, *OrderedDict, map[string]any, map[any]any, *DictView:
 		return fmt.Errorf("unhashable type: '%s'", PyTypeName(v))
+	case *Callable:
+		// Equal methods, the same method of the same object, hash alike.
+		if name, self, ok := x.IsMethod(); ok {
+			writeHashString(b, 'm', name)
+			b.WriteString(identityKey(self))
+			return nil
+		}
 	}
 	rv := reflect.ValueOf(v)
 	switch rv.Kind() {
@@ -139,4 +146,28 @@ func hashKeyOf(v any) string {
 		return fmt.Sprintf("x%s:%x;", rv.Type(), rv.Pointer())
 	}
 	return fmt.Sprintf("x%T:%p;", v, &v)
+}
+
+// identityKey identifies the object v is in Python: a value of a
+// reference type by its address, an immutable value by its contents.
+func identityKey(v any) string {
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Func, reflect.Chan, reflect.UnsafePointer:
+		return fmt.Sprintf("@%s:%x", rv.Type(), rv.Pointer())
+	case reflect.Invalid:
+		return "@nil"
+	}
+	if k, err := HashKey(v); err == nil {
+		return k
+	}
+	return fmt.Sprintf("@%T", v)
+}
+
+// SameMethod reports Python's equality of two bound methods: the same
+// method of the same object.
+func SameMethod(a, b *Callable) bool {
+	an, as, aok := a.IsMethod()
+	bn, bs, bok := b.IsMethod()
+	return aok && bok && an == bn && identityKey(as) == identityKey(bs)
 }

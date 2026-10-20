@@ -1,0 +1,4 @@
+{{ ('<b>a</b> &amp; b'|safe).striptags() }}|{{ ('&lt;i&gt; &notin; &#128;'|safe).unescape() }}|{{ ('x'|safe).escape('<y>') }}|{{ html|striptags }}|{{ ('a < b > c <d'|safe).striptags() }}
+{{ ('a'|safe).upper }}|{{ ('a'|safe).escape }}|{{ namespace }}|{{ cycler }}|{{ joiner }}|{{ dict }}|{{ [('a'|safe).join] }}
+{% set l = [1] %}{{ l.append == l.append }}|{{ [1].append == [1].append }}|{{ {l.append: 1, l.append: 2}|length }}|{{ lipsum is callable }}|{{ 'a'.upper is callable }}|{{ cycler(1) is callable }}
+{% set d = {'a': 1, 'b': 2} %}{{ d.keys().isdisjoint(['c']) }}|{{ d.keys().isdisjoint('ab') }}|{{ d.items().isdisjoint([('a', 1)]) }}|{{ d.items().isdisjoint([['a', 1]]) }}

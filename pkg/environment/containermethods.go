@@ -56,6 +56,9 @@ func orderedKwargs(kwargs map[string]any, order []string) *runtime.OrderedDict {
 // CallOrdered is [Environment.Call] with the keyword arguments' order,
 // which the callables keeping it receive.
 func (e *Environment) CallOrdered(ctx *runtime.Context, callee any, args []any, kwargs map[string]any, order []string) (any, error) {
+	if c, ok := callee.(*runtime.Callable); ok {
+		callee = c.Fn
+	}
 	switch fn := callee.(type) {
 	case orderedKwargsFunc:
 		return fn(args, orderedKwargs(kwargs, order))

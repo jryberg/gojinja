@@ -507,14 +507,24 @@ func callBlockAtDepth(stack []runtime.BlockRenderFunc, depth int, ctx *runtime.C
 	}
 	defer leave()
 	scope := ctx.Child()
-	if depth > 0 {
-		scope.Set("super", func() (any, error) {
-			return blockResult(callBlockAtDepth(stack, depth-1, ctx, name, undef))(ctx)
-		})
-	} else {
-		scope.Set("super", undef("there is no parent block called "+escape.Repr(name)+".", "super", runtime.Missing, nil))
-	}
+	scope.Set("super", blockRef(stack, depth, ctx, name, undef).Super())
 	return stack[depth](scope)
+}
+
+// blockRef is the BlockReference of the block at depth in stack, whose
+// parents come before it.
+func blockRef(stack []runtime.BlockRenderFunc, depth int, ctx *runtime.Context, name string, undef runtime.UndefinedFactory) *runtime.BlockReference {
+	return &runtime.BlockReference{
+		Render: func() (any, error) {
+			return blockResult(callBlockAtDepth(stack, depth, ctx, name, undef))(ctx)
+		},
+		Super: func() any {
+			if depth == 0 {
+				return undef("there is no parent block called "+escape.Repr(name)+".", "super", runtime.Missing, nil)
+			}
+			return blockRef(stack, depth-1, ctx, name, undef)
+		},
+	}
 }
 
 // blockResult wraps a rendered block the way Jinja2's BlockReference
@@ -550,9 +560,7 @@ func (r *templateReference) block(name string) any {
 	if len(stack) == 0 {
 		return r.undef("'jinja2.runtime.TemplateReference object' has no attribute "+escape.Repr(name), name, r, nil)
 	}
-	return func() (any, error) {
-		return blockResult(callBlockAtDepth(stack, len(stack)-1, r.ctx, name, r.undef))(r.ctx)
-	}
+	return blockRef(stack, len(stack)-1, r.ctx, name, r.undef)
 }
 
 func (e *evaluator) evalFilterBlock(n *ast.FilterBlock, ctx *runtime.Context) error {

@@ -29,6 +29,29 @@ var markupEscapedArg = map[string]int{"replace": 1, "ljust": 1, "rjust": 1, "cen
 // escapes the replacement, `ljust`/`rjust`/`center` escape the fill
 // character and `join` escapes every item.
 func markupMethod(m escape.Markup, attr string) any {
+	switch attr {
+	case "striptags", "unescape":
+		return KwargsCallable(func(args []any, kwargs map[string]any) (any, error) {
+			sig := &signature{fn: "Markup." + attr, params: []string{"self"}, required: 1}
+			if msg := sig.check(len(args), kwargs); msg != "" {
+				return nil, methodError("%s", msg)
+			}
+			if attr == "striptags" {
+				return stripTags(string(m)), nil
+			}
+			return escape.Unescape(string(m)), nil
+		})
+	case "escape":
+		// A classmethod: Markup.escape(s).
+		return KwargsCallable(func(args []any, kwargs map[string]any) (any, error) {
+			sig := &signature{fn: "Markup.escape", params: []string{"cls", "s"}, required: 2, posOnly: 2}
+			if msg := sig.check(len(args), kwargs); msg != "" {
+				return nil, methodError("%s", msg)
+			}
+			args, _ = sig.normalize(args, kwargs)
+			return escape.Escape(args[0]), nil
+		})
+	}
 	if attr == "join" {
 		return func(iter any) (escape.Markup, error) {
 			items, err := eval.ToIterable(iter)

@@ -3,7 +3,6 @@ package environment
 import (
 	"errors"
 	"fmt"
-	"html"
 	"math"
 	"math/big"
 	"reflect"
@@ -22,12 +21,18 @@ import (
 // tests, and globals.
 func registerBuiltins(e *Environment) {
 	// ------------------------------------------------------- globals
-	e.globals["range"] = globalRange(e)
+	// The globals print as Python's do: the sandbox's range is
+	// safe_range, the others Jinja2's classes and functions.
+	if e.sandboxed {
+		e.globals["range"] = runtime.NewFunction("safe_range", globalRange(e))
+	} else {
+		e.globals["range"] = runtime.NewClass("range", globalRange(e))
+	}
 	e.globals["dict"] = dictClass(globalDict)
-	e.globals["namespace"] = orderedKwargsFunc(namespaceCtor)
-	e.globals["cycler"] = globalCycler
-	e.globals["joiner"] = globalJoiner
-	e.globals["lipsum"] = globalLipsum
+	e.globals["namespace"] = runtime.NewClass("jinja2.utils.Namespace", orderedKwargsFunc(namespaceCtor))
+	e.globals["cycler"] = runtime.NewClass("jinja2.utils.Cycler", globalCycler)
+	e.globals["joiner"] = runtime.NewClass("jinja2.utils.Joiner", globalJoiner)
+	e.globals["lipsum"] = runtime.NewFunction("generate_lorem_ipsum", globalLipsum)
 
 	// ------------------------------------------------------- filters
 	e.filters["upper"] = Filter{Func: filterUpper}
@@ -1370,37 +1375,36 @@ func filterIndent(_ *Environment, _ *runtime.Context, value any, args []any, kwa
 //
 //	{{ "<p>hi <b>there</b></p>" | striptags }}  →  hi there
 func filterStripTags(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	s := escape.SoftStr(value)
-	// Strip HTML comments first — Python's striptags drops the entire
-	// `<!-- ... -->` span including its contents, not just the angles.
+	return stripTags(escape.SoftStr(value)), nil
+}
+
+// stripTags is markupsafe's Markup.striptags: comments, then tags, are
+// removed (an unclosed one is kept), whitespace runs collapse to one
+// space and entities are unescaped.
+func stripTags(s string) string {
 	for {
-		i := strings.Index(s, "<!--")
-		if i < 0 {
+		start := strings.Index(s, "<!--")
+		if start < 0 {
 			break
 		}
-		j := strings.Index(s[i:], "-->")
-		if j < 0 {
-			s = s[:i]
+		end := strings.Index(s[start:], "-->")
+		if end < 0 {
 			break
 		}
-		s = s[:i] + s[i+j+3:]
+		s = s[:start] + s[start+end+3:]
 	}
-	var b strings.Builder
-	inTag := false
-	for _, r := range s {
-		switch {
-		case r == '<':
-			inTag = true
-		case r == '>':
-			inTag = false
-		case !inTag:
-			b.WriteRune(r)
+	for {
+		start := strings.Index(s, "<")
+		if start < 0 {
+			break
 		}
+		end := strings.Index(s[start:], ">")
+		if end < 0 {
+			break
+		}
+		s = s[:start] + s[start+end+1:]
 	}
-	// Collapse whitespace runs, then unescape entities like markupsafe's
-	// Markup.striptags().
-	out := strings.Fields(b.String())
-	return html.UnescapeString(strings.Join(out, " ")), nil
+	return escape.Unescape(strings.Join(splitWhitespace(s, -1, false), " "))
 }
 
 // filterCenter implements the `center` filter: pad a string with spaces
@@ -2123,6 +2127,10 @@ func testCallable(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	}
 	// Python's Undefined defines __call__ (which raises when invoked).
 	if runtime.IsUndefined(value) {
+		return true, nil
+	}
+	switch value.(type) {
+	case *runtime.Callable, *runtime.Joiner, *runtime.LoopContext, *runtime.BlockReference:
 		return true, nil
 	}
 	rv := reflect.ValueOf(value)
