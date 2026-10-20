@@ -1335,7 +1335,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Sort a dict and emit
 (key, value) pairs.</p>
 <p><strong>Signature:</strong> <code>dictsort(value, case_sensitive=False, by="key", reverse=False)</code></p>
-<p>Use <code>by="value"</code> to sort by the dict values instead of keys.</p>
+<p>Use <code>by="value"</code> to sort by the dict values instead of keys; any other
+<code>by</code> raises. Returns a list of (key, value) tuples.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{% for k, v in {'b': 2, 'a': 1} | dictsort %}{{ k }}={{ v }} {% endfor %}
 →  a=1 b=2

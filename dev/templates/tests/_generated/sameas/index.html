@@ -1334,8 +1334,10 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Identity comparison (<code>is</code>).</p>
 <p><strong>Signature:</strong> <code>x is sameas(other)</code></p>
-<p>Compares by Go's <code>==</code> on <code>any</code> — for pointers and interface-typed
-values this is identity; for primitives it's value equality.</p>
+<p>Python identity has no direct Go equivalent: comparable values (None,
+bools, numbers, strings, pointers) compare with <code>==</code>; slices, maps and
+funcs compare by the address they reference. An Undefined is never
+the same as anything, because Python builds a fresh one per lookup.</p>
 
 
 

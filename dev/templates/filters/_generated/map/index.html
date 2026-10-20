@@ -1336,11 +1336,13 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 extract an attribute from each item.</p>
 <p><strong>Signature:</strong> <code>map(value, *args, **kwargs)</code></p>
 <p>Two forms:
-  - <code>map(filter_name, *args)</code> applies the named filter to each item.
+  - <code>map(filter_name, *args, **kwargs)</code> applies the named filter to
+    each item.
   - <code>map(attribute='name', default=...)</code> extracts the named attribute
     (dotted path supported) from each item, falling back to <code>default</code>
     when the attribute is undefined.</p>
-<p><code>None</code> and Undefined inputs yield an empty list (matching Python).</p>
+<p>Returns a generator, as Python does: iterate it, or pass it to <code>list</code>.
+A false value (<code>None</code>, an empty list, Undefined) yields nothing.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ ['a', 'b']  | map('upper')         | list }}  →  ['A', 'B']
 {{ users       | map(attribute='name') | list }}  →  list of names

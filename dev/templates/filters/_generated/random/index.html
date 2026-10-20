@@ -1335,11 +1335,9 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Pick a random element from
 a sequence.</p>
 <p><strong>Signature:</strong> <code>random(seq)</code></p>
-<p>Empty sequences yield Undefined. The RNG is seeded deterministically
-from the sequence length, so the same input gives the same output —
-this is intentional, to keep gojinja's output reproducible for snapshot
-tests. (Python's <code>random</code> filter is non-deterministic; gojinja
-intentionally diverges here.)</p>
+<p>Like Python's random.choice, every call picks independently. Empty
+sequences yield Undefined. A mapping is indexed with the chosen
+position, as Python does, so it raises unless it has that int key.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ ['rock', 'paper', 'scissors'] | random }}
 </code></pre></div>

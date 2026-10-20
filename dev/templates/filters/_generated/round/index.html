@@ -1335,12 +1335,15 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Round a number to N decimal
 places.</p>
 <p><strong>Signature:</strong> <code>round(value, precision=0, method='common')</code></p>
-<p>Methods: 'common' (round-half-to-even), 'ceil', 'floor'. Negative
-precision rounds to powers of ten (e.g. precision=-2 rounds to the
-nearest 100).</p>
+<p>Methods: 'common' (Python's round(): half-to-even on the exact value),
+'ceil', 'floor'. Negative precision rounds to powers of ten (e.g.
+precision=-2 rounds to the nearest 100). 'common' keeps an integer
+input an integer; every other case returns a float.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ 3.14159 | round(2) }}             →  3.14
-{{ 3.5     | round(0, 'ceil') }}     →  4
+{{ 2.5     | round }}                →  2.0
+{{ 1250    | round(-2) }}            →  1200
+{{ 3.5     | round(0, 'ceil') }}     →  4.0
 </code></pre></div>
 
 

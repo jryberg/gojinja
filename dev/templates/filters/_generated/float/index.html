@@ -1335,10 +1335,12 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Convert a value to a
 float64.</p>
 <p><strong>Signature:</strong> <code>float(value, default=0.0)</code></p>
-<p>Falls back to <code>default</code> if parsing fails.</p>
+<p>Falls back to <code>default</code>, returned as given, if parsing fails. An
+undefined value raises.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "3.14"  | float }}        →  3.14
 {{ "bad"   | float(0.0) }}   →  0.0
+{{ "bad"   | float(0) }}     →  0
 </code></pre></div>
 
 

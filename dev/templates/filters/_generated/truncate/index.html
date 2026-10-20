@@ -1335,9 +1335,13 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Shorten a string and
 append an ellipsis.</p>
 <p><strong>Signature:</strong> <code>truncate(s, length=255, killwords=False, end='...', leeway=5)</code></p>
-<p>Strings shorter than <code>length + leeway</code> are returned unchanged.
-<code>killwords=False</code> (the default) breaks at the last whitespace before
-the cut so words aren't split mid-word.</p>
+<p>A value no longer than <code>length + leeway</code> is returned unchanged, whatever
+its type (an Undefined or a short list too). <code>killwords=False</code> (the
+default) breaks at the last whitespace before the cut so words aren't
+split mid-word. Lengths count characters. A Markup input stays Markup
+and its <code>end</code> is escaped; <code>length</code> shorter than <code>end</code>, a negative
+<code>leeway</code>, a value without a length, or a long value that is not a
+string raises, as in Python.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "this is a long sentence" | truncate(12) }}  →  this is a...
 </code></pre></div>

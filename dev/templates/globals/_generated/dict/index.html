@@ -1334,17 +1334,16 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Build a dict from positional
 pairs, keyword arguments, or another mapping.</p>
-<p><strong>Signature:</strong> <code>dict(**kwargs) | dict(mapping, **kwargs) | dict(*alternating)</code></p>
-<p>Three call shapes:
-  - <code>dict(a=1, b=2)</code>: keyword arguments become entries.
+<p><strong>Signature:</strong> <code>dict(**kwargs) | dict(mapping, **kwargs) | dict(pairs, **kwargs)</code></p>
+<p>Python's dict():
+  - <code>dict(a=1, b=2)</code>: keyword arguments become entries, in call order.
   - <code>dict(mapping)</code>: shallow-copies an existing mapping.
-  - <code>dict(pairs)</code>: builds from a sequence of (key, value) pairs.
-  - <code>dict('a', 1, 'b', 2)</code>: alternating key/value pairs (string keys only).</p>
-<p>Returns a [runtime.OrderedDict]. kwargs are sorted alphabetically
-(Go's map iteration is randomized; alphabetic insertion keeps
-<code>{{ dict(a=1, b=2) | items }}</code> output stable across renders).</p>
+  - <code>dict(pairs)</code>: builds from a sequence of (key, value) pairs.</p>
+<p>Keyword arguments are added after the positional argument's entries.
+Returns a [runtime.OrderedDict]. <code>dict.fromkeys(keys, value=None)</code>
+is available too.</p>
 <p><strong>Example:</strong></p>
-<div class="language-text highlight"><pre><span></span><code>{{ dict(a=1, b=2) | items }}  →  [('a', 1), ('b', 2)]
+<div class="language-text highlight"><pre><span></span><code>{{ dict(a=1, b=2) | items | list }}  →  [('a', 1), ('b', 2)]
 </code></pre></div>
 
 

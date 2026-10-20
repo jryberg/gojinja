@@ -1336,11 +1336,12 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Return the
 number of items in a sequence or mapping, or runes in a string.</p>
 <p><strong>Signature:</strong> <code>length(value)</code></p>
-<p>Strings: byte length (matches Python's <code>len()</code> on <code>str</code> for ASCII;
-multi-byte UTF-8 characters count as multiple bytes — same as Python's
-<code>bytes</code> and gojinja's other byte-oriented operations).
-Sequences and mappings: number of elements / key-value pairs.
-Undefined: 0 for ModeBase / ModeChainable; ModeStrict raises through Iter.</p>
+<p>Strings and Markup: number of characters, like Python's <code>len()</code> on a
+<code>str</code>.
+Sequences and mappings: number of elements / key-value pairs; <code>loop</code>:
+loop.length. Undefined: 0 for ModeBase / ModeChainable; ModeStrict
+raises. A generator or other iterator has no length and raises, as in
+Python: count it with <code>|list|length</code>.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3] | length }}      →  3
 {{ "hello"  | length }}       →  5

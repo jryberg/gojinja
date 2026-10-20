@@ -1334,12 +1334,13 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Drop duplicate items
 preserving input order.</p>
-<p><strong>Signature:</strong> <code>unique(value, case_sensitive=False)</code></p>
+<p><strong>Signature:</strong> <code>unique(value, case_sensitive=False, attribute=None)</code></p>
 <p>Equality is value equality for primitives. String comparisons are
-case-insensitive by default — first-seen casing wins.</p>
+case-insensitive by default — first-seen casing wins. With <code>attribute</code>,
+items are deduplicated by that (dotted) attribute. Returns a generator.</p>
 <p><strong>Example:</strong></p>
-<div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 1, 3]            | unique }}  →  [1, 2, 3]
-{{ ['Foo', 'foo', 'BAR']   | unique }}  →  ['Foo', 'BAR']
+<div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 1, 3]            | unique | list }}  →  [1, 2, 3]
+{{ ['Foo', 'foo', 'BAR']   | unique | list }}  →  ['Foo', 'BAR']
 </code></pre></div>
 
 

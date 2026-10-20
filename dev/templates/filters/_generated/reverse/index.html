@@ -1335,11 +1335,13 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Reverse a string or
 sequence.</p>
 <p><strong>Signature:</strong> <code>reverse(value)</code></p>
-<p>Strings are reversed by rune (multi-byte safe). Lists return a new
-reversed slice; the original is left unmodified.</p>
+<p>Strings are reversed by character, and a Markup stays Markup. Other
+iterables return Python's reverse iterator for their type (iterate it,
+or pass it to <code>list</code>); a generator, which cannot be reversed, is read
+into a new reversed list.</p>
 <p><strong>Example:</strong></p>
-<div class="language-text highlight"><pre><span></span><code>{{ "abc"      | reverse }}  →  cba
-{{ [1, 2, 3]  | reverse }}  →  [3, 2, 1]
+<div class="language-text highlight"><pre><span></span><code>{{ "abc"      | reverse }}         →  cba
+{{ [1, 2, 3]  | reverse | list }}  →  [3, 2, 1]
 </code></pre></div>
 
 

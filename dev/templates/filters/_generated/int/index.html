@@ -1334,7 +1334,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Convert a value to an integer.</p>
 <p><strong>Signature:</strong> <code>int(value, default=0, base=10)</code></p>
-<p>Conversion falls back to <code>default</code> if parsing fails. Bases other than
+<p>Conversion falls back to <code>default</code>, returned as given, if parsing
+fails; an undefined value raises. Bases other than
 10 accept the optional <code>0x</code> / <code>0o</code> / <code>0b</code> prefix. Base-10 input that
 looks like a float is truncated toward zero (<code>"32.32" | int → 32</code>,
 matching Python).</p>

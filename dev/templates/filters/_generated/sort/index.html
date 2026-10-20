@@ -1336,11 +1336,13 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p><strong>Signature:</strong> <code>sort(value, reverse=False, case_sensitive=False, attribute=None)</code></p>
 <p>Accepts any iterable, like Python's <code>sorted()</code>; a dict sorts its keys.
 Sort is <strong>stable</strong>. With <code>attribute</code>, sorts by the named attribute of
-each element (dotted paths and integer indices both supported via
-[lookupDottedAttr]). String comparisons are case-insensitive by default.</p>
+each element (dotted paths and integer indices both supported); a
+comma-separated list such as <code>'age,name'</code> sorts by each attribute in
+turn. String comparisons are case-insensitive by default.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ ['B', 'a', 'C'] | sort }}                      →  ['a', 'B', 'C']
 {{ users           | sort(attribute='age') }}     →  sorted by age
+{{ users           | sort(attribute='age,name') }}
 {{ users           | sort(reverse=true, attribute='name') }}
 </code></pre></div>
 

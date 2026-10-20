@@ -1334,8 +1334,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>First item of a sequence.</p>
 <p><strong>Signature:</strong> <code>first(seq)</code></p>
-<p>Empty sequences and non-sequences yield an Undefined value (matching
-Python's <code>first</code> returning <code>Undefined</code>, not raising).</p>
+<p>Works on any iterable: a string's first character, a dict's first key.
+An empty iterable yields an Undefined value; a non-iterable raises.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3]  | first }}  →  1
 </code></pre></div>

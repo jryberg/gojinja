@@ -1335,10 +1335,11 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Bounded Python-style
 range(start, stop, step).</p>
 <p><strong>Signature:</strong> <code>range(stop) | range(start, stop) | range(start, stop, step)</code></p>
-<p>Returns a list of integers (not a lazy iterator). The result size is
-bounded by [Environment.maxRange] (default 100000); exceeding the
-limit raises a TemplateRuntimeError. The bound is a hardening
-divergence from Python — see [WithRangeLimit].</p>
+<p>Returns a [runtime.Range], Python's range object: it prints as
+range(0, 5), slices into another range and has start, stop, step,
+index() and count(). Like Jinja2's sandboxed safe_range, a range
+longer than [Environment.maxRange] (default 100000) is an error; the
+bound always applies here and is configurable — see [WithRangeLimit].</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{% for i in range(5) %}{{ i }} {% endfor %}      →  0 1 2 3 4
 {% for i in range(2, 8, 2) %}{{ i }} {% endfor %}  →  2 4 6

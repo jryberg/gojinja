@@ -1334,9 +1334,9 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Keep items where a test
 passes.</p>
-<p><strong>Signature:</strong> <code>select(value, test_name=None, *test_args)</code></p>
+<p><strong>Signature:</strong> <code>select(value, test_name=None, *test_args, **test_kwargs)</code></p>
 <p>With no arguments, keeps items that are truthy. With a test name,
-applies the named test to each item.</p>
+applies the named test to each item. Returns a generator.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3, 4]  | select('odd') | list }}      →  [1, 3]
 {{ [0, 1, 2, '', 'x'] | select | list }}         →  [1, 2, 'x']

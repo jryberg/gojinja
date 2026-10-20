@@ -1336,7 +1336,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 iterate over the value.</p>
 <p><strong>Signature:</strong> <code>x is iterable</code></p>
 <p>Lists, tuples, strings (over runes) and mappings are iterable,
-matching Python's <code>iter(value)</code> succeeding.</p>
+matching Python's <code>iter(value)</code> succeeding. An Undefined iterates as
+empty; a StrictUndefined raises.</p>
 
 
 

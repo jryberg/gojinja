@@ -1334,7 +1334,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Drop items whose
 named attribute passes a test (complement of [filterSelectAttr]).</p>
-<p><strong>Signature:</strong> <code>rejectattr(value, attribute, test_name=None, *test_args)</code></p>
+<p><strong>Signature:</strong> <code>rejectattr(value, attribute, test_name=None, *test_args, **test_kwargs)</code></p>
+<p>Returns a generator.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ users | rejectattr('banned') | list }}  →  non-banned users
 </code></pre></div>

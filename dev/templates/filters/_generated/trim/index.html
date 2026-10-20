@@ -1336,7 +1336,7 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p><strong>Signature:</strong> <code>trim(s, chars=None)</code></p>
 <p>With no argument, trims ASCII + Unicode whitespace (Go's
 [strings.TrimSpace]). With <code>chars</code>, trims any of the given runes from
-both ends (Go's [strings.Trim]).</p>
+both ends (Go's [strings.Trim]); <code>chars</code> must be a string or None.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "  hi  " | trim }}        →  hi
 {{ "##hi##" | trim('#') }}   →  hi

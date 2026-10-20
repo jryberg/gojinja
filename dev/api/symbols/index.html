@@ -2712,6 +2712,12 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#HTMLer">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>IntDecimal</code></td>
+<td>func</td>
+<td>IntDecimal is str(b): its decimal digits, or Python's ValueError past</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#IntDecimal">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>IsMarkup</code></td>
 <td>func</td>
 <td>IsMarkup reports whether v is a [Markup] value or implements [HTMLer], and</td>
@@ -2724,10 +2730,34 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#Markup">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>MaxDepth</code></td>
+<td>const</td>
+<td>MaxDepth bounds how deeply repr, comparisons and serialisation recurse</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#MaxDepth">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>MaxStrDigits</code></td>
+<td>const</td>
+<td>MaxStrDigits is Python's default sys.get_int_max_str_digits(): the</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#MaxStrDigits">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>ParseIntDigits</code></td>
+<td>func</td>
+<td>ParseIntDigits checks a decimal digit string's length the way Python's</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#ParseIntDigits">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>PlainConcat</code></td>
 <td>func</td>
 <td>PlainConcat joins values into a plain string, calling [SoftStr] on each.</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#PlainConcat">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>RecursionError</code></td>
+<td>type</td>
+<td>RecursionError is what [Repr] and [SoftStr] panic with for a value</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#RecursionError">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>Repr</code></td>
@@ -2740,6 +2770,18 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td>func</td>
 <td>SoftStr returns the string form of v <em>without</em> escaping. It mirrors</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#SoftStr">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>Unescape</code></td>
+<td>func</td>
+<td>Unescape is Python's html.unescape, which markupsafe's</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#Unescape">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>ValueError</code></td>
+<td>type</td>
+<td>ValueError is what [Repr] and [SoftStr] panic with for an int too long</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape@dev#ValueError">pkg.go.dev</a></td>
 </tr>
 </tbody>
 </table>
@@ -2769,7 +2811,7 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <tr>
 <td><code>DebugRender</code></td>
 <td>func</td>
-<td>DebugRender is the default helper bound by [DebugGlobalName]. It dumps</td>
+<td>DebugRender is the default helper bound by [DebugGlobalName], a port of</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/ext@dev#DebugRender">pkg.go.dev</a></td>
 </tr>
 <tr>
@@ -2945,7 +2987,7 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <tr>
 <td><code>Loader</code></td>
 <td>type</td>
-<td>Loader is the in-package interface every loader implements.</td>
+<td>Loader is the in-package interface every loader implements. A</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/loader@dev#Loader">pkg.go.dev</a></td>
 </tr>
 <tr>
@@ -3054,16 +3096,58 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 </thead>
 <tbody>
 <tr>
+<td><code>AbsNumber</code></td>
+<td>func</td>
+<td>AbsNumber is Python's abs() of a number: exact for an int (bool</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#AbsNumber">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>Atan2</code></td>
+<td>func</td>
+<td>Atan2 is C's atan2().</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Atan2">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>AttrGetter</code></td>
+<td>type</td>
+<td>AttrGetter is implemented by template-visible objects that resolve</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#AttrGetter">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>BigInt</code></td>
+<td>func</td>
+<td>BigInt returns v as a *big.Int when v is a Python int: any Go integer</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#BigInt">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>BlockReference</code></td>
+<td>type</td>
+<td>BlockReference is a block as <code>self.name</code> and <code>super</code> give it, a port of</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#BlockReference">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>BlockRenderFunc</code></td>
 <td>type</td>
 <td>BlockRenderFunc renders one level of a block in the inheritance chain.</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#BlockRenderFunc">pkg.go.dev</a></td>
 </tr>
 <tr>
-<td><code>CallerFunc</code></td>
+<td><code>Bytes</code></td>
 <td>type</td>
-<td>CallerFunc is the runtime contract for <code>caller()</code> produced by the</td>
-<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#CallerFunc">pkg.go.dev</a></td>
+<td>Bytes is Python's bytes, produced by str.encode. str() and repr() of</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Bytes">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>Callable</code></td>
+<td>type</td>
+<td>Callable is a builtin callable as a template sees it: a method bound</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Callable">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>CompareNumbers</code></td>
+<td>func</td>
+<td>CompareNumbers compares two Python numbers (ints, bools, floats)</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#CompareNumbers">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>Context</code></td>
@@ -3072,10 +3156,40 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Context">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>Cos</code></td>
+<td>func</td>
+<td>Cos is C's cos().</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Cos">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>Cycler</code></td>
 <td>type</td>
 <td>Cycler cycles through a fixed list of values, returning the next value</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Cycler">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>DictView</code></td>
+<td>type</td>
+<td>DictView is what dict.keys(), dict.values() and dict.items() return:</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#DictView">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>ErrIntToFloat</code></td>
+<td>var</td>
+<td>ErrIntToFloat is Python's OverflowError for an int no float can hold.</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#ErrIntToFloat">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>ErrIntTooLarge</code></td>
+<td>var</td>
+<td>ErrIntTooLarge is the error for an int result over MaxIntBits.</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#ErrIntTooLarge">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>ErrStopIteration</code></td>
+<td>var</td>
+<td>ErrStopIteration is Python's StopIteration raised by a callable, such</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#ErrStopIteration">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>EvalContext</code></td>
@@ -3090,16 +3204,88 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#EvalContextEnvironment">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>Exp</code></td>
+<td>func</td>
+<td>Exp is C's exp().</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Exp">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>FallibleAttrGetter</code></td>
+<td>type</td>
+<td>FallibleAttrGetter is an [AttrGetter] whose attributes can fail, as</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#FallibleAttrGetter">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>FloatToInt</code></td>
+<td>func</td>
+<td>FloatToInt is Python's int(float): truncated exactly, a ValueError</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#FloatToInt">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>GroupTupleAttr</code></td>
+<td>func</td>
+<td>GroupTupleAttr returns the grouper or list attribute of a tuple made by</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#GroupTupleAttr">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>HashKey</code></td>
+<td>func</td>
+<td>HashKey returns the key under which Python's dicts and sets file v:</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#HashKey">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>Hypot</code></td>
+<td>func</td>
+<td>Hypot is C's hypot().</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Hypot">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>IntToFloat</code></td>
+<td>func</td>
+<td>IntToFloat converts a Python int to a float like Python's float(int):</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#IntToFloat">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>IsInt</code></td>
+<td>func</td>
+<td>IsInt reports whether v is a Python int (bool excluded).</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#IsInt">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>IsMissing</code></td>
 <td>func</td>
 <td>IsMissing returns true iff v is the [Missing] sentinel.</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#IsMissing">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>IsNotNumber</code></td>
+<td>func</td>
+<td>IsNotNumber reports whether err is NumBinop's error for an operand</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#IsNotNumber">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>IsNumber</code></td>
+<td>func</td>
+<td>IsNumber reports whether v is a Python number (bool included).</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#IsNumber">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>IsUndefined</code></td>
 <td>func</td>
 <td>IsUndefined reports whether v is an Undefined value (any mode).</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#IsUndefined">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>IsValueError</code></td>
+<td>func</td>
+<td>IsValueError reports whether err is ParseInt's or ParseFloat's error</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#IsValueError">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>Iterator</code></td>
+<td>type</td>
+<td>Iterator is a Python iterator: the generator that filters such as map,</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Iterator">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>Joiner</code></td>
@@ -3114,10 +3300,28 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Lister">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>Log</code></td>
+<td>func</td>
+<td>Log is C's log().</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Log">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>LoopContext</code></td>
 <td>type</td>
 <td>LoopContext is the value the Jinja <code>loop</code> variable holds inside a <code>&amp;#123;% for %}</code></td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#LoopContext">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>MaxCallDepth</code></td>
+<td>const</td>
+<td>MaxCallDepth bounds nested template calls in one render. Python stops</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#MaxCallDepth">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>MaxIntBits</code></td>
+<td>const</td>
+<td>MaxIntBits bounds an int's size. Python's ints only stop at memory,</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#MaxIntBits">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>Namespace</code></td>
@@ -3132,16 +3336,40 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NamespaceEntry">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>NegateNumber</code></td>
+<td>func</td>
+<td>NegateNumber is unary minus on a number.</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NegateNumber">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>NewBase</code></td>
 <td>func</td>
 <td>NewBase returns a ModeBase Undefined.</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewBase">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>NewBoundMethod</code></td>
+<td>func</td>
+<td>NewBoundMethod is a method defined in Python on class, bound to self:</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewBoundMethod">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>NewBuiltinMethod</code></td>
+<td>func</td>
+<td>NewBuiltinMethod is a method of a builtin type bound to self, of</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewBuiltinMethod">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>NewChainable</code></td>
 <td>func</td>
 <td>NewChainable returns a ModeChainable Undefined.</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewChainable">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>NewClass</code></td>
+<td>func</td>
+<td>NewClass is a Python class with the qualified name qualname, such as</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewClass">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>NewContext</code></td>
@@ -3162,10 +3390,40 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewDebug">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>NewDelegatingGenerator</code></td>
+<td>func</td>
+<td>NewDelegatingGenerator is NewGenerator for a generator whose body is</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewDelegatingGenerator">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>NewEvalContext</code></td>
 <td>func</td>
 <td>NewEvalContext constructs an EvalContext for the given (env, template</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewEvalContext">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>NewFunction</code></td>
+<td>func</td>
+<td>NewFunction is a Python function with the qualified name qualname.</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewFunction">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>NewGenerator</code></td>
+<td>func</td>
+<td>NewGenerator returns the generator a Python generator function fn</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewGenerator">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>NewGroupTuple</code></td>
+<td>func</td>
+<td>NewGroupTuple returns the groupby filter's (grouper, list) tuple,</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewGroupTuple">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>NewIterator</code></td>
+<td>func</td>
+<td>NewIterator returns an iterator of Python type typ over next.</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewIterator">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>NewJoiner</code></td>
@@ -3176,13 +3434,19 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <tr>
 <td><code>NewLoopContext</code></td>
 <td>func</td>
-<td>NewLoopContext constructs a LoopContext over items. depth is 0 for top-</td>
+<td>NewLoopContext constructs a LoopContext over the items next produces.</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewLoopContext">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>NewMappingProxy</code></td>
+<td>func</td>
+<td>NewMappingProxy is types.MappingProxyType(d), which dict views'</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewMappingProxy">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>NewNamespace</code></td>
 <td>func</td>
-<td>NewNamespace constructs a Namespace seeded from the given map. The map</td>
+<td>NewNamespace constructs a Namespace seeded from the given map, in</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewNamespace">pkg.go.dev</a></td>
 </tr>
 <tr>
@@ -3210,10 +3474,40 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewStrict">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>NewTemplateModule</code></td>
+<td>func</td>
+<td>NewTemplateModule is the module of the template name, whose top-level</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NewTemplateModule">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>Next</code></td>
+<td>type</td>
+<td>Next returns an iterator's next item, or ok=false once it is exhausted.</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Next">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>NormInt</code></td>
+<td>func</td>
+<td>NormInt returns b as an int64 when it fits and as itself otherwise,</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NormInt">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>NormalizeForTemplate</code></td>
 <td>func</td>
 <td>NormalizeForTemplate walks v and rewrites every Go map it encounters</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NormalizeForTemplate">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>NumBinop</code></td>
+<td>func</td>
+<td>NumBinop applies the arithmetic operator op (+ - * / // % **) to two</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#NumBinop">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>ObjectTypeRepr</code></td>
+<td>func</td>
+<td>ObjectTypeRepr mirrors jinja2.utils.object_type_repr: "None" for None,</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#ObjectTypeRepr">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>OrderedDict</code></td>
@@ -3228,16 +3522,70 @@ pkg.go.dev, pinned to <strong>dev</strong>. Set <code>MIKE_VERSION</code> to rep
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#OrderedDictFromMap">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>ParseFloat</code></td>
+<td>func</td>
+<td>ParseFloat is Python's float(s) for a string.</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#ParseFloat">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>ParseInt</code></td>
+<td>func</td>
+<td>ParseInt is Python's int(s, base) for a string.</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#ParseInt">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>PassArg</code></td>
 <td>type</td>
 <td>PassArg names the categories of "first-arg injection" that filters and</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#PassArg">pkg.go.dev</a></td>
 </tr>
 <tr>
+<td><code>Pow</code></td>
+<td>func</td>
+<td>Pow is C's pow() for the real cases (a negative base needs an</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Pow">pkg.go.dev</a></td>
+</tr>
+<tr>
 <td><code>PyList</code></td>
 <td>type</td>
-<td>PyList is the runtime representation of a list literal built inside a</td>
+<td>PyList is the runtime representation of a Python list: list literals</td>
 <td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#PyList">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>PyTypeName</code></td>
+<td>func</td>
+<td>PyTypeName is the Python type name templates see for v, as used in</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#PyTypeName">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>Range</code></td>
+<td>type</td>
+<td>Range is Python's range object, which range() returns: an immutable</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Range">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>SameMethod</code></td>
+<td>func</td>
+<td>SameMethod reports Python's equality of two bound methods: the same</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#SameMethod">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>Sin</code></td>
+<td>func</td>
+<td>Sin is C's sin().</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#Sin">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>TemplateModule</code></td>
+<td>type</td>
+<td>TemplateModule is what <code>&amp;#123;% import %}</code> binds, a port of Jinja2's</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#TemplateModule">pkg.go.dev</a></td>
+</tr>
+<tr>
+<td><code>ToPyList</code></td>
+<td>func</td>
+<td>ToPyList returns v with every []any and []string, at any depth inside</td>
+<td><a href="https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime@dev#ToPyList">pkg.go.dev</a></td>
 </tr>
 <tr>
 <td><code>Tuple</code></td>

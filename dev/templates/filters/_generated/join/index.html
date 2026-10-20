@@ -1337,7 +1337,8 @@ iterable, with an optional separator.</p>
 <p><strong>Signature:</strong> <code>join(value, d="", attribute=None)</code></p>
 <p><code>attribute</code> (positional or keyword) extracts the named attribute from
 each item before stringifying. Strings are iterated as runes (matching
-Python's <code>sep.join(string)</code>).</p>
+Python's <code>sep.join(string)</code>). Under autoescape, a Markup separator or
+item makes the result Markup with every other part escaped.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3]     | join('-') }}                  →  1-2-3
 {{ users         | join(', ', attribute='name') }}  →  Alice, Bob

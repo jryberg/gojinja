@@ -1334,8 +1334,9 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Keep items whose
 named attribute passes a test.</p>
-<p><strong>Signature:</strong> <code>selectattr(value, attribute, test_name=None, *test_args)</code></p>
-<p>With no test, keeps items where the attribute is truthy.</p>
+<p><strong>Signature:</strong> <code>selectattr(value, attribute, test_name=None, *test_args, **test_kwargs)</code></p>
+<p>With no test, keeps items where the attribute is truthy. Returns a
+generator.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ users | selectattr('admin') | list }}                →  admins
 {{ users | selectattr('age', 'gt', 18) | list }}        →  adults

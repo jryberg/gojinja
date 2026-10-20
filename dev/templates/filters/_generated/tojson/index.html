@@ -1335,8 +1335,12 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Serialise a value as JSON
 safe for embedding in <code>&lt;script&gt;</code> blocks.</p>
 <p><strong>Signature:</strong> <code>tojson(value, indent=None)</code></p>
-<p><code>&amp;</code>, <code>&lt;</code>, <code>&gt;</code>, <code>'</code> are unicode-escaped (<code>&lt;</code> etc.) so the result is
-safe inside HTML script context. The result is returned as Markup.</p>
+<p><code>&amp;</code>, <code>&lt;</code>, <code>&gt;</code> and <code>'</code> are unicode-escaped (<code>\u003c</code> etc.) so the
+result is safe in a <code>&lt;script&gt;</code> block or a single-quoted HTML attribute.
+Like json.dumps, non-ASCII characters and DEL are escaped as <code>\uXXXX</code>
+(surrogate pairs past the BMP). <code>indent</code> follows json.dumps: an int
+indents by that many spaces, a string indents with itself. The result
+is returned as Markup.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>&lt;script&gt;const data = {{ payload | tojson }};&lt;/script&gt;
 </code></pre></div>

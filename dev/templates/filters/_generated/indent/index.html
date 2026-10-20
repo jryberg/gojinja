@@ -1335,9 +1335,11 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Indent each line by N
 spaces.</p>
 <p><strong>Signature:</strong> <code>indent(s, width=4, first=False, blank=False)</code></p>
-<p><code>first=False</code> skips indenting the first line (so the filter chains with
+<p><code>width</code> is a number of spaces or a string used as the indentation.
+<code>first=False</code> skips indenting the first line (so the filter chains with
 templates that already have content on the line). <code>blank=False</code> skips
-blank lines.</p>
+blank lines. As in Python, which adds a newline to the value and splits
+it, any value other than a string or Markup raises (an Undefined too).</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "a\nb\nc" | indent(2, true) }}  →  "  a\n  b\n  c"
 </code></pre></div>

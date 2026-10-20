@@ -1444,15 +1444,27 @@ requires explicit maintainer approval.</p>
 <td>Idiomatic Go errors.</td>
 </tr>
 <tr>
-<td><code>\N{NAME}</code> Unicode named escapes in string literals</td>
-<td>Supported via Python's <code>unicode-escape</code> codec.</td>
-<td><strong>Not supported.</strong> Strings using <code>\N{LATIN SMALL LETTER A}</code> raise a <code>TemplateSyntaxError</code>. All other Python string escapes (<code>\n</code>, <code>\t</code>, <code>\xNN</code>, <code>\uNNNN</code>, <code>\UNNNNNNNN</code>, <code>\NNN</code> octal) are supported.</td>
-<td>Requires shipping a 32K-entry Unicode names table for marginal template-engine value. Can revisit.</td>
+<td>Lone surrogates</td>
+<td>A <code>str</code> can hold half of a UTF-16 surrogate pair, e.g. from <code>"\ud800"</code> or decoding malformed <code>utf-7</code> / <code>unicode_escape</code> bytes.</td>
+<td>Go strings are UTF-8 and cannot hold one, so every lone surrogate becomes U+FFFD (<code>\ufffd</code>), in string literals and in codec output alike.</td>
+<td>Not representable in a Go string; the alternative (a non-UTF-8 internal encoding) would break every string operation.</td>
+</tr>
+<tr>
+<td>Integer size</td>
+<td>Python ints are unbounded; only memory stops them (<code>9 ** 9 ** 9</code> runs for minutes).</td>
+<td>Ints are unbounded too (<code>int64</code>, then <code>*big.Int</code>), but an operation whose result would exceed 2^22 bits (about 1.26 million digits) raises an error. Python's own 4300-digit limit on converting ints to and from decimal strings applies as in Python.</td>
+<td>Bounds a denial of service by one template; no int that large can be printed in Python.</td>
+</tr>
+<tr>
+<td>Float math in <code>**</code> and complex results</td>
+<td>Calls the platform C library (<code>pow</code>, <code>exp</code>, <code>log</code>, <code>sin</code>, <code>cos</code>, <code>atan2</code>, <code>hypot</code>), which glibc ≥ 2.28 rounds correctly in all but rare cases, choosing code paths per CPU.</td>
+<td>Computed correctly rounded (high-precision <code>math/big</code>, rounded once). Results match Python's except where the C library is off by one ulp (about 0.1% of random inputs on glibc).</td>
+<td>Go's <code>math</code> package disagreed in the last bit on most inputs; exact libm emulation would differ per CPU anyway.</td>
 </tr>
 <tr>
 <td>Iteration order of dicts passed as a raw Go <code>map[string]any</code></td>
 <td>Python dicts preserve insertion order; <code>json.loads</code> honors source order.</td>
-<td>All user-supplied values are normalised at the <code>RenderContext</code> boundary: every <code>map[string]any</code> / <code>map[any]any</code> — top-level <strong>and</strong> nested at every depth — becomes a <code>*runtime.OrderedDict</code> with <strong>lex-sorted</strong> keys. <code>*OrderedDict</code> inputs (and <code>JSONVars</code> output) keep their original insertion order. The same input therefore always renders to the same bytes, but a Go map literal cannot produce Python's "as you wrote it" order — Go's runtime does not carry it. Pass <code>JSONVars</code> output or build an <code>OrderedDict</code> directly when Python-matching source order is required.</td>
+<td>All user-supplied values are normalised at the <code>RenderContext</code> boundary: every <code>map[string]any</code> / <code>map[any]any</code> — top-level <strong>and</strong> nested at every depth — becomes a <code>*runtime.OrderedDict</code> with <strong>lex-sorted</strong> keys. <code>*OrderedDict</code> inputs (and <code>JSONVars</code> output) keep their original insertion order; like every container, they are copied, so a template mutating them never changes the caller's data. The same input therefore always renders to the same bytes, but a Go map literal cannot produce Python's "as you wrote it" order — Go's runtime does not carry it. Pass <code>JSONVars</code> output or build an <code>OrderedDict</code> directly when Python-matching source order is required.</td>
 <td>Go maps are randomised; pure lex sort is the closest deterministic substitute.</td>
 </tr>
 </tbody>

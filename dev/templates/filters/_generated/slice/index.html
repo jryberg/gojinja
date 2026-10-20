@@ -1336,10 +1336,10 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 columns of nearly-equal length.</p>
 <p><strong>Signature:</strong> <code>slice(value, slices, fill_with=None)</code></p>
 <p>Useful for newspaper-style layouts. Earlier slices get one extra item
-when the count doesn't divide evenly. With <code>fill_with</code>, short slices
-are padded so all have equal length.</p>
+when the count doesn't divide evenly, and with <code>fill_with</code> every other
+slice gets it appended. Returns a generator of lists.</p>
 <p><strong>Example:</strong></p>
-<div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3, 4, 5]   | slice(3) }}  →  [[1, 2], [3, 4], [5]]
+<div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3, 4, 5]   | slice(3) | list }}  →  [[1, 2], [3, 4], [5]]
 </code></pre></div>
 
 

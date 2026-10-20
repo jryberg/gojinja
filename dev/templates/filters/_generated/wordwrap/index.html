@@ -1334,9 +1334,13 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Break long lines at
 word boundaries.</p>
-<p><strong>Signature:</strong> <code>wordwrap(s, width=79)</code></p>
-<p>Existing newlines are preserved; only lines longer than <code>width</code> get
-rewrapped at whitespace.</p>
+<p><strong>Signature:</strong> <code>wordwrap(s, width=79, break_long_words=True, wrapstring=None, break_on_hyphens=True)</code></p>
+<p>A port of Python's textwrap.wrap: each existing line is wrapped on its
+own at whitespace and after hyphens (break_on_hyphens), words longer
+than <code>width</code> are split (break_long_words), and lines are joined with
+<code>wrapstring</code>, which defaults to the environment's newline sequence.
+As in Python, which calls the value's splitlines(), any value other
+than a string or Markup raises (an Undefined too).</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "the quick brown fox" | wordwrap(10) }}
 →  "the quick\nbrown fox"

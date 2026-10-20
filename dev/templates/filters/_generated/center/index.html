@@ -1335,9 +1335,11 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Pad a string with spaces
 to centre it within a given width.</p>
 <p><strong>Signature:</strong> <code>center(s, width=80)</code></p>
-<p>Strings that already exceed <code>width</code> are returned unchanged.</p>
+<p>Strings that already exceed <code>width</code> are returned unchanged. An odd
+margin puts the extra space where Python's str.center does.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "hi" | center(6) }}  →  "  hi  "
+{{ "hi" | center(5) }}  →  "  hi "
 </code></pre></div>
 
 

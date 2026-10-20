@@ -939,6 +939,17 @@ You're viewing an older version of gojinja.
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-a-blocked-attribute-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a blocked attribute does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#opting-out" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1411,6 +1422,17 @@ You're viewing an older version of gojinja.
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-a-blocked-attribute-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a blocked attribute does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#opting-out" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1466,19 +1488,30 @@ for the full list of inverted defaults.</p>
 <p>The sandbox layer in <code>pkg/sandbox</code> provides four predicates:</p>
 <ul>
 <li><code>IsSafeAttribute(obj, attr) bool</code> — gates attribute access. Rejects
-  Python-style dunder attributes (<code>__class__</code>, <code>__mro__</code>, <code>__bases__</code>,
-  <code>__subclasses__</code>, <code>__init__</code>, etc.) that classic Jinja2 sandbox-escape
-  exploits use to climb the type hierarchy.</li>
-<li><code>IsSafeCallable(fn) bool</code> — gates calls. Rejects bound methods that
-  could mutate shared state.</li>
+  every name starting with an underscore — Python-style dunders such as
+  <code>__class__</code>, <code>__mro__</code>, <code>__subclasses__</code> and <code>__init__</code> that classic
+  Jinja2 sandbox-escape exploits use to climb the type hierarchy among
+  them — and every attribute of Go's <code>reflect</code> and <code>runtime</code> types.</li>
+<li><code>IsSafeCallable(fn) bool</code> — gates calls. Rejects callables marked with
+  <code>UnsafeFunc</code>.</li>
 <li><code>IsMutatingMethod(name) bool</code> — names of methods that mutate their
-  receiver (<code>pop</code>, <code>append</code>, <code>clear</code>, etc.). The sandbox refuses to call
-  these even on objects the template otherwise has access to.</li>
+  receiver (<code>pop</code>, <code>append</code>, <code>clear</code>, etc.), for your own checks. The
+  default sandbox does not apply it: like Jinja2's <code>SandboxedEnvironment</code>,
+  it lets templates call <code>{% do items.append(x) %}</code>.</li>
 <li><code>UnsafeFunc(fn)</code> — wrap a Go function you want to <strong>mark as
   unsafe-to-call</strong>, even though it's been registered as a global. Useful
   for callables you only want available in a <code>WithUnsafe()</code>-built
   environment.</li>
 </ul>
+<h2 id="what-a-blocked-attribute-does">What a blocked attribute does<a class="headerlink" href="#what-a-blocked-attribute-does" title="Permanent link">&para;</a></h2>
+<p>As in Python's <code>SandboxedEnvironment</code>, an unsafe attribute that exists
+(<code>x.__class__</code>, a namespace's <code>ns._secret</code>, a generator's <code>gi_frame</code>)
+gives an Undefined, never the value. It prints as nothing and fails
+<code>is defined</code>, and using it — calling it, reading its attributes, or
+printing it under <code>StrictUndefined</code> — raises <code>SecurityError</code>
+("access to attribute '<strong>class</strong>' of 'list' object is unsafe."). An
+underscore name the object lacks is looked up as an item instead, so a
+dict key such as <code>doc._id</code> works as in Jinja2.</p>
 <h2 id="opting-out">Opting out<a class="headerlink" href="#opting-out" title="Permanent link">&para;</a></h2>
 <p>Pass <code>gj.WithUnsafe()</code> at construction:</p>
 <div class="language-go highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nx">env</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">gj</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="nx">gj</span><span class="p">.</span><span class="nx">WithUnsafe</span><span class="p">())</span><span class="w">   </span><span class="c1">// sandbox disabled</span>

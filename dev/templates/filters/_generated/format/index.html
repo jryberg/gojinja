@@ -1334,12 +1334,15 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Python printf-style
 formatting.</p>
-<p><strong>Signature:</strong> <code>format(s, *args)</code></p>
-<p>Supports <code>%s</code>, <code>%d</code>, <code>%f</code>, <code>%x</code>, <code>%o</code>, <code>%b</code>, <code>%r</code> (Python repr), <code>%%</code>,
-and width/precision flags (<code>%05d</code>, <code>%.2f</code>). <code>%s</code> always stringifies
-via [escape.SoftStr] to match Python's <code>str()</code> semantics.</p>
+<p><strong>Signature:</strong> <code>format(value, *args, **kwargs)</code></p>
+<p><code>value % args</code> (or <code>value % kwargs</code> when keywords are given) with
+CPython's printf-style rules, via [eval.PercentFormat]: every
+conversion type, flags, width and precision (including <code>*</code>), and
+<code>%(name)s</code> keys. A Markup format string escapes its %s/%r arguments
+and returns Markup.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ '%s scored %d' | format('Alice', 95) }}   →  Alice scored 95
+{{ '%(n)s: %(v).1f' | format(n='pi', v=3.14159) }}  →  pi: 3.1
 </code></pre></div>
 
 

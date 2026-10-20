@@ -1334,8 +1334,9 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Absolute value of a number.</p>
 <p><strong>Signature:</strong> <code>abs(value)</code></p>
-<p>Accepts int, int64, and float64. Other types raise a filter argument
-error.</p>
+<p>Python's abs(): exact for ints of any size (a bool gives 0 or 1), the
+magnitude for a complex number. Other types raise Python's "bad operand
+type for abs()".</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ -7    | abs }}  →  7
 {{ -1.5  | abs }}  →  1.5

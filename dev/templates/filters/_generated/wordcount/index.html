@@ -1335,7 +1335,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Count "words" in a
 string.</p>
 <p><strong>Signature:</strong> <code>wordcount(s)</code></p>
-<p>A word is a maximal run of <code>[A-Za-z0-9_]</code>. Anything else is a separator.</p>
+<p>A word is a maximal run of Unicode letters, digits and underscores,
+Python's <code>\w</code>. Anything else is a separator.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "hello world foo"  | wordcount }}  →  3
 </code></pre></div>

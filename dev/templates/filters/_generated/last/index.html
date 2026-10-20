@@ -1334,9 +1334,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Last item of a sequence.</p>
 <p><strong>Signature:</strong> <code>last(seq)</code></p>
-<p>Empty sequences and non-sequences yield an Undefined value. NOTE: don't
-use this on generators or maps — only ordered sequences have a defined
-"last".</p>
+<p>Works on any iterable: a string's last character, a dict's last key.
+An empty iterable yields an Undefined value; a non-iterable raises.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3]  | last }}  →  3
 </code></pre></div>

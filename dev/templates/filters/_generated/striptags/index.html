@@ -1335,8 +1335,9 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Drop HTML tags and
 HTML comments, then collapse whitespace.</p>
 <p><strong>Signature:</strong> <code>striptags(s)</code></p>
-<p><code>&lt;!-- ... --&gt;</code> spans are removed entirely (including content). Whitespace
-runs are collapsed to a single space.</p>
+<p>markupsafe's Markup.striptags(): <code>&lt;!-- ... --&gt;</code> comments, then tags, are
+removed (an unclosed one is kept), whitespace runs collapse to a single
+space, and HTML entities are unescaped as Python's html.unescape does.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "&lt;p&gt;hi &lt;b&gt;there&lt;/b&gt;&lt;/p&gt;" | striptags }}  →  hi there
 </code></pre></div>

@@ -1335,10 +1335,12 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Group items into rows of N.</p>
 <p><strong>Signature:</strong> <code>batch(value, linecount, fill_with=None)</code></p>
 <p>The last row is padded with <code>fill_with</code> to reach <code>linecount</code> if a
-fill value is provided; otherwise it's left short.</p>
+fill value is provided; otherwise it's left short. A port of Python's
+do_batch, including its results for a zero or non-integer linecount.
+Returns a generator of lists.</p>
 <p><strong>Example:</strong></p>
-<div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3, 4, 5]      | batch(2) }}     →  [[1, 2], [3, 4], [5]]
-{{ [1, 2, 3, 4, 5]      | batch(2, 0) }}  →  [[1, 2], [3, 4], [5, 0]]
+<div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3, 4, 5]      | batch(2) | list }}     →  [[1, 2], [3, 4], [5]]
+{{ [1, 2, 3, 4, 5]      | batch(2, 0) | list }}  →  [[1, 2], [3, 4], [5, 0]]
 </code></pre></div>
 
 

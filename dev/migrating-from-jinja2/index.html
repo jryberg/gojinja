@@ -1604,10 +1604,12 @@ short version:</p>
 <ul>
 <li><code>enable_async</code> / <code>async def</code> filters — use
   <a href="https://pkg.go.dev/context"><code>context.Context</code></a> cancellation instead.</li>
-<li><code>\N{LATIN SMALL LETTER A}</code>-style Unicode named escapes inside string
-  literals (everything else — <code>\n</code>, <code>\t</code>, <code>\xNN</code>, <code>\uNNNN</code>, <code>\UNNNNNNNN</code>,
-  octal — is supported). See <a href="../divergences/">divergences</a> for the
-  rationale.</li>
+<li>Lone surrogates such as <code>"\ud800"</code>: Go strings cannot hold them, so
+  they become U+FFFD. See <a href="../divergences/">divergences</a>.</li>
+<li>Ints larger than 2^22 bits: an operation producing one raises an error.
+  Python itself prints ints only up to 4300 digits.</li>
+<li>Float results of <code>**</code> and complex math are correctly rounded; the C
+  library Python uses can differ in the last bit in rare cases.</li>
 <li>Memcached bytecode cache as a built-in — implement the small <code>Cache</code>
   interface and you have it.</li>
 </ul>

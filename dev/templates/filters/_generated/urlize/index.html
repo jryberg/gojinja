@@ -1334,12 +1334,14 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Convert URLs and email
 addresses in text into HTML links.</p>
-<p><strong>Signature:</strong> <code>urlize(value, trim_url_limit=None, nofollow=False, target=None, rel="noopener")</code></p>
-<p><code>trim_url_limit</code> truncates display text (the href stays full).
-<code>nofollow=True</code> adds <code>rel="nofollow"</code>.</p>
-<p><strong>Divergences from Python:</strong> <code>rel="noopener"</code> is added by default for
-http(s)/www/bare-domain links (Python's default is empty). <code>mailto:</code>
-links never get rel="noopener" since there's no cross-origin concern.</p>
+<p><strong>Signature:</strong> <code>urlize(value, trim_url_limit=None, nofollow=False, target=None, rel=None, extra_schemes=None)</code></p>
+<p><code>trim_url_limit</code> truncates display text (the href stays full). Web
+links get <code>rel</code> set to the sorted union of <code>rel</code>, "nofollow" (with
+<code>nofollow=True</code>) and the "noopener" policy, plus <code>target</code> when given;
+<code>mailto:</code> links get neither. Words starting with one of
+<code>extra_schemes</code> (validated like Python's) are linked too.</p>
+<p>The input is escaped first unless it is already Markup, and the result
+is Markup only under autoescape (as in Python).</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "Visit https://example.com" | urlize }}
 →  Visit &lt;a href="https://example.com" rel="noopener"&gt;https://example.com&lt;/a&gt;

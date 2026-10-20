@@ -1336,7 +1336,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 length-queried and index-accessed.</p>
 <p><strong>Signature:</strong> <code>x is sequence</code></p>
 <p>Includes lists, tuples, strings, and mappings (mirrors Python's "anything
-with <code>__len__</code> and <code>__getitem__</code>").</p>
+with <code>__len__</code> and <code>__getitem__</code>"). An Undefined is a sequence, except a
+StrictUndefined, whose <code>len()</code> fails.</p>
 
 
 

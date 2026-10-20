@@ -1334,7 +1334,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Convert a value to uppercase.</p>
 <p><strong>Signature:</strong> <code>upper(s)</code></p>
-<p>Stringifies via [escape.SoftStr] then applies [strings.ToUpper] (Unicode-aware).</p>
+<p>Stringifies via [escape.SoftStr] then applies Python's str.upper (full
+Unicode case mapping, so "ß" becomes "SS").</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "hello" | upper }}  →  HELLO
 </code></pre></div>

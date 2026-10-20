@@ -1335,11 +1335,11 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Yield (key, value) pairs for
 a mapping.</p>
 <p><strong>Signature:</strong> <code>items(d)</code></p>
-<p>Output is a list of two-element tuples. For Go map types, keys are
-sorted lexicographically (Go map iteration order is non-deterministic;
-sorting keeps output stable across renders). For [runtime.OrderedDict],
-insertion order is preserved (matching Python dicts since 3.7).
-Undefined input yields an empty list.</p>
+<p>Returns a generator of two-element tuples, in the dict's order. For Go
+map types, keys are sorted lexicographically (Go map iteration order
+is non-deterministic; sorting keeps output stable across renders).
+Undefined input yields nothing; anything else that is not a mapping
+raises once the generator is read.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{% for k, v in {'a': 1, 'b': 2} | items %}{{ k }}={{ v }} {% endfor %}
 →  a=1 b=2

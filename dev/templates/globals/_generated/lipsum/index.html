@@ -1335,13 +1335,15 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Generate Lorem-Ipsum
 placeholder text for layout work.</p>
 <p><strong>Signature:</strong> <code>lipsum(n=5, html=True, min=20, max=100)</code></p>
-<p>Generates <code>n</code> paragraphs of <code>min</code> to <code>max</code> words each. The result is
-HTML-wrapped in <code>&lt;p&gt;</code> tags by default.</p>
-<p><strong>Divergences from Python:</strong> gojinja uses a smaller built-in word list
-(~150 words) than Python (380+). Output identity isn't a parity goal
-here — lipsum is a layout placeholder, not user-facing data.</p>
+<p>A port of Jinja2's generate_lorem_ipsum: <code>n</code> paragraphs of <code>min</code> to
+<code>max - 1</code> words drawn at random from Jinja2's word list, capitalized,
+with commas and full stops placed as Python places them. With <code>html</code>
+true (the default) the paragraphs are wrapped in <code>&lt;p&gt;</code> tags and joined
+by newlines, as Markup; otherwise they are plain text separated by
+blank lines. The text differs on every call, as Python's does.</p>
 <p><strong>Example:</strong></p>
-<div class="language-text highlight"><pre><span></span><code>{{ lipsum(2) }}   →  two paragraphs of &lt;p&gt;…&lt;/p&gt;
+<div class="language-text highlight"><pre><span></span><code>{{ lipsum(2) }}               →  two paragraphs of &lt;p&gt;…&lt;/p&gt;
+{{ lipsum(1, html=false) }}   →  one plain-text paragraph
 </code></pre></div>
 
 

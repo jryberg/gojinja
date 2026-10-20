@@ -1334,7 +1334,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Drop items where a test
 passes (the complement of [filterSelect]).</p>
-<p><strong>Signature:</strong> <code>reject(value, test_name=None, *test_args)</code></p>
+<p><strong>Signature:</strong> <code>reject(value, test_name=None, *test_args, **test_kwargs)</code></p>
+<p>Returns a generator.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3, 4]  | reject('odd') | list }}  →  [2, 4]
 </code></pre></div>

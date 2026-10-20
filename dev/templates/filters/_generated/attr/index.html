@@ -1334,9 +1334,10 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Look up an attribute by name.</p>
 <p><strong>Signature:</strong> <code>attr(value, name)</code></p>
-<p>Equivalent to <code>value.name</code> in template syntax, but returns the result
-of attribute access through the engine's sandbox-aware [Environment.GetAttr].
-Useful when the attribute name is dynamic.</p>
+<p>Python's getattr(): unlike <code>value.name</code> it never falls back to item
+lookup, so on a dict only its methods are attributes and a key yields
+Undefined. Other values go through the sandbox-aware
+[Environment.GetAttr]. Useful when the attribute name is dynamic.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ obj | attr('field_name') }}     ≡  {{ obj.field_name }}
 </code></pre></div>

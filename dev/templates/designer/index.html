@@ -2238,11 +2238,17 @@ template's local variables. Add <code>scoped</code> to opt in:</p>
 </span></code></pre></div>
 <p><code>with context</code> (the default) shares the parent template's variables;
 <code>without context</code> walls them off. <code>ignore missing</code> silently no-ops when
-no listed template can be found.</p>
+no listed template can be found; only a missing template is skipped, so
+an included template with a syntax error, or an environment without a
+loader, still raises.</p>
 <h2 id="imports">Imports<a class="headerlink" href="#imports" title="Permanent link">&para;</a></h2>
 <div class="language-jinja highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="cp">{%</span> <span class="k">import</span> <span class="s2">"macros.html"</span> <span class="k">as</span> <span class="nv">m</span> <span class="cp">%}</span>
 </span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="cp">{{</span> <span class="nv">m.button</span><span class="o">(</span><span class="s2">"Save"</span><span class="o">,</span> <span class="nv">primary</span><span class="o">=</span><span class="kp">true</span><span class="o">)</span> <span class="cp">}}</span>
 </span></code></pre></div>
+<p><code>m</code> is the imported template's module: its macros and top-level
+<code>{% set %}</code> variables are its attributes (names starting with an
+underscore are not exported), and printing <code>{{ m }}</code> gives the template's
+rendered output.</p>
 <p>Or import specific names:</p>
 <div class="language-jinja highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="cp">{%</span> <span class="k">from</span> <span class="s2">"macros.html"</span> <span class="k">import</span> <span class="nv">button</span><span class="o">,</span> <span class="nv">link</span> <span class="cp">%}</span>
 </span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="cp">{{</span> <span class="nv">button</span><span class="o">(</span><span class="s2">"Save"</span><span class="o">)</span> <span class="cp">}}</span>

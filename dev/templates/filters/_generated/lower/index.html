@@ -1334,7 +1334,8 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Convert a value to lowercase.</p>
 <p><strong>Signature:</strong> <code>lower(s)</code></p>
-<p>Stringifies via [escape.SoftStr] then applies [strings.ToLower] (Unicode-aware).</p>
+<p>Stringifies via [escape.SoftStr] then applies Python's str.lower (full
+Unicode case mapping, including the final-sigma rule).</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "HELLO" | lower }}  →  hello
 </code></pre></div>

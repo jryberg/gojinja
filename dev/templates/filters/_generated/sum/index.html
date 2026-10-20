@@ -1335,8 +1335,9 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Sum the items of a sequence.</p>
 <p><strong>Signature:</strong> <code>sum(iterable, attribute=None, start=0)</code></p>
 <p><code>attribute</code> (positional or keyword, dotted-path supported) extracts a
-numeric field from each item. The result is <code>int64</code> when all addends
-are integers, <code>float64</code> otherwise.</p>
+field from each item. Items are added to <code>start</code> with the <code>+</code> operator,
+so lists concatenate and mixing numbers with strings raises, as in
+Python; a string <code>start</code> raises.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ [1, 2, 3]     | sum }}                       →  6
 {{ products      | sum(attribute='price') }}    →  total price

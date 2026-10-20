@@ -1335,7 +1335,10 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <p>Group items by a shared
 attribute value.</p>
 <p><strong>Signature:</strong> <code>groupby(value, attribute, default=None, case_sensitive=False)</code></p>
-<p>Returns a list of <code>(grouper, [items])</code> tuples sorted by grouper.
+<p>Returns a list of <code>(grouper, [items])</code> tuples sorted by grouper, which
+also have <code>.grouper</code> and <code>.list</code> attributes. Grouping is
+case-insensitive by default; the grouper is then the first item's own
+value.
 <code>attribute</code> supports dotted notation (<code>meta.k</code>) and numeric segments
 for indexing into tuples / lists. <code>default</code> is the value used when the
 attribute is undefined.</p>

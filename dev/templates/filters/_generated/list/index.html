@@ -1334,8 +1334,9 @@ in <code>pkg/environment</code>. To customize, drop a hand-written file at
 </div>
 <p>Convert a value to a list.</p>
 <p><strong>Signature:</strong> <code>list(value)</code></p>
-<p>Lists pass through. Other iterables convert the way Python's <code>list()</code>
-does: strings split into single-rune strings, dicts yield their keys.</p>
+<p>Python's <code>list()</code>: always a new list, even of a list. Strings split into
+single-character strings, dicts yield their keys, and a generator is
+read to the end.</p>
 <p><strong>Example:</strong></p>
 <div class="language-text highlight"><pre><span></span><code>{{ "abc"  | list }}  →  ['a', 'b', 'c']
 {{ {'a': 1, 'b': 2} | list }}  →  ['a', 'b']

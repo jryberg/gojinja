@@ -1332,13 +1332,13 @@ You're viewing an older version of gojinja.
 in <code>pkg/environment</code>. To customize, drop a hand-written file at
 <code>docs/site/content/templates/filters/pprint.md</code>.</p>
 </div>
-<p>Pretty-print any value as
-indented JSON.</p>
+<p>Pretty-print a value.</p>
 <p><strong>Signature:</strong> <code>pprint(value)</code></p>
-<p>Useful for debugging template context. Falls back to <code>fmt.Sprintf("%v")</code>
-for values JSON can't represent.</p>
+<p>Python's pprint.pformat with its defaults: reprs on one line when they
+fit in 80 columns, otherwise dicts (keys sorted), lists and tuples one
+item per line and long strings split into adjacent literals.</p>
 <p><strong>Example:</strong></p>
-<div class="language-text highlight"><pre><span></span><code>{{ ctx | pprint }}
+<div class="language-text highlight"><pre><span></span><code>{{ {'b': 1, 'a': [1, 2]} | pprint }}  →  {'a': [1, 2], 'b': 1}
 </code></pre></div>
 
 
