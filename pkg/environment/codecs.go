@@ -32,6 +32,7 @@ const (
 	kindUndefined
 	kindCJK
 	kindStateful
+	kindIDNA
 )
 
 type codec struct {
@@ -79,6 +80,7 @@ var builtinCodecs = map[string]codec{
 	"raw_unicode_escape": {kind: kindRawUnicodeEscape, name: "rawunicodeescape"},
 	"punycode":           {kind: kindPunycode, name: "punycode"},
 	"undefined":          {kind: kindUndefined, name: "undefined"},
+	"idna":               {kind: kindIDNA, name: "idna"},
 }
 
 // errNotTextEncoding marks codecs that exist but are not text encodings;
@@ -220,6 +222,8 @@ func pyEncode(s, encoding, errorsMode string) (runtime.Bytes, error) {
 		return c.cjk.encodeCJK(rs, errorsMode)
 	case kindStateful:
 		return c.iso.encodeStateful(rs, errorsMode)
+	case kindIDNA:
+		return idnaEncode(s, errorsMode)
 	}
 	return encodeSingleByte(c, rs, errorsMode)
 }
@@ -372,6 +376,8 @@ func pyDecode(b []byte, encoding, errorsMode string) (string, error) {
 		return c.cjk.decode(b, d)
 	case kindStateful:
 		return c.iso.decodeStateful(b, d)
+	case kindIDNA:
+		return idnaDecode(b, errorsMode)
 	case kindTable:
 		for i, x := range b {
 			if r := c.table.decode[x]; r != charmapUndefined {

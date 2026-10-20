@@ -1,0 +1,2 @@
+{{ 'bücher.de'.encode('idna') }}|{{ 'Bücher。DE.'.encode('idna') }}|{{ 'ﬁü.example'.encode('idna') }}|{{ 'ß.de'.encode('idna') }}|{{ '日本語.jp'.encode('idna') }}|{{ 'a​b'.encode('idna') }}
+{{ 'xn--bcher-kva.de'.encode().decode('idna') }}|{{ 'XN--BCHER-KVA'.encode().decode('idna') }}|{{ 'xn--wgv71a119e.jp.'.encode().decode('idna') }}|{{ 'example.com'.encode('idna').decode('idna') }}

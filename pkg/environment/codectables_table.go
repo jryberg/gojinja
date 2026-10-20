@@ -2591,6 +2591,7 @@ var codecModules = map[string]bool{
 	"gbk":                true,
 	"hp_roman8":          true,
 	"hz":                 true,
+	"idna":               true,
 	"iso2022_jp":         true,
 	"iso2022_jp_1":       true,
 	"iso2022_jp_2":       true,

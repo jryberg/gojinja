@@ -17,7 +17,7 @@ UNDEFINED = "￾"
 CODED = [
     "ascii", "latin_1", "utf_8", "utf_8_sig", "utf_16", "utf_16_le", "utf_16_be",
     "utf_32", "utf_32_le", "utf_32_be", "utf_7", "unicode_escape", "raw_unicode_escape",
-    "punycode", "charmap", "undefined",
+    "punycode", "charmap", "undefined", "idna",
     # Table-driven CJK codecs (tools/parity/cjktables.py).
     "big5", "big5hkscs", "cp932", "cp949", "cp950", "euc_jis_2004", "euc_jisx0213",
     "euc_jp", "euc_kr", "gb18030", "gb2312", "gbk", "johab", "shift_jis",
