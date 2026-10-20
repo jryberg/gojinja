@@ -22,7 +22,7 @@ func stringMethod(s, attr string) any {
 		return nil
 	}
 	return KwargsCallable(func(args []any, kwargs map[string]any) (any, error) {
-		args, err := spec.bind(attr, args, kwargs)
+		args, err := spec.bind("str", attr, args, kwargs)
 		if err != nil {
 			return nil, gjerrors.NewTemplateRuntimeError(err.Error())
 		}
@@ -53,30 +53,35 @@ type strMethodSpec struct {
 	style    argStyle
 	min, max int
 	keywords []string // parameter names, for methods that accept keywords
+	posOnly  int      // leading keywords that must be passed positionally
 	call     func(s string, args []any) (any, error)
 }
 
 // bind checks the call shape and returns the positional arguments, with
 // keyword arguments moved into their positions (missing optional ones
 // are nil).
-func (m strMethodSpec) bind(name string, args []any, kwargs map[string]any) ([]any, error) {
+// typ is the receiver's Python type ("str" or "bytes").
+func (m strMethodSpec) bind(typ, name string, args []any, kwargs map[string]any) ([]any, error) {
 	n := len(args)
 	if len(kwargs) > 0 && m.style != styleKeywords {
 		if m.style == styleTakes {
 			return nil, fmt.Errorf("%s() takes no keyword arguments", name)
 		}
-		return nil, fmt.Errorf("str.%s() takes no keyword arguments", name)
+		return nil, fmt.Errorf("%s.%s() takes no keyword arguments", typ, name)
 	}
 	switch m.style {
 	case styleNoArgs:
 		if n > 0 {
-			return nil, fmt.Errorf("str.%s() takes no arguments (%d given)", name, n)
+			return nil, fmt.Errorf("%s.%s() takes no arguments (%d given)", typ, name, n)
 		}
 	case styleExactlyOne:
 		if n != 1 {
-			return nil, fmt.Errorf("str.%s() takes exactly one argument (%d given)", name, n)
+			return nil, fmt.Errorf("%s.%s() takes exactly one argument (%d given)", typ, name, n)
 		}
 	case styleExpected:
+		if m.min == m.max && n != m.min {
+			return nil, fmt.Errorf("%s expected %d argument%s, got %d", name, m.min, plural(m.min), n)
+		}
 		if n < m.min {
 			return nil, fmt.Errorf("%s expected at least %d argument%s, got %d", name, m.min, plural(m.min), n)
 		}
@@ -91,6 +96,9 @@ func (m strMethodSpec) bind(name string, args []any, kwargs map[string]any) ([]a
 			return nil, fmt.Errorf("%s() takes at most %d argument%s (%d given)", name, m.max, plural(m.max), n)
 		}
 	case styleKeywords:
+		if n < m.posOnly {
+			return nil, fmt.Errorf("%s() takes at least %d positional argument%s (%d given)", name, m.posOnly, plural(m.posOnly), n)
+		}
 		if n+len(kwargs) > m.max {
 			return nil, fmt.Errorf("%s() takes at most %d argument%s (%d given)", name, m.max, plural(m.max), n+len(kwargs))
 		}
@@ -103,7 +111,7 @@ func (m strMethodSpec) bind(name string, args []any, kwargs map[string]any) ([]a
 					i = j
 				}
 			}
-			if i < 0 {
+			if i < m.posOnly {
 				return nil, fmt.Errorf("'%s' is an invalid keyword argument for %s()", k, name)
 			}
 			if i < n {

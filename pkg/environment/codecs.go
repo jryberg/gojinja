@@ -331,29 +331,3 @@ func decodeWide(c codec, b []byte, sb *strings.Builder, fail func(int, int, stri
 	}
 	return sb.String(), nil
 }
-
-// bytesMethod returns Python's bytes method attr bound to b.
-func bytesMethod(b runtime.Bytes, attr string) any {
-	if attr != "decode" {
-		return nil
-	}
-	spec := strMethodSpec{style: styleKeywords, max: 2, keywords: []string{"encoding", "errors"}}
-	return KwargsCallable(func(args []any, kwargs map[string]any) (any, error) {
-		args, err := spec.bind("decode", args, kwargs)
-		if err != nil {
-			return nil, err
-		}
-		encoding, errorsMode := "utf-8", "strict"
-		if args[0] != nil {
-			if encoding, err = strArg("decode() argument 'encoding'", args[0]); err != nil {
-				return nil, err
-			}
-		}
-		if args[1] != nil {
-			if errorsMode, err = strArg("decode() argument 'errors'", args[1]); err != nil {
-				return nil, err
-			}
-		}
-		return pyDecode(b, encoding, errorsMode)
-	})
-}

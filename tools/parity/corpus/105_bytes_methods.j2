@@ -1,0 +1,4 @@
+{%- set b = 'Hello wORLD é'.encode() -%}
+{{ b.upper() }}|{{ b.title() }}|{{ b.swapcase() }}|{{ b.isascii() }}|{{ b.find(111) }}|{{ b.split() }}|{{ b.rsplit(None, 1) }}|{{ b.partition(' '.encode()) }}
+{{ 'abcde'.encode().hex(':', 2) }}|{{ ''.encode().fromhex('41 42ff') }}|{{ 'ab'.encode().center(5, '*'.encode()) }}|{{ '-4'.encode().zfill(5) }}|{{ '  ab '.encode().strip() }}|{{ 'a\nb\r\nc'.encode().splitlines() }}
+{{ '-'.encode().join(['a'.encode(), 'b'.encode()]) }}|{{ 'abc'.encode().translate(''.encode().maketrans('ab'.encode(), 'xy'.encode()), delete='c'.encode()) }}|{{ 'aaa'.encode().replace('a'.encode(), 'b'.encode(), 2) }}|{{ b.decode() }}
