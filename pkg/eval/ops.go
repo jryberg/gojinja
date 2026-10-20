@@ -3,6 +3,7 @@ package eval
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"strings"
 
 	"github.com/jryberg/gojinja/pkg/escape"
@@ -16,6 +17,8 @@ func applyBinop(op string, a, b any) (any, error) {
 	if err := FailUndefined(a, b); err != nil {
 		return nil, err
 	}
+	// Python's bool is an int subclass in arithmetic.
+	a, b = boolToInt(a), boolToInt(b)
 	if out, ok := markupBinop(op, a, b); ok {
 		return out, nil
 	}
@@ -109,6 +112,16 @@ func applyBinop(op string, a, b any) (any, error) {
 		return numPow(la, lb), nil
 	}
 	return nil, fmt.Errorf("unknown binary operator %q", op)
+}
+
+func boolToInt(v any) any {
+	if b, ok := v.(bool); ok {
+		if b {
+			return int64(1)
+		}
+		return int64(0)
+	}
+	return v
 }
 
 // markupBinop applies markupsafe's Markup operators: `+` escapes the str
@@ -263,39 +276,108 @@ func compareValues(op string, a, b any) (bool, error) {
 	return false, fmt.Errorf("unknown compare op %q", op)
 }
 
+var orderSymbols = map[string]string{"lt": "<", "lteq": "<=", "gt": ">", "gteq": ">="}
+
+// orderValues implements Python's ordering operators: numbers (bool
+// included) compare by value, str and Markup by text, and lists with
+// lists or tuples with tuples lexicographically. Anything else raises
+// Python's TypeError.
 func orderValues(op string, a, b any) (bool, error) {
+	return orderDepth(op, a, b, 0)
+}
+
+func orderDepth(op string, a, b any, depth int) (bool, error) {
+	if depth > maxEqualDepth {
+		return false, fmt.Errorf("maximum recursion depth exceeded in comparison")
+	}
 	if err := FailUndefined(a, b); err != nil {
 		return false, err
 	}
-	if af, ok := numAsFloat(a); ok {
-		if bf, ok := numAsFloat(b); ok {
-			switch op {
-			case "lt":
-				return af < bf, nil
-			case "lteq":
-				return af <= bf, nil
-			case "gt":
-				return af > bf, nil
-			case "gteq":
-				return af >= bf, nil
-			}
+	if ai, ok := eqInt(a); ok {
+		if bi, ok := eqInt(b); ok {
+			return cmpOrdered(op, ai, bi), nil
+		}
+	}
+	if af, ok := eqFloat(a); ok {
+		if bf, ok := eqFloat(b); ok {
+			return cmpOrdered(op, af, bf), nil
 		}
 	}
 	if as, ok := eqStr(a); ok {
 		if bs, ok := eqStr(b); ok {
-			switch op {
-			case "lt":
-				return as < bs, nil
-			case "lteq":
-				return as <= bs, nil
-			case "gt":
-				return as > bs, nil
-			case "gteq":
-				return as >= bs, nil
-			}
+			return cmpOrdered(op, as, bs), nil
 		}
 	}
-	return false, fmt.Errorf("unsupported comparison %T %s %T", a, op, b)
+	if al, aTuple, ok := eqSeq(a); ok {
+		if bl, bTuple, ok := eqSeq(b); ok && aTuple == bTuple {
+			for i := 0; i < len(al) && i < len(bl); i++ {
+				eq, err := elemEqual(al[i], bl[i], depth)
+				if err != nil {
+					return false, err
+				}
+				if !eq {
+					return orderDepth(op, al[i], bl[i], depth+1)
+				}
+			}
+			return cmpOrdered(op, len(al), len(bl)), nil
+		}
+	}
+	return false, fmt.Errorf("'%s' not supported between instances of '%s' and '%s'", orderSymbols[op], PyTypeName(a), PyTypeName(b))
+}
+
+func cmpOrdered[T int | int64 | float64 | string](op string, a, b T) bool {
+	switch op {
+	case "lt":
+		return a < b
+	case "lteq":
+		return a <= b
+	case "gt":
+		return a > b
+	}
+	return a >= b
+}
+
+// Compare evaluates the comparison operator op ("eq", "ne", "lt",
+// "lteq", "gt", "gteq", "in", "notin") with Python semantics, so the
+// builtin tests and filters share the operators' behaviour.
+func Compare(op string, a, b any) (bool, error) {
+	return compareValues(op, a, b)
+}
+
+// BinaryOp applies the arithmetic operator op ("+", "-", "*", "/",
+// "//", "%", "**") with the template operators' semantics.
+func BinaryOp(op string, a, b any) (any, error) {
+	return applyBinop(op, a, b)
+}
+
+// PyTypeName is the Python type name of v, for TypeError messages.
+func PyTypeName(v any) string {
+	switch v.(type) {
+	case nil:
+		return "NoneType"
+	case bool:
+		return "bool"
+	case string:
+		return "str"
+	case escape.Markup:
+		return "Markup"
+	case float32, float64:
+		return "float"
+	case []any, *runtime.PyList, []string:
+		return "list"
+	case runtime.Tuple:
+		return "tuple"
+	case map[string]any, map[any]any, *runtime.OrderedDict:
+		return "dict"
+	case runtime.Undefined:
+		return "Undefined"
+	}
+	switch reflect.ValueOf(v).Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "int"
+	}
+	return fmt.Sprintf("%T", v)
 }
 
 func inValue(needle, haystack any) (bool, error) {

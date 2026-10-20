@@ -76,13 +76,14 @@ func roundRatHalfEven(r *big.Rat, ndigits int) *big.Rat {
 	return out.Mul(out, new(big.Rat).SetInt(scale))
 }
 
-// jsonMarshal serializes v as JSON. indent==0 → Python's default
-// json.dumps (`{"a": 1, "b": 2}`); >0 → indented form. Recursively
+// jsonMarshal serializes v as JSON. Without pretty it matches Python's
+// default json.dumps (`{"a": 1, "b": 2}`); with pretty each level is
+// indented by indent, as json.dumps(indent=...) does. Recursively
 // unwraps *runtime.OrderedDict into a key-ordered JSON object so Python
 // 3.7+ dict-order semantics survive a tojson round-trip.
-func jsonMarshal(v any, indent int) ([]byte, error) {
+func jsonMarshal(v any, pretty bool, indent string) ([]byte, error) {
 	prepared := jsonPrep(v)
-	if indent == 0 {
+	if !pretty {
 		raw, err := json.Marshal(prepared)
 		if err != nil {
 			return nil, err
@@ -91,7 +92,7 @@ func jsonMarshal(v any, indent int) ([]byte, error) {
 		// emits ',' / ':'. Re-space the structural separators.
 		return rewriteJSONSpacing(raw), nil
 	}
-	return marshalIndented(prepared, strings.Repeat(" ", indent))
+	return marshalIndented(prepared, indent)
 }
 
 // rewriteJSONSpacing rewrites raw compact JSON to Python's default

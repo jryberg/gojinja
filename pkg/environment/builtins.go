@@ -126,11 +126,11 @@ func registerBuiltins(e *Environment) {
 	e.tests["test"] = Test{Func: testIsTest}
 
 	for name, f := range e.filters {
-		f.builtin = true
+		f.sig = builtinFilterSignatures[name]
 		e.filters[name] = f
 	}
 	for name, t := range e.tests {
-		t.builtin = true
+		t.sig = builtinTestSignatures[name]
 		e.tests[name] = t
 	}
 }
@@ -290,20 +290,33 @@ func filterCapitalize(_ *Environment, _ *runtime.Context, value any, _ []any, _ 
 //
 // With no argument, trims ASCII + Unicode whitespace (Go's
 // [strings.TrimSpace]). With `chars`, trims any of the given runes from
-// both ends (Go's [strings.Trim]).
+// both ends (Go's [strings.Trim]); `chars` must be a string or None.
 //
 // Example:
 //
 //	{{ "  hi  " | trim }}        →  hi
 //	{{ "##hi##" | trim('#') }}   →  hi
-func filterTrim(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
+func filterTrim(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	s := escape.SoftStr(value)
-	if len(args) > 0 {
-		if cut, ok := args[0].(string); ok {
-			return keepMarkup(value, strings.Trim(s, cut)), nil
+	if v, ok := paramArg(args, kwargs, 0, "chars"); ok && v != nil {
+		cut, isStr := eqString(v)
+		if !isStr {
+			return nil, gjerrors.NewFilterArgumentError("strip arg must be None or str")
 		}
+		return keepMarkup(value, strings.Trim(s, cut)), nil
 	}
 	return keepMarkup(value, strings.TrimSpace(s)), nil
+}
+
+// eqString returns the text of a str or Markup value.
+func eqString(v any) (string, bool) {
+	switch x := v.(type) {
+	case string:
+		return x, true
+	case escape.Markup:
+		return string(x), true
+	}
+	return "", false
 }
 
 // filterLength implements the `length` filter (alias `count`): return the
@@ -524,32 +537,34 @@ func filterJoin(env *Environment, ctx *runtime.Context, value any, args []any, k
 //
 //	{{ "Hello World"   | replace('World', 'Go') }}  →  Hello Go
 //	{{ "aaaa"          | replace('a', 'b', 2) }}    →  bbaa
-func filterReplace(_ *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	if len(args) < 2 {
-		return nil, gjerrors.NewFilterArgumentError("replace requires (old, new) args")
-	}
-	old := escape.SoftStr(args[0])
+func filterReplace(_ *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	// The signature check guarantees old and new were passed.
+	oldVal, _ := paramArg(args, kwargs, 0, "old")
+	newVal, _ := paramArg(args, kwargs, 1, "new")
+	old := escape.SoftStr(oldVal)
 	count := -1
-	if len(args) >= 3 {
-		if n, ok := asInt(args[2]); ok {
-			count = n
+	if v, ok := paramArg(args, kwargs, 2, "count"); ok && v != nil {
+		n, err := indexArg(v)
+		if err != nil {
+			return nil, err
 		}
+		count = n
 	}
 	if !autoescapeOn(ctx) {
-		return strings.Replace(escape.SoftStr(value), old, escape.SoftStr(args[1]), count), nil
+		return strings.Replace(escape.SoftStr(value), old, escape.SoftStr(newVal), count), nil
 	}
 	// Under autoescape Python escapes the subject when old or new is
 	// Markup, then Markup.replace escapes the replacement.
-	_, oldMarkup := args[0].(escape.Markup)
-	_, newMarkup := args[1].(escape.Markup)
+	_, oldMarkup := oldVal.(escape.Markup)
+	_, newMarkup := newVal.(escape.Markup)
 	subject := value
 	if oldMarkup || newMarkup {
 		subject = escape.Escape(value)
 	}
 	if m, ok := subject.(escape.Markup); ok {
-		return escape.Markup(strings.Replace(string(m), old, string(escape.Escape(args[1])), count)), nil
+		return escape.Markup(strings.Replace(string(m), old, string(escape.Escape(newVal)), count)), nil
 	}
-	return strings.Replace(escape.SoftStr(subject), old, escape.SoftStr(args[1]), count), nil
+	return strings.Replace(escape.SoftStr(subject), old, escape.SoftStr(newVal), count), nil
 }
 
 // filterReverse implements the `reverse` filter: reverse a string or
@@ -892,14 +907,28 @@ func filterSort(env *Environment, _ *runtime.Context, value any, args []any, kwa
 		}
 		return k
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		ki, kj := keyFn(out[i]), keyFn(out[j])
-		if reverse {
-			return compareLess(kj, ki)
-		}
-		return compareLess(ki, kj)
-	})
+	if err := sortStable(out, keyFn, reverse); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// sortStable sorts items by key like Python's sorted(): stable, ordered
+// with `<`, and failing with Python's TypeError on unorderable keys.
+func sortStable(items []any, key func(any) any, reverse bool) error {
+	var cmpErr error
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := key(items[i]), key(items[j])
+		if reverse {
+			a, b = b, a
+		}
+		lt, err := eval.Compare("lt", a, b)
+		if err != nil && cmpErr == nil {
+			cmpErr = err
+		}
+		return lt
+	})
+	return cmpErr
 }
 
 // ----------------------------------------------------- additional filters
@@ -909,80 +938,42 @@ func filterSort(env *Environment, _ *runtime.Context, value any, args []any, kwa
 // Signature: sum(iterable, attribute=None, start=0)
 //
 // `attribute` (positional or keyword, dotted-path supported) extracts a
-// numeric field from each item. The result is `int64` when all addends
-// are integers, `float64` otherwise.
+// field from each item. Items are added to `start` with the `+` operator,
+// so lists concatenate and mixing numbers with strings raises, as in
+// Python; a string `start` raises.
 //
 // Example:
 //
 //	{{ [1, 2, 3]     | sum }}                       →  6
 //	{{ products      | sum(attribute='price') }}    →  total price
 func filterSum(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	items, err := iterableForSum(value)
+	items, err := iterArg("sum", value)
 	if err != nil {
 		return nil, err
 	}
 	// Python signature: sum(attribute=None, start=0)
 	var attr string
-	if len(args) > 0 {
-		if s, ok := args[0].(string); ok {
-			attr = s
-		}
-	} else if v, ok := kwargs["attribute"].(string); ok {
-		attr = v
+	if v, ok := paramArg(args, kwargs, 0, "attribute"); ok && v != nil {
+		attr = escape.SoftStr(v)
 	}
-	var startInt int64
-	var startFloat float64
-	useFloat := false
-	startVal := kwargs["start"]
-	if startVal == nil && len(args) > 1 {
-		startVal = args[1]
+	var total any = int64(0)
+	if v, ok := paramArg(args, kwargs, 1, "start"); ok {
+		total = v
 	}
-	if startVal != nil {
-		switch s := startVal.(type) {
-		case int:
-			startInt = int64(s)
-		case int64:
-			startInt = s
-		case float64:
-			startFloat = s
-			useFloat = true
-		}
+	if _, ok := total.(string); ok {
+		return nil, gjerrors.NewFilterArgumentError("sum() can't sum strings [use ''.join(seq) instead]")
 	}
-	sumInt := startInt
-	sumFloat := startFloat
 	for _, it := range items {
-		v := it
 		if attr != "" {
-			rv, err := lookupDottedAttr(env, it, attr)
-			if err != nil {
+			if it, err = lookupDottedAttr(env, it, attr); err != nil {
 				return nil, err
 			}
-			v = rv
 		}
-		if f, ok := v.(float64); ok {
-			useFloat = true
-			sumFloat += f
-		} else if n, ok := asInt(v); ok {
-			sumInt += int64(n)
+		if total, err = eval.BinaryOp("+", total, it); err != nil {
+			return nil, err
 		}
 	}
-	if useFloat {
-		return sumFloat + float64(sumInt), nil
-	}
-	return sumInt, nil
-}
-
-// iterableForSum normalises sum-able inputs to []any. Tuples are flat.
-func iterableForSum(value any) ([]any, error) {
-	switch x := value.(type) {
-	case []any:
-		return x, nil
-	case runtime.Tuple:
-		return []any(x), nil
-	case runtime.Undefined:
-		return x.Iter()
-	}
-	return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("sum: cannot sum %T", value))
+	return total, nil
 }
 
 // lookupDottedAttr resolves an attribute path like "real.value" against
@@ -1034,7 +1025,11 @@ func filterMin(env *Environment, _ *runtime.Context, value any, args []any, kwar
 	miKey := keyFn(mi)
 	for _, it := range x[1:] {
 		k := keyFn(it)
-		if compareLess(k, miKey) {
+		lt, err := eval.Compare("lt", k, miKey)
+		if err != nil {
+			return nil, err
+		}
+		if lt {
 			mi = it
 			miKey = k
 		}
@@ -1066,8 +1061,13 @@ func filterMax(env *Environment, _ *runtime.Context, value any, args []any, kwar
 	mx := x[0]
 	mxKey := keyFn(mx)
 	for _, it := range x[1:] {
+		// Python's max() compares with `>`.
 		k := keyFn(it)
-		if compareLess(mxKey, k) {
+		gt, err := eval.Compare("gt", k, mxKey)
+		if err != nil {
+			return nil, err
+		}
+		if gt {
 			mx = it
 			mxKey = k
 		}
@@ -1169,103 +1169,148 @@ func filterItems(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 //
 // Signature: dictsort(value, case_sensitive=False, by="key", reverse=False)
 //
-// Use `by="value"` to sort by the dict values instead of keys.
+// Use `by="value"` to sort by the dict values instead of keys; any other
+// `by` raises. Returns a list of (key, value) tuples.
 //
 // Example:
 //
 //	{% for k, v in {'b': 2, 'a': 1} | dictsort %}{{ k }}={{ v }} {% endfor %}
 //	→  a=1 b=2
-func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	type entry struct{ K, V any }
-	var es []entry
+func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	caseSensitive := false
+	if v, ok := paramArg(args, kwargs, 0, "case_sensitive"); ok {
+		caseSensitive = eval.Truthy(v)
+	}
+	pos := 0
+	if v, ok := paramArg(args, kwargs, 1, "by"); ok {
+		switch v {
+		case "key":
+		case "value":
+			pos = 1
+		default:
+			return nil, gjerrors.NewFilterArgumentError(`You can only sort by either "key" or "value"`)
+		}
+	}
+	reverse := false
+	if v, ok := paramArg(args, kwargs, 2, "reverse"); ok {
+		reverse = eval.Truthy(v)
+	}
+	var items []any
 	switch m := value.(type) {
-	case map[string]any:
-		es = make([]entry, 0, len(m))
-		for k, v := range m {
-			es = append(es, entry{k, v})
-		}
 	case *runtime.OrderedDict:
-		if m == nil {
-			return []any{}, nil
+		items = m.Items()
+	case map[string]any:
+		keys, _ := eval.ToIterable(m)
+		for _, k := range keys {
+			items = append(items, runtime.Tuple{k, m[k.(string)]})
 		}
-		es = make([]entry, 0, m.Len())
-		for _, k := range m.Keys() {
-			v, _ := m.Get(k)
-			es = append(es, entry{k, v})
+	case map[any]any:
+		keys, _ := eval.ToIterable(m)
+		for _, k := range keys {
+			items = append(items, runtime.Tuple{k, m[k]})
 		}
 	default:
 		return nil, gjerrors.NewFilterArgumentError("dictsort requires a mapping")
 	}
-	caseSensitive := false
-	if len(args) > 0 {
-		caseSensitive, _ = args[0].(bool)
-	}
-	by := "key"
-	if len(args) > 1 {
-		if s, ok := args[1].(string); ok {
-			by = s
+	key := func(item any) any {
+		v := item.(runtime.Tuple)[pos]
+		if s, ok := v.(string); ok && !caseSensitive {
+			return strings.ToLower(s)
 		}
+		return v
 	}
-	reverse := false
-	if len(args) > 2 {
-		reverse, _ = args[2].(bool)
+	if err := sortStable(items, key, reverse); err != nil {
+		return nil, err
 	}
-	sort.SliceStable(es, func(i, j int) bool {
-		var a, b any
-		if by == "value" {
-			a, b = es[i].V, es[j].V
-		} else {
-			a, b = es[i].K, es[j].K
-		}
-		if !caseSensitive {
-			if as, ok := a.(string); ok {
-				a = strings.ToLower(as)
-			}
-			if bs, ok := b.(string); ok {
-				b = strings.ToLower(bs)
-			}
-		}
-		if reverse {
-			return compareLess(b, a)
-		}
-		return compareLess(a, b)
-	})
-	out := make([]any, len(es))
-	for i, e := range es {
-		out[i] = []any{e.K, e.V}
+	return items, nil
+}
+
+// unhashable returns Python's TypeError for a value that cannot be a dict
+// key (lists and dicts).
+func unhashable(v any) error {
+	switch v.(type) {
+	case []any, *runtime.PyList, []string, map[string]any, map[any]any, *runtime.OrderedDict:
+		return gjerrors.NewTemplateRuntimeError(fmt.Sprintf("unhashable type: '%s'", eval.PyTypeName(v)))
 	}
-	return out, nil
+	return nil
+}
+
+// indexArg converts an argument Python requires to be an integer
+// (anything with __index__): ints and bools pass, anything else raises
+// Python's TypeError.
+func indexArg(v any) (int, error) {
+	switch x := v.(type) {
+	case bool:
+		if x {
+			return 1, nil
+		}
+		return 0, nil
+	case int:
+		return x, nil
+	case int64:
+		return int(x), nil
+	}
+	switch rv := reflect.ValueOf(v); rv.Kind() {
+	case reflect.Int8, reflect.Int16, reflect.Int32:
+		return int(rv.Int()), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return int(rv.Uint()), nil
+	}
+	return 0, gjerrors.NewFilterArgumentError(fmt.Sprintf("'%s' object cannot be interpreted as an integer", eval.PyTypeName(v)))
+}
+
+// paramArg returns the argument bound to the Python parameter at
+// position i (counting after the value) or passed by keyword as name.
+func paramArg(args []any, kwargs map[string]any, i int, name string) (any, bool) {
+	if i < len(args) {
+		return args[i], true
+	}
+	v, ok := kwargs[name]
+	return v, ok
 }
 
 // filterUnique implements the `unique` filter: drop duplicate items
 // preserving input order.
 //
-// Signature: unique(value, case_sensitive=False)
+// Signature: unique(value, case_sensitive=False, attribute=None)
 //
 // Equality is value equality for primitives. String comparisons are
-// case-insensitive by default — first-seen casing wins.
+// case-insensitive by default — first-seen casing wins. With `attribute`,
+// items are deduplicated by that (dotted) attribute.
 //
 // Example:
 //
 //	{{ [1, 2, 1, 3]            | unique }}  →  [1, 2, 3]
 //	{{ ['Foo', 'foo', 'BAR']   | unique }}  →  ['Foo', 'BAR']
-func filterUnique(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
+func filterUnique(env *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	x, err := iterArg("unique", value)
 	if err != nil {
 		return nil, err
 	}
 	caseSensitive := false
-	if len(args) > 0 {
-		caseSensitive, _ = args[0].(bool)
+	if v, ok := paramArg(args, kwargs, 0, "case_sensitive"); ok {
+		caseSensitive = eval.Truthy(v)
+	}
+	var attr string
+	if v, ok := paramArg(args, kwargs, 1, "attribute"); ok && v != nil {
+		attr = escape.SoftStr(v)
 	}
 	seen := map[any]bool{}
 	out := []any{}
 	for _, it := range x {
 		key := it
+		if attr != "" {
+			if key, err = lookupDottedAttr(env, it, attr); err != nil {
+				return nil, err
+			}
+		}
 		if !caseSensitive {
-			if s, ok := it.(string); ok {
+			if s, ok := key.(string); ok {
 				key = strings.ToLower(s)
 			}
+		}
+		if err := unhashable(key); err != nil {
+			return nil, err
 		}
 		if !seen[key] {
 			seen[key] = true
@@ -1280,41 +1325,56 @@ func filterUnique(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 // Signature: batch(value, linecount, fill_with=None)
 //
 // The last row is padded with `fill_with` to reach `linecount` if a
-// fill value is provided; otherwise it's left short.
+// fill value is provided; otherwise it's left short. A port of Python's
+// do_batch, including its results for a zero or non-integer linecount.
 //
 // Example:
 //
 //	{{ [1, 2, 3, 4, 5]      | batch(2) }}     →  [[1, 2], [3, 4], [5]]
 //	{{ [1, 2, 3, 4, 5]      | batch(2, 0) }}  →  [[1, 2], [3, 4], [5, 0]]
-func filterBatch(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
+func filterBatch(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	x, err := iterArg("batch", value)
 	if err != nil {
 		return nil, err
 	}
-	if len(args) < 1 {
-		return nil, gjerrors.NewFilterArgumentError("batch requires linecount")
-	}
-	n, ok := asInt(args[0])
-	if !ok || n <= 0 {
-		return nil, gjerrors.NewFilterArgumentError("batch linecount must be positive")
-	}
-	var fill any
-	if len(args) > 1 {
-		fill = args[1]
-	}
+	// The signature check guarantees linecount was passed.
+	linecount, _ := paramArg(args, kwargs, 0, "linecount")
+	fill, _ := paramArg(args, kwargs, 1, "fill_with")
+	// Port of do_batch, including its behaviour for odd linecounts.
 	var out []any
-	for i := 0; i < len(x); i += n {
-		end := i + n
-		if end > len(x) {
-			end = len(x)
+	var tmp []any
+	for _, item := range x {
+		full, err := eval.ValuesEqual(int64(len(tmp)), linecount)
+		if err != nil {
+			return nil, err
 		}
-		row := append([]any(nil), x[i:end]...)
+		if full {
+			out = append(out, tmp)
+			tmp = nil
+		}
+		tmp = append(tmp, item)
+	}
+	if len(tmp) > 0 {
 		if fill != nil {
-			for len(row) < n {
-				row = append(row, fill)
+			short, err := eval.Compare("lt", int64(len(tmp)), linecount)
+			if err != nil {
+				return nil, err
+			}
+			if short {
+				missing, err := eval.BinaryOp("-", linecount, int64(len(tmp)))
+				if err != nil {
+					return nil, err
+				}
+				n, err := indexArg(missing)
+				if err != nil {
+					return nil, err
+				}
+				for range n {
+					tmp = append(tmp, fill)
+				}
 			}
 		}
-		out = append(out, row)
+		out = append(out, tmp)
 	}
 	return out, nil
 }
@@ -1383,45 +1443,43 @@ func filterSlice(_ *Environment, _ *runtime.Context, value any, args []any, _ ma
 //	{{ "this is a long sentence" | truncate(12) }}  →  this is a...
 func filterTruncate(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	s := escape.SoftStr(value)
-	length := 255
+	var lengthVal any = int64(255)
+	if v, ok := paramArg(args, kwargs, 0, "length"); ok {
+		lengthVal = v
+	}
 	killWords := false
+	if v, ok := paramArg(args, kwargs, 1, "killwords"); ok {
+		killWords = eval.Truthy(v)
+	}
 	var endVal any = "..."
-	end := "..."
-	leeway := 5
-	if len(args) > 0 {
-		if n, ok := asInt(args[0]); ok {
-			length = n
-		}
-	} else if v, ok := kwargs["length"]; ok {
-		if n, ok := asInt(v); ok {
-			length = n
-		}
-	}
-	if len(args) > 1 {
-		killWords, _ = args[1].(bool)
-	} else if v, ok := kwargs["killwords"].(bool); ok {
-		killWords = v
-	}
-	if len(args) > 2 {
-		endVal = args[2]
-	} else if v, ok := kwargs["end"]; ok {
+	if v, ok := paramArg(args, kwargs, 2, "end"); ok {
 		endVal = v
 	}
-	end = escape.SoftStr(endVal)
-	if len(args) > 3 {
-		if n, ok := asInt(args[3]); ok {
-			leeway = n
-		}
-	} else if v, ok := kwargs["leeway"]; ok {
-		if n, ok := asInt(v); ok {
-			leeway = n
-		}
+	end := escape.SoftStr(endVal)
+	// leeway=None means the truncate.leeway policy, 5.
+	var leewayVal any = int64(5)
+	if v, ok := paramArg(args, kwargs, 3, "leeway"); ok && v != nil {
+		leewayVal = v
 	}
-	if n := utf8.RuneCountInString(end); length < n {
-		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("expected length >= %d, got %d", n, length))
+	// do_truncate asserts length >= len(end) and leeway >= 0.
+	endLen := int64(utf8.RuneCountInString(end))
+	if ok, err := eval.Compare("gteq", lengthVal, endLen); err != nil {
+		return nil, gjerrors.NewFilterArgumentError(err.Error())
+	} else if !ok {
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("expected length >= %d, got %v", endLen, escape.SoftStr(lengthVal)))
 	}
-	if leeway < 0 {
-		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("expected leeway >= 0, got %d", leeway))
+	if ok, err := eval.Compare("gteq", leewayVal, int64(0)); err != nil {
+		return nil, gjerrors.NewFilterArgumentError(err.Error())
+	} else if !ok {
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("expected leeway >= 0, got %v", escape.SoftStr(leewayVal)))
+	}
+	length, err := indexArg(lengthVal)
+	if err != nil {
+		return nil, err
+	}
+	leeway, err := indexArg(leewayVal)
+	if err != nil {
+		return nil, err
 	}
 	rs := []rune(s)
 	if len(rs) <= length+leeway {
@@ -1470,6 +1528,7 @@ func filterWordcount(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 //
 // Signature: indent(s, width=4, first=False, blank=False)
 //
+// `width` is a number of spaces or a string used as the indentation.
 // `first=False` skips indenting the first line (so the filter chains with
 // templates that already have content on the line). `blank=False` skips
 // blank lines.
@@ -1477,23 +1536,29 @@ func filterWordcount(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 // Example:
 //
 //	{{ "a\nb\nc" | indent(2, true) }}  →  "  a\n  b\n  c"
-func filterIndent(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
+func filterIndent(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	s := escape.SoftStr(value)
-	width := 4
-	first := false
-	blank := false
-	if len(args) > 0 {
-		if n, ok := asInt(args[0]); ok {
-			width = n
+	// width is a string used as-is, or a count of spaces (" " * width).
+	pad := "    "
+	if v, ok := paramArg(args, kwargs, 0, "width"); ok {
+		if w, isStr := v.(string); isStr {
+			pad = w
+		} else {
+			p, err := eval.BinaryOp("*", " ", v)
+			if err != nil {
+				return nil, err
+			}
+			pad = escape.SoftStr(p)
 		}
 	}
-	if len(args) > 1 {
-		first, _ = args[1].(bool)
+	first := false
+	if v, ok := paramArg(args, kwargs, 1, "first"); ok {
+		first = eval.Truthy(v)
 	}
-	if len(args) > 2 {
-		blank, _ = args[2].(bool)
+	blank := false
+	if v, ok := paramArg(args, kwargs, 2, "blank"); ok {
+		blank = eval.Truthy(v)
 	}
-	pad := strings.Repeat(" ", width)
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
 		if i == 0 && !first {
@@ -1565,13 +1630,15 @@ func filterStripTags(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 //
 //	{{ "hi" | center(6) }}  →  "  hi  "
 //	{{ "hi" | center(5) }}  →  "  hi "
-func filterCenter(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
+func filterCenter(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	width := 80
-	if len(args) > 0 {
-		if n, ok := asInt(args[0]); ok {
-			width = n
+	if v, ok := paramArg(args, kwargs, 0, "width"); ok {
+		n, err := indexArg(v)
+		if err != nil {
+			return nil, err
 		}
+		width = n
 	}
 	return keepMarkup(value, pyCenter(s, width, " ")), nil
 }
@@ -1595,14 +1662,12 @@ func filterCenter(_ *Environment, _ *runtime.Context, value any, args []any, _ m
 func filterRound(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	// Python signature: round(precision=0, method='common')
 	prec := 0
-	if len(args) > 0 {
-		if n, ok := asInt(args[0]); ok {
-			prec = n
+	if v, ok := paramArg(args, kwargs, 0, "precision"); ok {
+		n, err := indexArg(v)
+		if err != nil {
+			return nil, err
 		}
-	} else if v, ok := kwargs["precision"]; ok {
-		if n, ok := asInt(v); ok {
-			prec = n
-		}
+		prec = n
 	}
 	method := "common"
 	if len(args) > 1 {
@@ -1732,8 +1797,29 @@ func filterUrlencode(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 			parts = append(parts, urlEncodeQS(ks)+"="+urlEncodeQS(escape.SoftStr(v)))
 		}
 		return strings.Join(parts, "&"), nil
+	case escape.Markup:
+		return urlEncodePath(string(x)), nil
 	}
-	return urlEncodePath(escape.SoftStr(value)), nil
+	// Any other iterable is a sequence of (key, value) pairs.
+	items, err := eval.ToIterable(value)
+	if err != nil || value == nil {
+		return urlEncodePath(escape.SoftStr(value)), nil
+	}
+	parts := make([]string, 0, len(items))
+	for _, it := range items {
+		pair, err := eval.ToIterable(it)
+		if err != nil {
+			return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("cannot unpack non-iterable %s object", eval.PyTypeName(it)))
+		}
+		switch {
+		case len(pair) > 2:
+			return nil, gjerrors.NewFilterArgumentError("too many values to unpack (expected 2)")
+		case len(pair) < 2:
+			return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("not enough values to unpack (expected 2, got %d)", len(pair)))
+		}
+		parts = append(parts, urlEncodeQS(escape.SoftStr(pair[0]))+"="+urlEncodeQS(escape.SoftStr(pair[1])))
+	}
+	return strings.Join(parts, "&"), nil
 }
 
 // filterTojson implements the `tojson` filter: serialise a value as JSON
@@ -1741,51 +1827,65 @@ func filterUrlencode(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 //
 // Signature: tojson(value, indent=None)
 //
-// `&`, `<`, `>`, `'` are unicode-escaped (`<` etc.) so the result is
-// safe inside HTML script context. The result is returned as Markup.
+// `&`, `<`, `>` and `'` are unicode-escaped (`\u003c` etc.) so the
+// result is safe in a `<script>` block or a single-quoted HTML attribute.
+// `indent` follows json.dumps: an int indents by that many spaces, a
+// string indents with itself. The result is returned as Markup.
 //
 // Example:
 //
 //	<script>const data = {{ payload | tojson }};</script>
-func filterTojson(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	indent := 0
-	if len(args) > 0 {
-		if n, ok := asInt(args[0]); ok {
-			indent = n
+func filterTojson(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	// indent follows json.dumps: None is compact, an int indents by that
+	// many spaces and a string indents with itself.
+	pretty, indent := false, ""
+	if v, ok := paramArg(args, kwargs, 0, "indent"); ok && v != nil {
+		pretty = true
+		if s, ok := v.(string); ok {
+			indent = s
+		} else {
+			n, err := indexArg(v)
+			if err != nil {
+				return nil, err
+			}
+			indent = strings.Repeat(" ", max(n, 0))
 		}
 	}
-	b, err := jsonMarshal(value, indent)
+	b, err := jsonMarshal(value, pretty, indent)
 	if err != nil {
 		return nil, err
 	}
-	// HTML-safe escape for embedding in <script>: replace &, <, >, ' with unicode escapes.
-	out := strings.NewReplacer(
-		"<", `<`,
-		">", `>`,
-		"&", `&`,
-		"'", `'`,
-	).Replace(string(b))
-	return escape.Markup(out), nil
+	// encoding/json already escapes <, > and & as \u003c, \u003e and
+	// \u0026; htmlsafe_json_dumps also escapes the single quote so the
+	// output is safe inside a single-quoted HTML attribute.
+	return escape.Markup(strings.ReplaceAll(string(b), "'", `\u0027`)), nil
 }
 
 // filterAttr implements the `attr` filter: look up an attribute by name.
 //
 // Signature: attr(value, name)
 //
-// Equivalent to `value.name` in template syntax, but returns the result
-// of attribute access through the engine's sandbox-aware [Environment.GetAttr].
-// Useful when the attribute name is dynamic.
+// Python's getattr(): unlike `value.name` it never falls back to item
+// lookup, so on a dict only its methods are attributes and a key yields
+// Undefined. Other values go through the sandbox-aware
+// [Environment.GetAttr]. Useful when the attribute name is dynamic.
 //
 // Example:
 //
 //	{{ obj | attr('field_name') }}     ≡  {{ obj.field_name }}
 func filterAttr(env *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	if len(args) < 1 {
-		return nil, gjerrors.NewFilterArgumentError("attr requires a name")
-	}
-	name, ok := args[0].(string)
+	name, ok := eqString(args[0])
 	if !ok {
-		return nil, gjerrors.NewFilterArgumentError("attr name must be a string")
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("attribute name must be string, not '%s'", eval.PyTypeName(args[0])))
+	}
+	// attr is getattr(): on a dict only its methods are attributes, never
+	// its keys.
+	switch m := value.(type) {
+	case map[string]any, map[any]any, *runtime.OrderedDict:
+		if method := dictMethod(m, name); method != nil {
+			return method, nil
+		}
+		return env.undefined("", name, value, nil), nil
 	}
 	return env.GetAttr(value, name)
 }
@@ -2182,13 +2282,7 @@ func testFloat(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[str
 //
 //	{% for n in numbers if n is odd %}{{ n }} {% endfor %}
 func testOdd(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
-	if err := eval.FailUndefined(value); err != nil {
-		return false, err
-	}
-	if n, ok := asInt(value); ok {
-		return n%2 != 0, nil
-	}
-	return false, nil
+	return modEquals(value, int64(2), int64(1))
 }
 
 // testEven implements the `even` test: true if the value is an integer
@@ -2196,13 +2290,7 @@ func testOdd(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[strin
 //
 // Signature: x is even
 func testEven(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
-	if err := eval.FailUndefined(value); err != nil {
-		return false, err
-	}
-	if n, ok := asInt(value); ok {
-		return n%2 == 0, nil
-	}
-	return false, nil
+	return modEquals(value, int64(2), int64(0))
 }
 
 // testDivisibleBy implements the `divisibleby` test: true if value is
@@ -2215,20 +2303,19 @@ func testEven(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[stri
 //	{% if n is divisibleby(3) %}fizz{% endif %}
 func testDivisibleBy(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (bool, error) {
 	if len(args) < 1 {
-		return false, gjerrors.NewTemplateRuntimeError("divisibleby requires divisor")
+		return false, nil
 	}
-	if err := eval.FailUndefined(value, args[0]); err != nil {
+	return modEquals(value, args[0], int64(0))
+}
+
+// modEquals is Python's `value % n == want`, raising like the `%`
+// operator on undefined, non-numeric or zero operands.
+func modEquals(value, n, want any) (bool, error) {
+	r, err := eval.BinaryOp("%", value, n)
+	if err != nil {
 		return false, err
 	}
-	n, ok := asInt(value)
-	if !ok {
-		return false, nil
-	}
-	d, ok := asInt(args[0])
-	if !ok || d == 0 {
-		return false, nil
-	}
-	return n%d == 0, nil
+	return eval.ValuesEqual(r, want)
 }
 
 // testSequence implements the `sequence` test: true if the value can be
@@ -2343,10 +2430,7 @@ func testLt(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 	if len(args) < 1 {
 		return false, nil
 	}
-	if err := eval.FailUndefined(value, args[0]); err != nil {
-		return false, err
-	}
-	return compareLess(value, args[0]), nil
+	return eval.Compare("lt", value, args[0])
 }
 
 // testLtEq implements the `le` / `<=` test: less-or-equal comparison.
@@ -2356,13 +2440,7 @@ func testLtEq(_ *Environment, _ *runtime.Context, value any, args []any, _ map[s
 	if len(args) < 1 {
 		return false, nil
 	}
-	if err := eval.FailUndefined(value, args[0]); err != nil {
-		return false, err
-	}
-	if compareLess(value, args[0]) {
-		return true, nil
-	}
-	return eval.ValuesEqual(value, args[0])
+	return eval.Compare("lteq", value, args[0])
 }
 
 // testGt implements the `gt` / `greaterthan` / `>` test: strict-greater
@@ -2373,10 +2451,7 @@ func testGt(_ *Environment, _ *runtime.Context, value any, args []any, _ map[str
 	if len(args) < 1 {
 		return false, nil
 	}
-	if err := eval.FailUndefined(value, args[0]); err != nil {
-		return false, err
-	}
-	return compareLess(args[0], value), nil
+	return eval.Compare("gt", value, args[0])
 }
 
 // testGtEq implements the `ge` / `>=` test: greater-or-equal comparison.
@@ -2386,10 +2461,7 @@ func testGtEq(_ *Environment, _ *runtime.Context, value any, args []any, _ map[s
 	if len(args) < 1 {
 		return false, nil
 	}
-	if err := eval.FailUndefined(value, args[0]); err != nil {
-		return false, err
-	}
-	return !compareLess(value, args[0]), nil
+	return eval.Compare("gteq", value, args[0])
 }
 
 // testIn implements the `in` test: membership check.
@@ -2483,6 +2555,9 @@ func testEscaped(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 //
 // Signature: name is filter
 func testIsFilter(env *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
+	if err := unhashable(value); err != nil {
+		return false, err
+	}
 	name, ok := value.(string)
 	if !ok {
 		return false, nil
@@ -2496,6 +2571,9 @@ func testIsFilter(env *Environment, _ *runtime.Context, value any, _ []any, _ ma
 //
 // Signature: name is test
 func testIsTest(env *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (bool, error) {
+	if err := unhashable(value); err != nil {
+		return false, err
+	}
 	name, ok := value.(string)
 	if !ok {
 		return false, nil
@@ -2504,43 +2582,7 @@ func testIsTest(env *Environment, _ *runtime.Context, value any, _ []any, _ map[
 	return exists, nil
 }
 
-// ----------------- comparison helpers shared by filters and tests -----------------
-
-func compareLess(a, b any) bool {
-	if af, ok := numAsFloat(a); ok {
-		if bf, ok := numAsFloat(b); ok {
-			return af < bf
-		}
-	}
-	if as, ok := a.(string); ok {
-		if bs, ok := b.(string); ok {
-			return as < bs
-		}
-	}
-	// Tuple / list comparison — Python's sort uses lexicographic order
-	// element-by-element, the way `(key, value)` pairs from
-	// `dict.items()` get sorted by key, then by value. We treat
-	// `[]any` and `runtime.Tuple` interchangeably so a list of either
-	// can be sorted.
-	al, aOK := asAnySlice(a)
-	bl, bOK := asAnySlice(b)
-	if aOK && bOK {
-		n := len(al)
-		if len(bl) < n {
-			n = len(bl)
-		}
-		for i := 0; i < n; i++ {
-			if compareLess(al[i], bl[i]) {
-				return true
-			}
-			if compareLess(bl[i], al[i]) {
-				return false
-			}
-		}
-		return len(al) < len(bl)
-	}
-	return false
-}
+// ----------------- sequence helpers -----------------
 
 // asAnySlice unwraps []any, runtime.Tuple or *runtime.PyList to a flat
 // []any view.

@@ -10,6 +10,7 @@ import (
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
+	"github.com/jryberg/gojinja/pkg/eval"
 	"github.com/jryberg/gojinja/pkg/runtime"
 	"github.com/jryberg/gojinja/pkg/sandbox"
 )
@@ -274,7 +275,7 @@ func (f *strFormatter) getField(name string) (any, error) {
 // matching SandboxedEnvironment.unsafe_undefined; unsafe reports that.
 func (f *strFormatter) getAttr(obj any, attr string) (v any, unsafe bool, err error) {
 	if f.env.sandboxed && !sandbox.IsSafeAttribute(obj, attr) {
-		msg := fmt.Sprintf("access to attribute %s of %s object is unsafe.", escape.Repr(attr), escape.Repr(pyTypeName(obj)))
+		msg := fmt.Sprintf("access to attribute %s of %s object is unsafe.", escape.Repr(attr), escape.Repr(eval.PyTypeName(obj)))
 		return f.env.undefined(msg, attr, obj, func(m string) error { return gjerrors.NewSecurityError(m) }), true, nil
 	}
 	v, err = f.env.GetAttr(obj, attr)
@@ -306,7 +307,7 @@ func (f *strFormatter) getValue(key string) (any, error) {
 				return v, nil
 			}
 		default:
-			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("'%s' object is not subscriptable", pyTypeName(f.mapping)))
+			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("'%s' object is not subscriptable", eval.PyTypeName(f.mapping)))
 		}
 	} else if v, ok := f.kwargs[key]; ok {
 		return v, nil
@@ -343,7 +344,7 @@ func (f *strFormatter) formatField(v any, spec string) (string, error) {
 		return string(x), nil
 	case escape.HTMLer:
 		if spec != "" {
-			return "", formatValueError(fmt.Sprintf("Format specifier %s given, but %s does not define __html_format__. A class that defines __html__ must define __html_format__ to work with format specifiers.", spec, pyTypeName(v)))
+			return "", formatValueError(fmt.Sprintf("Format specifier %s given, but %s does not define __html_format__. A class that defines __html__ must define __html_format__ to work with format specifiers.", spec, eval.PyTypeName(v)))
 		}
 		return string(x.HTML()), nil
 	}
@@ -390,36 +391,6 @@ func isASCIIDigits(s string) bool {
 		}
 	}
 	return true
-}
-
-// pyTypeName is the Python type name templates see for v.
-func pyTypeName(v any) string {
-	switch v.(type) {
-	case nil:
-		return "NoneType"
-	case bool:
-		return "bool"
-	case string:
-		return "str"
-	case escape.Markup:
-		return "Markup"
-	case float32, float64:
-		return "float"
-	case []any, *runtime.PyList:
-		return "list"
-	case runtime.Tuple:
-		return "tuple"
-	case map[string]any, map[any]any, *runtime.OrderedDict:
-		return "dict"
-	case runtime.Undefined:
-		return "Undefined"
-	}
-	switch reflect.ValueOf(v).Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return "int"
-	}
-	return fmt.Sprintf("%T", v)
 }
 
 // ------------------------------------------------ format-spec mini-language
@@ -572,7 +543,7 @@ func pyFormat(v any, spec string) (string, error) {
 	if u, ok := v.(runtime.Undefined); ok && u.Mode == runtime.ModeStrict {
 		return "", u.Fail()
 	}
-	return "", gjerrors.NewTemplateRuntimeError(fmt.Sprintf("unsupported format string passed to %s.__format__", pyTypeName(v)))
+	return "", gjerrors.NewTemplateRuntimeError(fmt.Sprintf("unsupported format string passed to %s.__format__", eval.PyTypeName(v)))
 }
 
 func formatStr(s, spec string) (string, error) {

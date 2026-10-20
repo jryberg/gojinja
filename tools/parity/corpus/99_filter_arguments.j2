@@ -1,0 +1,9 @@
+{{ [1, 2, 3]|batch(linecount=2, fill_with=0)|list }}|{{ [1, 2]|batch(0)|list }}|{{ [1, 2, 3]|slice(slices=2, fill_with=0)|list }}|{{ 'ab'|center(width=7) }}|
+{{ none|default(default_value='d') }}|{{ ''|default('d', boolean=true) }}|{{ 1500|filesizeformat(binary=true) }}|{{ 'x'|int(default=3) }}|{{ 'ff'|int(base=16) }}|{{ 'x'|float(default=2.5) }}
+{{ {'b': 1, 'a': 2}|dictsort(by='value') }}|{{ {'b': 1, 'A': 2}|dictsort(case_sensitive=true) }}|{{ {'b': 1, 'a': 2}|dictsort(reverse=true) }}|{{ {'b': 1, 'a': 2}|dictsort(false, 'value', true) }}
+{{ items|groupby(attribute='k')|list }}|{{ items|map(attribute='k')|join(d='-') }}|{{ items|max(attribute='k') }}|{{ items|sum(attribute='v') }}|{{ items|unique(attribute='k')|list|length }}
+{{ 'a\nb'|indent(width=2, first=true) }}|{{ 'a\n\nb'|indent('> ', blank=true) }}|{{ 'aaa'|replace(old='a', new='b', count=2) }}|{{ 1.55|round(precision=1, method='floor') }}
+{{ [3, 1, 2]|sort(reverse=true) }}|{{ ['b', 'A']|sort(case_sensitive=true) }}|{{ [1, 2]|sum(start=10) }}|{{ [[1], [2]]|sum(start=[]) }}|{{ [(1, 2), (1, 1)]|sort }}|{{ [1] < [2] }}|{{ (1, 2) < (1, 3) }}
+{{ {'a': [1, 2]}|tojson(indent=1) }}|{{ [1]|tojson(indent=0) }}|{{ {'a': "it's"}|tojson }}|{{ 'xax'|trim(chars='x') }}|{{ 'abc def ghi'|truncate(length=7, killwords=true, end='!', leeway=0) }}
+{{ 'go to example.com and a@b.org'|urlize(10, true, '_blank', 'x y') }}|{{ 'go example.com'|urlize(rel='me') }}|{{ {'a': 1}|xmlattr(autospace=false) }}
+{{ 5 is divisibleby(num=5) }}|{{ 1 is in(seq=[1]) }}|{{ 1 is sameas(other=1) }}|{{ true is odd }}|{{ 3 is even }}|{{ true + 1 }}|{{ 'ab' * true }}|{{ {'a': 1}|attr('a') }}|{{ [('a', 1), ('b c', '&')]|urlencode }}

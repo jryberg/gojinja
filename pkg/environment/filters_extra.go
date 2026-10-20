@@ -10,6 +10,7 @@ import (
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
+	"github.com/jryberg/gojinja/pkg/eval"
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
@@ -118,12 +119,20 @@ func filterGroupby(env *Environment, _ *runtime.Context, value any, args []any, 
 //
 //	{{ "the quick brown fox" | wordwrap(10) }}
 //	→  "the quick\nbrown fox"
-func filterWordwrap(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
+func filterWordwrap(_ *Environment, _ *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	s := escape.SoftStr(value)
 	width := 79
-	if len(args) > 0 {
-		if n, ok := asInt(args[0]); ok {
-			width = n
+	if v, ok := paramArg(args, kwargs, 0, "width"); ok {
+		// TextWrapper first checks `width <= 0`.
+		bad, err := eval.Compare("lteq", v, int64(0))
+		if err != nil {
+			return nil, gjerrors.NewFilterArgumentError(err.Error())
+		}
+		if bad {
+			return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("invalid width %v (must be > 0)", escape.SoftStr(v)))
+		}
+		if width, err = indexArg(v); err != nil {
+			return nil, err
 		}
 	}
 	var out []string
@@ -286,41 +295,47 @@ var urlRegex = regexp.MustCompile(`(?i)(?:https?://[^\s<>"]+|www\.[^\s<>"]+|[a-z
 // filterUrlize implements the `urlize` filter: convert URLs and email
 // addresses in text into HTML links.
 //
-// Signature: urlize(value, trim_url_limit=None, nofollow=False, target=None, rel="noopener")
+// Signature: urlize(value, trim_url_limit=None, nofollow=False, target=None, rel=None, extra_schemes=None)
 //
-// `trim_url_limit` truncates display text (the href stays full).
-// `nofollow=True` adds `rel="nofollow"`.
+// `trim_url_limit` truncates display text (the href stays full). Web
+// links get `rel` set to the sorted union of `rel`, "nofollow" (with
+// `nofollow=True`) and the "noopener" policy, plus `target` when given;
+// `mailto:` links get neither.
 //
 // The input is escaped first unless it is already Markup, and the result
-// is Markup only under autoescape (as in Python). `rel="noopener"` is
-// added for http(s)/www/bare-domain links; `mailto:` links never get it.
+// is Markup only under autoescape (as in Python).
 //
 // Example:
 //
 //	{{ "Visit https://example.com" | urlize }}
 //	→  Visit <a href="https://example.com" rel="noopener">https://example.com</a>
-func filterUrlize(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	trim := 0
-	nofollow := false
-	target := ""
-	rel := "noopener" // gojinja default — safer than Python's empty default
-	if len(args) > 0 {
-		if n, ok := asInt(args[0]); ok {
-			trim = n
+func filterUrlize(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	// trim_url_limit=None leaves link text alone. Like Python it is only
+	// compared and sliced with once a link needs trimming.
+	var trim any
+	if v, ok := paramArg(args, kwargs, 0, "trim_url_limit"); ok {
+		trim = v
+	}
+	var trimErr error
+	// rel is the sorted union of the rel argument, "nofollow" when asked
+	// for, and the urlize.rel policy ("noopener"), as in do_urlize.
+	relParts := map[string]bool{"noopener": true}
+	if v, ok := paramArg(args, kwargs, 3, "rel"); ok && v != nil {
+		for _, p := range strings.Fields(escape.SoftStr(v)) {
+			relParts[p] = true
 		}
 	}
-	if len(args) > 1 {
-		nofollow, _ = args[1].(bool)
+	if v, ok := paramArg(args, kwargs, 1, "nofollow"); ok && eval.Truthy(v) {
+		relParts["nofollow"] = true
 	}
-	if len(args) > 2 {
-		if t, ok := args[2].(string); ok {
-			target = t
-		}
+	rels := make([]string, 0, len(relParts))
+	for p := range relParts {
+		rels = append(rels, p)
 	}
-	if len(args) > 3 {
-		if r, ok := args[3].(string); ok {
-			rel = r
-		}
+	sort.Strings(rels)
+	linkAttrs := fmt.Sprintf(` rel="%s"`, escape.Escape(strings.Join(rels, " ")))
+	if v, ok := paramArg(args, kwargs, 2, "target"); ok && v != nil && eval.Truthy(v) {
+		linkAttrs += fmt.Sprintf(` target="%s"`, escape.Escape(v))
 	}
 
 	// escape() leaves a Markup subject as is.
@@ -345,34 +360,29 @@ func filterUrlize(env *Environment, ctx *runtime.Context, value any, args []any,
 			}
 		}
 		text = match
-		if trim > 0 && len(text) > trim {
-			text = text[:trim] + "..."
-		}
-		var attrs []string
-		// Python's urlize emits `rel="noopener"` for http(s)/www/bare-
-		// domain links (which open externally) but NOT for `mailto:`
-		// (where there's no cross-origin concern).
-		if !isEmail {
-			extra := rel
-			if nofollow {
-				extra = strings.TrimSpace(extra + " nofollow")
+		if trim != nil && trimErr == nil {
+			rs := []rune(text)
+			long, err := eval.Compare("gt", int64(len(rs)), trim)
+			if err == nil && long {
+				var n int
+				if n, err = indexArg(trim); err == nil {
+					text = string(rs[:max(0, min(n, len(rs)))]) + "..."
+				}
 			}
-			if extra != "" {
-				attrs = append(attrs, fmt.Sprintf(`rel="%s"`, extra))
-			}
-		} else if nofollow {
-			attrs = append(attrs, `rel="nofollow"`)
+			trimErr = err
 		}
-		if target != "" && !isEmail {
-			attrs = append(attrs, fmt.Sprintf(`target="%s"`, target))
-		}
-		attrStr := ""
-		if len(attrs) > 0 {
-			attrStr = " " + strings.Join(attrs, " ")
+		// Python's urlize puts rel/target on web links only, never on
+		// mailto: links.
+		attrStr := linkAttrs
+		if isEmail {
+			attrStr = ""
 		}
 		return fmt.Sprintf(`<a href="%s"%s>%s</a>`, href, attrStr, text)
 	})
 	_ = env // signature parity
+	if trimErr != nil {
+		return nil, trimErr
+	}
 	if autoescapeOn(ctx) {
 		return escape.Markup(out), nil
 	}

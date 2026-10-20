@@ -36,9 +36,10 @@ type FilterFunc func(env *Environment, ctx *runtime.Context, value any, args []a
 type Filter struct {
 	Pass runtime.PassArg
 	Func FilterFunc
-	// builtin marks the standard Jinja2 filters, which get Python's
-	// argument handling; user-registered filters are dispatched as-is.
-	builtin bool
+	// sig is the Python signature of a standard Jinja2 filter, which gets
+	// Python's argument checking; user-registered filters have none and
+	// are dispatched as-is.
+	sig *signature
 }
 
 // TestFunc is a registered template test (predicate).
@@ -48,8 +49,8 @@ type TestFunc func(env *Environment, ctx *runtime.Context, value any, args []any
 type Test struct {
 	Pass runtime.PassArg
 	Func TestFunc
-	// builtin marks the standard Jinja2 tests; see [Filter].
-	builtin bool
+	// sig is the Python signature of a standard Jinja2 test; see [Filter].
+	sig *signature
 }
 
 // Loader is re-exported from [pkg/loader]. A loader resolves a template
@@ -744,8 +745,14 @@ func (e *Environment) CallFilter(name string, ctx *runtime.Context, value any, a
 	if !ok {
 		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("no filter named %q", name))
 	}
-	if u, ok := value.(runtime.Undefined); ok && u.Mode == runtime.ModeStrict && f.builtin && !strictUndefinedFilters[name] {
-		return nil, u.Fail()
+	if f.sig != nil {
+		if msg := f.sig.check(len(args), kwargs); msg != "" {
+			return nil, gjerrors.NewFilterArgumentError(msg)
+		}
+		args, kwargs = f.sig.normalize(args, kwargs)
+		if u, ok := value.(runtime.Undefined); ok && u.Mode == runtime.ModeStrict && !strictUndefinedFilters[name] {
+			return nil, u.Fail()
+		}
 	}
 	value = unwrapPyList(value)
 	args = unwrapPyListArgs(args)
@@ -777,8 +784,14 @@ func (e *Environment) CallTest(name string, ctx *runtime.Context, value any, arg
 	if !ok {
 		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("no test named %q", name))
 	}
-	if u, ok := value.(runtime.Undefined); ok && u.Mode == runtime.ModeStrict && t.builtin && !strictUndefinedTests[name] {
-		return nil, u.Fail()
+	if t.sig != nil {
+		if msg := t.sig.check(len(args), kwargs); msg != "" {
+			return nil, gjerrors.NewTemplateRuntimeError(msg)
+		}
+		args, kwargs = t.sig.normalize(args, kwargs)
+		if u, ok := value.(runtime.Undefined); ok && u.Mode == runtime.ModeStrict && !strictUndefinedTests[name] {
+			return nil, u.Fail()
+		}
 	}
 	value = unwrapPyList(value)
 	args = unwrapPyListArgs(args)
