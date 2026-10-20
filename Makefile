@@ -1,4 +1,4 @@
-.PHONY: test vet lint audit tidy build parity parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall docs docs-serve docs-check
+.PHONY: test vet lint audit tidy build parity parity-venv parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall docs docs-serve docs-check
 
 GO ?= go
 
@@ -34,22 +34,37 @@ audit: docs-check
 tidy:
 	$(GO) mod tidy
 
+# Parity runs Python Jinja2 from a project venv built from the pinned,
+# hash-locked tools/parity/requirements.txt — never the system copy, so
+# every machine and CI compare against the same Jinja2 release. The venv
+# is rebuilt whenever the requirements change.
+PARITY_VENV ?= .venv-parity
+PARITY_PYTHON := $(PARITY_VENV)/bin/python
+
+$(PARITY_VENV)/.installed: tools/parity/requirements.txt
+	rm -rf $(PARITY_VENV)
+	python3 -m venv $(PARITY_VENV)
+	$(PARITY_PYTHON) -m pip install --quiet --require-hashes -r tools/parity/requirements.txt
+	@touch $@
+
+parity-venv: $(PARITY_VENV)/.installed
+	@$(PARITY_PYTHON) -c 'from importlib.metadata import version as v; print("parity venv: jinja2", v("jinja2"), "markupsafe", v("markupsafe"))'
+
 # Parity harness: renders every corpus template through both gojinja and
 # Python Jinja2 (via tools/parity/parity.py) and diffs the outputs.
-# Requires `python3` with `jinja2` installed on $PATH.
-parity:
-	$(GO) run ./tools/parity
+parity: parity-venv
+	$(GO) run ./tools/parity -python $(PARITY_PYTHON)
 
 # External parity: validates gojinja against real-world templates fetched
 # from ten upstream open-source projects (see
 # tools/parity/external/SOURCES.md). Run -fetch once to populate the
 # cache (network access required, GH_TOKEN respected for rate limits).
-parity-external-fetch:
-	$(GO) run ./tools/parity/external -fetch -validate=false
+parity-external-fetch: parity-venv
+	$(GO) run ./tools/parity/external -python $(PARITY_PYTHON) -fetch -validate=false
 
-parity-external:
-	$(GO) run ./tools/parity/external
-	$(GO) run ./tools/parity/external -render
+parity-external: parity-venv
+	$(GO) run ./tools/parity/external -python $(PARITY_PYTHON)
+	$(GO) run ./tools/parity/external -python $(PARITY_PYTHON) -render
 
 # Aggregate target mirroring what CI runs (without the OS matrix or
 # external parity). Run this before opening a PR.

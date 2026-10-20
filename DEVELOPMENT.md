@@ -43,7 +43,7 @@ make hooks-install   # opt in to .githooks/ (DCO sign-off + lint)
 
 Requirements:
 - Go 1.26+
-- For the parity harness: `python3` with `jinja2` installed on `$PATH` (`python3 -m pip install jinja2`).
+- For the parity harness: `python3` (3.12+) with the `venv` module. `make parity` builds `.venv-parity/` from the pinned, hash-locked `tools/parity/requirements.txt` and never uses a system-wide Jinja2.
 - Optional: `staticcheck` for `make lint` and the pre-commit hook.
 
 Hooks (after `make hooks-install`):
@@ -80,6 +80,8 @@ make parity
 
 Renders every curated template through both gojinja and canonical Python Jinja2 and diffs the output byte-by-byte. **Zero diffs** is the only passing state.
 
+The Python side always runs the Jinja2 release pinned in `tools/parity/requirements.txt` (currently the latest, 3.1.6), from a project venv at `.venv-parity/`. `make parity` (and `make parity-external`) create the venv on first use and rebuild it whenever the requirements change; `make parity-venv` prints the versions in use. To move to a newer Jinja2 release, edit nothing but the lock: re-run the `uv pip compile` command at the top of `tools/parity/requirements.in` (it excludes uploads newer than 14 days), then `make parity`. Dependabot proposes these bumps weekly.
+
 The corpus is **a regression gate, not a coverage menu**. New features ship with corpus cases that lock in their parity. When a case fails, the right response is to fix gojinja so the diff disappears — never to delete or weaken the case. Documented divergences (the small handful tabulated in [`docs/divergences.md`](docs/divergences.md)) are the only valid reason a Python template might *not* render identically in gojinja.
 
 ### Corpus layout
@@ -88,6 +90,7 @@ The corpus is **a regression gate, not a coverage menu**. New features ship with
 tools/parity/
 ├── main.go        # Go orchestrator: discovers cases, renders both sides, diffs
 ├── parity.py      # Python helper invoked per-case via os/exec
+├── requirements.in / requirements.txt   # pinned Jinja2 for the venv
 └── corpus/
     ├── 01_plain.j2
     ├── 01_plain.vars.json                  # flat case
@@ -145,8 +148,9 @@ make parity
 Filter cases:
 
 ```bash
-go run ./tools/parity -filter 99_      # only run cases whose names contain "99_"
-go run ./tools/parity -v               # verbose: log every passing case
+make parity-venv                                              # build/refresh .venv-parity first
+go run ./tools/parity -python .venv-parity/bin/python -filter 99_   # only cases whose names contain "99_"
+go run ./tools/parity -python .venv-parity/bin/python -v            # verbose: log every passing case
 ```
 
 ### Driving from canonical Jinja2 tests

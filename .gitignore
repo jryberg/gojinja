@@ -15,6 +15,9 @@
 *.swp
 .DS_Store
 
+# Parity harness Python venv (built by `make parity-venv`).
+/.venv-parity/
+
 # Go
 vendor/
 coverage.txt

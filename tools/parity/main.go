@@ -13,8 +13,10 @@
 //	go run ./tools/parity
 //	make parity
 //
-// The Python side is invoked via the `python3` on $PATH; ensure
-// `python3 -m pip install jinja2` is available. Names matching the
+// The Python side runs under the interpreter given by -python. `make
+// parity` passes the project venv built from the pinned
+// tools/parity/requirements.txt, so the comparison is always against
+// the same Jinja2 release. Names matching the
 // optional -filter flag run; the rest are skipped.
 package main
 
@@ -38,6 +40,7 @@ import (
 func main() {
 	corpus := flag.String("corpus", "tools/parity/corpus", "path to the corpus directory")
 	pyScript := flag.String("py", "tools/parity/parity.py", "path to the Python parity script")
+	python := flag.String("python", "python3", "Python interpreter with the pinned Jinja2 (make parity passes the project venv)")
 	filter := flag.String("filter", "", "only run cases whose basename contains this substring")
 	verbose := flag.Bool("v", false, "log per-case status")
 	stability := flag.Int("stability", 3, "render each case this many times with gojinja and fail if the outputs differ across runs (1 disables the check)")
@@ -54,7 +57,7 @@ func main() {
 		if *filter != "" && !strings.Contains(name, *filter) {
 			continue
 		}
-		ok, err := runCase(*corpus, name, *pyScript, *stability)
+		ok, err := runCase(*corpus, name, *python, *pyScript, *stability)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", name, err))
 			fmt.Printf("FAIL %s: %v\n", name, err)
@@ -142,7 +145,7 @@ func resolveCase(dir, name string) caseLayout {
 // and historic bugs have leaked that into template output.
 // Returns (true, nil) on parity + stability, (false, nil) when outputs
 // differ (a diff is printed), or an error for harness failures.
-func runCase(dir, name, pyScript string, stability int) (bool, error) {
+func runCase(dir, name, python, pyScript string, stability int) (bool, error) {
 	c := resolveCase(dir, name)
 	src, err := os.ReadFile(c.tmplPath)
 	if err != nil {
@@ -175,7 +178,7 @@ func runCase(dir, name, pyScript string, stability int) (bool, error) {
 		}
 	}
 
-	pyOut, err := renderPython(pyScript, c.tmplPath, c.varsPath, c.loaderDir)
+	pyOut, err := renderPython(python, pyScript, c.tmplPath, c.varsPath, c.loaderDir)
 	if err != nil {
 		return false, fmt.Errorf("python render: %w", err)
 	}
@@ -253,12 +256,12 @@ func (m mapLoader) GetSource(name string) (gj.Source, error) {
 	return gj.Source{Code: src, Filename: name}, nil
 }
 
-func renderPython(script, tmpl, vars, loaderDir string) (string, error) {
+func renderPython(python, script, tmpl, vars, loaderDir string) (string, error) {
 	args := []string{script, tmpl, vars}
 	if loaderDir != "" {
 		args = append(args, loaderDir)
 	}
-	cmd := exec.Command("python3", args...)
+	cmd := exec.Command(python, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

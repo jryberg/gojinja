@@ -49,7 +49,7 @@ type goResult struct {
 }
 
 // runParity is the harness entrypoint. mode is either "parse" or "render".
-func runParity(cacheDir, mode, pyScript, only string, verbose bool) error {
+func runParity(cacheDir, mode, python, pyScript, only string, verbose bool) error {
 	items, err := discoverItems(cacheDir, mode, only)
 	if err != nil {
 		return err
@@ -60,7 +60,7 @@ func runParity(cacheDir, mode, pyScript, only string, verbose bool) error {
 	fmt.Printf("Discovered %d template(s) across %d project(s); mode=%s\n",
 		len(items), countProjects(items), mode)
 
-	pyOut, err := callPython(pyScript, mode, items)
+	pyOut, err := callPython(python, pyScript, mode, items)
 	if err != nil {
 		return fmt.Errorf("python helper: %w", err)
 	}
@@ -338,7 +338,7 @@ func countProjects(items []item) int {
 	return len(seen)
 }
 
-func callPython(script, mode string, items []item) ([]pyResult, error) {
+func callPython(python, script, mode string, items []item) ([]pyResult, error) {
 	job := struct {
 		Mode  string `json:"mode"`
 		Items []item `json:"items"`
@@ -347,7 +347,7 @@ func callPython(script, mode string, items []item) ([]pyResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command("python3", script)
+	cmd := exec.Command(python, script)
 	cmd.Stdin = bytes.NewReader(in)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

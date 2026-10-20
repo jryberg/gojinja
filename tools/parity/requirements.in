@@ -1,0 +1,3 @@
+# Python side of the parity harness. After editing, re-lock with:
+#   uv pip compile --exclude-newer "$(date -u -d '14 days ago' +%Y-%m-%d)" --generate-hashes --python-version 3.12 tools/parity/requirements.in -o tools/parity/requirements.txt
+jinja2

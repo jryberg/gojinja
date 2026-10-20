@@ -27,6 +27,7 @@ func main() {
 	var (
 		cacheDir = flag.String("cache", "tools/parity/external/cache", "where fetched templates live")
 		pyScript = flag.String("py", "tools/parity/external/parity.py", "path to the Python parity helper")
+		python   = flag.String("python", "python3", "Python interpreter with the pinned Jinja2 (make passes the project venv)")
 		fetch    = flag.Bool("fetch", false, "download/refresh the cache before validating")
 		render   = flag.Bool("render", false, "run render-parity (default is parse-parity)")
 		loose    = flag.Bool("loose", false, "loose render mode: stub unknown filters/tests, ChainableUndefined, fallback loader")
@@ -60,7 +61,7 @@ func main() {
 	case *render:
 		mode = "render"
 	}
-	if err := runParity(abs, mode, *pyScript, *only, *verbose); err != nil {
+	if err := runParity(abs, mode, *python, *pyScript, *only, *verbose); err != nil {
 		fail("%v", err)
 	}
 }
