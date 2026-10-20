@@ -515,6 +515,8 @@ If you're rendering templates supplied by your application's *own* code, the def
 
 ## API reference
 
+> **Upgrading from v1.0?** v1.1 changed a few advanced APIs in `pkg/runtime` and `pkg/ext`, and some values and error types Go code receives. See [Upgrading to v1.1](https://jryberg.github.io/gojinja/upgrading/).
+
 Most consumers only need the top-level `github.com/jryberg/gojinja` package, which re-exports the user-facing types.
 
 ### Options

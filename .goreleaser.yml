@@ -78,3 +78,8 @@ release:
     name: gojinja
   draft: false
   prerelease: auto
+  # v1.1 changed advanced Go APIs; point its releases at the upgrade guide.
+  header: |
+    {{- if and (eq .Major 1) (eq .Minor 1) }}
+    Upgrading from v1.0? See [Upgrading to v1.1](https://jryberg.github.io/gojinja/upgrading/) for the Go API changes.
+    {{- end }}

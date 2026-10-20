@@ -147,6 +147,7 @@ nav:
       - Sandbox: sandbox.md
       - Native types: native.md
       - Extensions: extensions.md
+      - Upgrading to v1.1: upgrading.md
       - Migrating from Python Jinja2: migrating-from-jinja2.md
       - CLI: cli.md
   - API reference:
