@@ -3,10 +3,12 @@ package environment
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"math/big"
 	"strings"
 
+	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
@@ -82,7 +84,10 @@ func roundRatHalfEven(r *big.Rat, ndigits int) *big.Rat {
 // unwraps *runtime.OrderedDict into a key-ordered JSON object so Python
 // 3.7+ dict-order semantics survive a tojson round-trip.
 func jsonMarshal(v any, pretty bool, indent string) ([]byte, error) {
-	prepared := jsonPrep(v)
+	prepared, err := jsonPrep(v)
+	if err != nil {
+		return nil, err
+	}
 	if !pretty {
 		raw, err := json.Marshal(prepared)
 		if err != nil {
@@ -137,46 +142,83 @@ func rewriteJSONSpacing(raw []byte) []byte {
 // map[string]any. Jinja2's default tojson policy passes
 // `sort_keys=True` to json.dumps, so we don't preserve insertion
 // order here — encoding/json sorts map keys alphabetically, matching
-// Python's sorted output.
-func jsonPrep(v any) any {
+// Python's sorted output. Like json.dumps it rejects a container that
+// contains itself, and data nested past escape.MaxDepth.
+func jsonPrep(v any) (any, error) {
+	return (&jsonWalker{active: map[uintptr]bool{}}).prep(v)
+}
+
+type jsonWalker struct {
+	depth  int
+	active map[uintptr]bool
+}
+
+func (w *jsonWalker) prep(v any) (any, error) {
+	var items []any
+	var keys []any
+	var get func(k any) any
 	switch x := v.(type) {
 	case *runtime.OrderedDict:
-		out := make(map[string]any, x.Len())
-		for _, k := range x.Keys() {
-			val, _ := x.Get(k)
-			out[stringifyJSONKey(k)] = jsonPrep(val)
+		if x == nil {
+			return v, nil
 		}
-		return out
+		keys = x.Keys()
+		get = func(k any) any { val, _ := x.Get(k); return val }
+	case map[string]any:
+		for k := range x {
+			keys = append(keys, k)
+		}
+		get = func(k any) any { return x[k.(string)] }
+	case map[any]any:
+		for k := range x {
+			keys = append(keys, k)
+		}
+		get = func(k any) any { return x[k] }
 	case []any:
-		out := make([]any, len(x))
-		for i, it := range x {
-			out[i] = jsonPrep(it)
-		}
-		return out
+		items = x
+	case runtime.Tuple:
+		items = x
 	case *runtime.PyList:
 		if x == nil {
-			return []any{}
+			return []any{}, nil
 		}
-		items := x.Items()
-		out := make([]any, len(items))
-		for i, it := range items {
-			out[i] = jsonPrep(it)
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]any, len(x))
-		for k, val := range x {
-			out[k] = jsonPrep(val)
-		}
-		return out
-	case map[any]any:
-		out := make(map[string]any, len(x))
-		for k, val := range x {
-			out[stringifyJSONKey(k)] = jsonPrep(val)
-		}
-		return out
+		items = x.Items()
+	default:
+		return v, nil
 	}
-	return v
+	w.depth++
+	defer func() { w.depth-- }()
+	if w.depth > escape.MaxDepth {
+		return nil, fmt.Errorf("maximum recursion depth exceeded while encoding a JSON object")
+	}
+	if id, ok := ppID(v); ok {
+		if w.active[id] {
+			//lint:ignore ST1005 json.dumps's exact message
+			return nil, fmt.Errorf("Circular reference detected")
+		}
+		w.active[id] = true
+		defer delete(w.active, id)
+	}
+	if get != nil {
+		out := make(map[string]any, len(keys))
+		for _, k := range keys {
+			val, err := w.prep(get(k))
+			if err != nil {
+				return nil, err
+			}
+			out[stringifyJSONKey(k)] = val
+		}
+		return out, nil
+	}
+	out := make([]any, len(items))
+	for i, it := range items {
+		val, err := w.prep(it)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = val
+	}
+	return out, nil
 }
 
 func stringifyJSONKey(k any) string {

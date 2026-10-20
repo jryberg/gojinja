@@ -53,7 +53,18 @@ type Engine interface {
 
 // Render renders tpl into w against ctx. Returns the number of bytes
 // written and any error.
-func Render(ctx context.Context, w io.Writer, tpl *ast.Template, rctx *runtime.Context, eng Engine) error {
+func Render(ctx context.Context, w io.Writer, tpl *ast.Template, rctx *runtime.Context, eng Engine) (err error) {
+	// repr and str() of too deeply nested values panic, having no error
+	// result; the render fails with their error.
+	defer func() {
+		if r := recover(); r != nil {
+			re, ok := r.(escape.RecursionError)
+			if !ok {
+				panic(r)
+			}
+			err = gjerrors.NewTemplateRuntimeError(re.Error())
+		}
+	}()
 	ev := &evaluator{eng: eng, w: w, goCtx: ctx}
 	return ev.evalTemplate(tpl.Body, rctx)
 }

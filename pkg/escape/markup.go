@@ -125,18 +125,9 @@ func SoftStr(v any) string {
 		return pyFloatStr(float64(x))
 	case float64:
 		return pyFloatStr(x)
-	case []any:
-		return pyListStr(x)
-	case tupleRepr:
-		return pyTupleStr(x.Iter())
-	case map[string]any:
-		return pyDictStr(stringMapToAny(x))
-	case map[any]any:
-		return pyDictStr(x)
-	case orderedDictRepr:
-		return pyOrderedDictStr(x)
-	case listRepr:
-		return pyListStr(x.Items())
+	case []any, tupleRepr, map[string]any, map[any]any, orderedDictRepr, listRepr, attrsRepr:
+		// str() of a container is its repr.
+		return pyRepr(v)
 	case fmt.Stringer:
 		return x.String()
 	default:
@@ -163,24 +154,6 @@ type undefinedRepr interface {
 // []any.
 type listRepr interface {
 	Items() []any
-}
-
-// pyTupleStr renders a tuple Python-style: `(1,)` for a singleton (with
-// trailing comma) and `(a, b, ...)` otherwise.
-func pyTupleStr(items []any) string {
-	var b strings.Builder
-	b.WriteByte('(')
-	for i, it := range items {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(pyRepr(it))
-	}
-	if len(items) == 1 {
-		b.WriteByte(',')
-	}
-	b.WriteByte(')')
-	return b.String()
 }
 
 // pyFloatStr renders a float Python-style: integral values get a `.0`
@@ -224,105 +197,8 @@ type orderedDictRepr interface {
 //	escape.Repr([]any{1, "a"})   →  [1, 'a']
 func Repr(v any) string { return pyRepr(v) }
 
-// pyRepr returns Python's repr() of v — used inside container reprs.
-// Strings get single-quoted with backslash-escaped specials; numbers
-// and bools use their str() form; nil → None; nested containers
-// recurse.
-func pyRepr(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return "None"
-	case bool:
-		if x {
-			return "True"
-		}
-		return "False"
-	case string:
-		return pyStringRepr(x)
-	case Markup:
-		return "Markup(" + pyStringRepr(string(x)) + ")"
-	case undefinedRepr:
-		return "Undefined"
-	case []byte:
-		return pyStringRepr(string(x))
-	case float32:
-		return pyFloatStr(float64(x))
-	case float64:
-		return pyFloatStr(x)
-	case []any:
-		return pyListStr(x)
-	case tupleRepr:
-		return pyTupleStr(x.Iter())
-	case map[string]any:
-		return pyDictStr(stringMapToAny(x))
-	case map[any]any:
-		return pyDictStr(x)
-	case orderedDictRepr:
-		return pyOrderedDictStr(x)
-	case listRepr:
-		return pyListStr(x.Items())
-	case fmt.Stringer:
-		return x.String()
-	}
-	return fmt.Sprint(v)
-}
-
-// pyListStr renders Python's `[item, item, ...]` form by repr-ing each
-// element.
-func pyListStr(items []any) string {
-	var b strings.Builder
-	b.WriteByte('[')
-	for i, it := range items {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(pyRepr(it))
-	}
-	b.WriteByte(']')
-	return b.String()
-}
-
-// pyOrderedDictStr renders an OrderedDict in insertion order, matching
-// Python 3.7+ dict iteration semantics.
-func pyOrderedDictStr(d orderedDictRepr) string {
-	var b strings.Builder
-	b.WriteByte('{')
-	keys := d.Keys()
-	for i, k := range keys {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(pyRepr(k))
-		b.WriteString(": ")
-		v, _ := d.Get(k)
-		b.WriteString(pyRepr(v))
-	}
-	b.WriteByte('}')
-	return b.String()
-}
-
-// pyDictStr renders Python's `{key: value, ...}` form. Keys are sorted
-// (Go maps have no insertion order) so output is deterministic — for
-// strict insertion-order parity, callers should pipe through |dictsort.
-func pyDictStr(m map[any]any) string {
-	keys := make([]any, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sortAnySlice(keys)
-	var b strings.Builder
-	b.WriteByte('{')
-	for i, k := range keys {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(pyRepr(k))
-		b.WriteString(": ")
-		b.WriteString(pyRepr(m[k]))
-	}
-	b.WriteByte('}')
-	return b.String()
-}
+// pyRepr returns Python's repr() of v.
+func pyRepr(v any) string { return (&reprState{}).repr(v) }
 
 // pyStringRepr returns Python's repr() of a string: single-quoted, with
 // `'` itself escaped only when the string contains no `"` (Python uses

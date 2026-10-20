@@ -25,6 +25,21 @@ type prettyPrinter struct {
 	b       strings.Builder
 	width   int
 	context map[uintptr]bool
+	depth   int
+}
+
+// maxPprintDepth bounds pprint's nesting. CPython's pprint recurses in
+// Python code and fails near 330 levels; its cost also grows with the
+// square of the depth, as every level re-renders the levels below.
+const maxPprintDepth = 1000
+
+// nest guards one level of pprint recursion.
+func (p *prettyPrinter) nest() func() {
+	p.depth++
+	if p.depth > maxPprintDepth {
+		panic(escape.RecursionError{})
+	}
+	return func() { p.depth-- }
 }
 
 type ppKind int
@@ -109,6 +124,7 @@ func ppRecursion(v any, id uintptr) string {
 
 // safeRepr is PrettyPrinter._safe_repr: repr with dict keys sorted.
 func (p *prettyPrinter) safeRepr(v any, context map[uintptr]bool) string {
+	defer p.nest()()
 	kind, items := ppClassify(v)
 	if kind == ppOther || kind == ppStr {
 		return escape.Repr(v)
@@ -160,6 +176,7 @@ func (p *prettyPrinter) repr(v any) string {
 
 // format is PrettyPrinter._format.
 func (p *prettyPrinter) format(v any, indent, allowance, level int) {
+	defer p.nest()()
 	id, hasID := ppID(v)
 	if hasID && p.context[id] {
 		p.b.WriteString(ppRecursion(v, id))

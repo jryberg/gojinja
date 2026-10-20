@@ -27,6 +27,49 @@ type Parser struct {
 	extensions    map[string]ExtensionFunc
 	tagStack      []string
 	endTokenStack [][]string
+	depth         int // nesting of the recursive parse functions
+}
+
+// maxDepth bounds how deeply a template may nest, in parser recursion and
+// in the finished AST. Python's compiler needs a recursion frame per AST
+// level and gives up below 1000, so no template Jinja2 renders comes
+// close; unbounded, deep input would overflow the Go stack.
+const maxDepth = 2000
+
+const errDepth = "maximum recursion depth exceeded"
+
+// nest guards one level of parser recursion; call the returned func when
+// leaving it.
+func (p *Parser) nest() (func(), error) {
+	if p.depth >= maxDepth {
+		return nil, p.fail(errDepth, p.currentLine())
+	}
+	p.depth++
+	return func() { p.depth-- }, nil
+}
+
+// checkDepth rejects an AST nested deeper than maxDepth. Chains the
+// parser builds in loops (operators, filters, attribute access) deepen
+// the tree without recursing, so the walk is iterative.
+func (p *Parser) checkDepth(root ast.Node) error {
+	type item struct {
+		n     ast.Node
+		depth int
+	}
+	stack := []item{{root, 1}}
+	for len(stack) > 0 {
+		it := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if it.depth > maxDepth {
+			return p.fail(errDepth, it.n.Position().Lineno)
+		}
+		for _, c := range ast.Children(it.n) {
+			if c != nil {
+				stack = append(stack, item{c, it.depth + 1})
+			}
+		}
+	}
+	return nil
 }
 
 // New constructs a parser over stream. Extensions can be registered later
@@ -118,12 +161,22 @@ func (p *Parser) Parse() (*ast.Template, error) {
 	}
 	tpl := &ast.Template{Body: body}
 	tpl.SetLineno(1)
+	if err := p.checkDepth(tpl); err != nil {
+		return nil, err
+	}
 	return tpl, nil
 }
 
 // ParseExpression parses a single expression. Useful for tools and tests.
 func (p *Parser) ParseExpression() (ast.Expr, error) {
-	return p.parseCondExpr()
+	expr, err := p.parseCondExpr()
+	if err != nil {
+		return nil, err
+	}
+	if err := p.checkDepth(expr); err != nil {
+		return nil, err
+	}
+	return expr, nil
 }
 
 // =============================================================== subparse
@@ -210,6 +263,11 @@ func (p *Parser) currentMatchesAny(exprs []string) bool {
 // =============================================================== statements
 
 func (p *Parser) parseStatement() (any, error) {
+	leave, err := p.nest()
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
 	tok := p.stream.Current()
 	if tok.Kind != lexer.TokenName {
 		return nil, p.fail("tag name expected", tok.Lineno)
@@ -808,6 +866,11 @@ func (p *Parser) parseExpression() (ast.Expr, error) {
 }
 
 func (p *Parser) parseCondExpr() (ast.Expr, error) {
+	leave, err := p.nest()
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
 	lineno := p.currentLine()
 	expr1, err := p.parseOr()
 	if err != nil {
@@ -878,6 +941,11 @@ func (p *Parser) parseAnd() (ast.Expr, error) {
 }
 
 func (p *Parser) parseNot() (ast.Expr, error) {
+	leave, err := p.nest()
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
 	if p.stream.Current().Test("name:not") {
 		lineno := p.stream.Next().Lineno
 		inner, err := p.parseNot()
@@ -1032,6 +1100,11 @@ func (p *Parser) parsePow() (ast.Expr, error) {
 }
 
 func (p *Parser) parseUnary(withFilter bool) (ast.Expr, error) {
+	leave, err := p.nest()
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
 	tok := p.stream.Current()
 	lineno := tok.Lineno
 	var node ast.Expr
@@ -1059,13 +1132,11 @@ func (p *Parser) parseUnary(withFilter bool) (ast.Expr, error) {
 		n.SetLineno(lineno)
 		node = n
 	default:
-		var err error
 		node, err = p.parsePrimary(false)
 		if err != nil {
 			return nil, err
 		}
 	}
-	var err error
 	node, err = p.parsePostfix(node)
 	if err != nil {
 		return nil, err

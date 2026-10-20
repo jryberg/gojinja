@@ -133,35 +133,37 @@ func New(opts Options) (*Lexer, error) {
 
 	l.commentEnd = regexp.MustCompile(fmt.Sprintf(
 		`(?s)(.*?)((?:\+%s|\-%s\s*|%s%s))`, cmtE, cmtE, cmtE, blockSuffix))
+	// The tag-body rules only match at the current position; anchoring
+	// them keeps a miss from scanning the rest of the source.
 	l.blockEnd = regexp.MustCompile(fmt.Sprintf(
-		`(?s)(?:\+%s|\-%s\s*|%s%s)`, blkE, blkE, blkE, blockSuffix))
+		`(?s)\A(?:\+%s|\-%s\s*|%s%s)`, blkE, blkE, blkE, blockSuffix))
 	l.variableEnd = regexp.MustCompile(fmt.Sprintf(
-		`(?s)\-%s\s*|%s`, varE, varE))
+		`(?s)\A(?:\-%s\s*|%s)`, varE, varE))
 	l.rawEnd = regexp.MustCompile(fmt.Sprintf(
 		`(?s)(.*?)((?:%s(\-|\+|))\s*endraw\s*(?:\+%s|\-%s\s*|%s%s))`,
 		blkS, blkE, blkE, blkE, blockSuffix))
-	l.lineStmtEnd = regexp.MustCompile(`(?s)\s*(\n|$)`)
+	l.lineStmtEnd = regexp.MustCompile(`(?s)\A\s*(\n|$)`)
 	l.lineCommentEnd = regexp.MustCompile(`(?s)(.*?)()(?:\n|$)`)
 
 	// Tag-body rules (used inside block_begin / variable_begin /
 	// linestatement_begin states).
-	l.tagWhitespace = regexp.MustCompile(`\s+`)
+	l.tagWhitespace = regexp.MustCompile(`\A\s+`)
 	// integer (decimal/binary/octal/hex with optional `_` separators)
 	l.tagInteger = regexp.MustCompile(
-		`(?i)(?:0b(?:_?[0-1])+|0o(?:_?[0-7])+|0x(?:_?[0-9a-f])+|[1-9](?:_?[0-9])*|0(?:_?0)*)`)
+		`(?i)\A(?:0b(?:_?[0-1])+|0o(?:_?[0-7])+|0x(?:_?[0-9a-f])+|[1-9](?:_?[0-9])*|0(?:_?0)*)`)
 	// float — the `(?<!\.)` lookbehind from Python is enforced in code.
 	l.tagFloat = regexp.MustCompile(
-		`(?i)(?:[0-9]+_)*[0-9]+(?:(?:\.(?:[0-9]+_)*[0-9]+)?e[+\-]?(?:[0-9]+_)*[0-9]+|\.(?:[0-9]+_)*[0-9]+)`)
+		`(?i)\A(?:[0-9]+_)*[0-9]+(?:(?:\.(?:[0-9]+_)*[0-9]+)?e[+\-]?(?:[0-9]+_)*[0-9]+|\.(?:[0-9]+_)*[0-9]+)`)
 	// String literal — single OR double quoted, with backslash escapes.
-	l.tagString = regexp.MustCompile(`(?s)(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")`)
+	l.tagString = regexp.MustCompile(`(?s)\A(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")`)
 	// Name pattern — we accept ASCII identifiers in the regex and then
 	// extend the match with a hand-rolled walk if the next bytes form
 	// non-ASCII identifier continuation. This avoids having to ship
 	// Python's giant character class.
-	l.tagName = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
+	l.tagName = regexp.MustCompile(`\A[A-Za-z_][A-Za-z0-9_]*`)
 	// Operator: longest-match-wins. We sort by descending length so `**`
 	// beats `*`, etc.
-	l.tagOperator = regexp.MustCompile(buildOperatorPattern())
+	l.tagOperator = regexp.MustCompile(`\A(?:` + buildOperatorPattern() + `)`)
 
 	return l, nil
 }

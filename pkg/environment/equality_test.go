@@ -2,6 +2,7 @@ package environment
 
 import (
 	"context"
+	"github.com/jryberg/gojinja/pkg/escape"
 	"strings"
 	"testing"
 )
@@ -55,13 +56,14 @@ func TestEquality(t *testing.T) {
 	}
 }
 
-// Deeply nested data must fail like CPython's RecursionError, not
-// overflow the Go stack.
+// Nested data compares as deep as CPython allows (about 10,000 levels),
+// while data nested past escape.MaxDepth fails like CPython's
+// RecursionError instead of overflowing the Go stack.
 func TestEqualityDepthBound(t *testing.T) {
 	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
-	nest := func() any {
+	nest := func(depth int) any {
 		var v any = []any{}
-		for i := 0; i < 1100; i++ {
+		for i := 0; i < depth; i++ {
 			v = []any{v}
 		}
 		return v
@@ -70,7 +72,11 @@ func TestEqualityDepthBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = tpl.RenderContext(context.Background(), map[string]any{"a": nest(), "b": nest()})
+	out, err := tpl.RenderContext(context.Background(), map[string]any{"a": nest(9000), "b": nest(9000)})
+	if err != nil || out != "True" {
+		t.Fatalf("9000 levels: got %q, %v; want True", out, err)
+	}
+	_, err = tpl.RenderContext(context.Background(), map[string]any{"a": nest(escape.MaxDepth + 10), "b": nest(escape.MaxDepth + 10)})
 	if err == nil || !strings.Contains(err.Error(), "maximum recursion depth exceeded in comparison") {
 		t.Fatalf("want recursion error, got %v", err)
 	}

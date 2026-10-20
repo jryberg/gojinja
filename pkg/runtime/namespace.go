@@ -1,9 +1,9 @@
 package runtime
 
 import (
-	"fmt"
 	"sort"
-	"strings"
+
+	"github.com/jryberg/gojinja/pkg/escape"
 )
 
 // Namespace is a mutable container of named values, equivalent to Jinja2's
@@ -63,19 +63,21 @@ type NamespaceEntry struct {
 	Value any
 }
 
-// String returns a printable form like Python's <Namespace {'k': 'v'}>.
+// ReprAttrs returns what Jinja2's `<Namespace {...}>` repr shows.
+func (n *Namespace) ReprAttrs() (string, []string, []any) {
+	items := n.Items()
+	keys := make([]string, len(items))
+	values := make([]any, len(items))
+	for i, e := range items {
+		keys[i], values[i] = e.Name, e.Value
+	}
+	return "Namespace", keys, values
+}
+
+// String returns Jinja2's repr, <Namespace {'k': 'v'}>.
 func (n *Namespace) String() string {
 	if n == nil {
 		return "<Namespace nil>"
 	}
-	var b strings.Builder
-	b.WriteString("<Namespace {")
-	for i, e := range n.Items() {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		fmt.Fprintf(&b, "%q: %v", e.Name, e.Value)
-	}
-	b.WriteString("}>")
-	return b.String()
+	return escape.Repr(n)
 }

@@ -420,7 +420,8 @@ func inValue(needle, haystack any) (bool, error) {
 
 func containsAny(needle any, col []any) (bool, error) {
 	for _, it := range col {
-		eq, err := ValuesEqual(needle, it)
+		// `in` checks identity before ==, like CPython.
+		eq, err := elemEqual(needle, it, 0)
 		if err != nil || eq {
 			return eq, err
 		}

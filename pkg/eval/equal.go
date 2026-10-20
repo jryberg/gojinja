@@ -8,9 +8,9 @@ import (
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
-// maxEqualDepth bounds container recursion in [ValuesEqual], matching
-// CPython's default recursion limit.
-const maxEqualDepth = 1000
+// maxEqualDepth bounds container recursion in [ValuesEqual] and the
+// ordering comparisons.
+const maxEqualDepth = escape.MaxDepth
 
 // ValuesEqual reports Python's `a == b` for template values.
 //

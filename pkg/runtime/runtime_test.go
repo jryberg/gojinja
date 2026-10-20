@@ -74,9 +74,8 @@ func TestNamespaceSetGetItems(t *testing.T) {
 
 func TestNamespaceStringFormat(t *testing.T) {
 	ns := NewNamespace(map[string]any{"k": "v"})
-	got := ns.String()
-	if !strings.Contains(got, "<Namespace ") || !strings.Contains(got, `"k"`) {
-		t.Errorf("Namespace.String wrong shape: %q", got)
+	if got, want := ns.String(), "<Namespace {'k': 'v'}>"; got != want {
+		t.Errorf("Namespace.String() = %q, want %q", got, want)
 	}
 }
 

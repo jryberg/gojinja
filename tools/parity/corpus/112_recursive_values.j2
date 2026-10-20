@@ -1,0 +1,5 @@
+{{ namespace(a=[1, 'x'], b={'k': none}, c="it's") }}
+{% set ns = namespace(a=1) %}{% set ns.self = ns %}{{ ns }}
+{% set d = {'a': 1} %}{% do d.update({'self': d, 'l': [d, (d,)]}) %}{{ d }}|{{ d == d }}|{{ d in [d] }}|{{ d|string|length }}
+{{ '%s' % (d,) }}|{{ '{}'.format(d) }}|{{ d ~ '' }}
+{{ 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 }} {{ - - - - - 1 }} {{ not not not 1 }} {{ 'a' ~ 'b' ~ 'c' ~ 'd' }}
