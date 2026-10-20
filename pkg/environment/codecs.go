@@ -31,6 +31,7 @@ const (
 	kindPunycode
 	kindUndefined
 	kindCJK
+	kindStateful
 )
 
 type codec struct {
@@ -42,6 +43,7 @@ type codec struct {
 	bom   bool
 	table *charmapTable
 	cjk   *cjkCodec
+	iso   *statefulCodec
 	// encodeMap is the inverse of table.decode with its overrides applied.
 	encodeMap map[rune]byte
 }
@@ -136,6 +138,9 @@ func lookupCodec(encoding string) (codec, error) {
 	if cj, ok := cjkLookup(module); ok {
 		return codec{kind: kindCJK, name: module, cjk: cj}, nil
 	}
+	if iso, ok := statefulLookup(module); ok {
+		return codec{kind: kindStateful, name: module, iso: iso}, nil
+	}
 	t := charmapTables[module]
 	c := codec{kind: kindTable, name: "charmap", table: &t, encodeMap: make(map[rune]byte, 256)}
 	for i := 255; i >= 0; i-- {
@@ -213,6 +218,8 @@ func pyEncode(s, encoding, errorsMode string) (runtime.Bytes, error) {
 		return nil, fmt.Errorf("undefined encoding")
 	case kindCJK:
 		return c.cjk.encodeCJK(rs, errorsMode)
+	case kindStateful:
+		return c.iso.encodeStateful(rs, errorsMode)
 	}
 	return encodeSingleByte(c, rs, errorsMode)
 }
@@ -363,6 +370,8 @@ func pyDecode(b []byte, encoding, errorsMode string) (string, error) {
 		return punycodeDecode(b, errorsMode)
 	case kindCJK:
 		return c.cjk.decode(b, d)
+	case kindStateful:
+		return c.iso.decodeStateful(b, d)
 	case kindTable:
 		for i, x := range b {
 			if r := c.table.decode[x]; r != charmapUndefined {

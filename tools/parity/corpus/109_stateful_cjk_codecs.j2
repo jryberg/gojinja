@@ -1,0 +1,4 @@
+{{ '日本語¥abc'.encode('iso2022_jp') }}|{{ '日本丨'.encode('iso2022_jp_1') }}|{{ '日本한국中文é'.encode('iso2022_jp_2') }}|{{ 'か゚か'.encode('iso2022_jp_2004') }}|{{ 'か゚'.encode('iso2022_jp_3') }}|{{ 'ｱｲｳ'.encode('iso2022_jp_ext') }}
+{{ '한국어 abc'.encode('iso2022_kr') }}|{{ '中文~a'.encode('hz') }}|{{ 'ā~'.encode('hz', 'namereplace') }}|{{ '日😀日'.encode('csiso2022jp', 'replace') }}|{{ '한😀'.encode('iso2022_kr', 'xmlcharrefreplace') }}
+{{ '日本語'.encode('iso2022_jp').decode('iso2022_jp') }}|{{ '한국어'.encode('iso2022_kr').decode('iso2022_kr') }}|{{ '中文~'.encode('hz').decode('hz-gb-2312') }}|{{ 'abc'.encode().decode('iso2022_jp_2') }}
+{{ ('\x1b.A\x1bNi' ~ '\x1b$B0!').encode('latin-1').decode('iso2022_jp_2') }}|{{ '\x1b$B0'.encode('latin-1').decode('iso2022_jp', 'replace') }}|{{ '~{VP~x'.encode().decode('hz', 'backslashreplace') }}

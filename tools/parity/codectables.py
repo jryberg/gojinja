@@ -22,6 +22,9 @@ CODED = [
     "big5", "big5hkscs", "cp932", "cp949", "cp950", "euc_jis_2004", "euc_jisx0213",
     "euc_jp", "euc_kr", "gb18030", "gb2312", "gbk", "johab", "shift_jis",
     "shift_jis_2004", "shift_jisx0213",
+    # Stateful CJK codecs, from the same generator.
+    "hz", "iso2022_jp", "iso2022_jp_1", "iso2022_jp_2", "iso2022_jp_2004", "iso2022_jp_3",
+    "iso2022_jp_ext", "iso2022_kr",
 ]
 
 

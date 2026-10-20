@@ -60,10 +60,14 @@ type gbRange struct {
 }
 
 var (
-	cjkOnce   sync.Once
-	cjkBodies map[string][]byte // codec name -> undecoded table body
-	cjkMu     sync.Mutex
-	cjkCodecs = map[string]*cjkCodec{}
+	cjkOnce     sync.Once
+	cjkBodies   map[string][]byte // codec name -> undecoded table body
+	cjkCharsets [][]byte          // undecoded charset tables
+	isoBodies   map[string][]byte // stateful codec name -> undecoded body
+	cjkMu       sync.Mutex
+	cjkCodecs   = map[string]*cjkCodec{}
+	isoCodecs   = map[string]*statefulCodec{}
+	charsetMaps = map[int]*charsetTable{}
 )
 
 type cjkReader struct {
@@ -101,8 +105,8 @@ func (r *cjkReader) bytes(n int) []byte {
 
 func (r *cjkReader) str() []byte { return r.bytes(r.uint()) }
 
-// indexCJK decompresses the tables and splits them per codec; a codec's
-// maps are only built when it is first used.
+// indexCJK decompresses the tables and splits them per codec and charset;
+// the maps are only built when a codec is first used.
 func indexCJK() {
 	zr, err := gzip.NewReader(bytes.NewReader(cjkTablesGz))
 	if err != nil {
@@ -117,6 +121,20 @@ func indexCJK() {
 	for n := r.uint(); n > 0 && r.err == nil; n-- {
 		name := string(r.str())
 		cjkBodies[name] = r.str()
+	}
+	for n := r.uint(); n > 0 && r.err == nil; n-- {
+		start := r.b
+		r.uint()
+		for k := r.uint(); k > 0 && r.err == nil; k-- {
+			r.uint()
+			r.str()
+		}
+		cjkCharsets = append(cjkCharsets, start[:len(start)-len(r.b)])
+	}
+	isoBodies = map[string][]byte{}
+	for n := r.uint(); n > 0 && r.err == nil; n-- {
+		name := string(r.str())
+		isoBodies[name] = r.str()
 	}
 	if r.err != nil || len(r.b) != 0 {
 		panic("gojinja: corrupt CJK codec tables")
@@ -367,21 +385,9 @@ func (c *cjkCodec) encodeCJK(rs []rune, errorsMode string) (runtime.Bytes, error
 				continue
 			}
 		}
-		var repl string
-		switch errorsMode {
-		case "strict":
-			return nil, fmt.Errorf("'%s' codec can't encode character %s in position %d: %s", c.name, charRepr(r), i, cjkIllegal)
-		case "ignore":
-		case "replace":
-			repl = "?"
-		case "backslashreplace":
-			repl = strings.Trim(charRepr(r), "'")
-		case "xmlcharrefreplace":
-			repl = fmt.Sprintf("&#%d;", r)
-		case "namereplace":
-			repl = nameReplace(r)
-		default:
-			return nil, fmt.Errorf("unknown error handler name '%s'", errorsMode)
+		repl, err := cjkReplacement(c.name, r, i, errorsMode)
+		if err != nil {
+			return nil, err
 		}
 		for _, x := range repl {
 			next, ok := c.encodeRune(out, x)
@@ -392,4 +398,24 @@ func (c *cjkCodec) encodeCJK(rs []rune, errorsMode string) (runtime.Bytes, error
 		}
 	}
 	return out, nil
+}
+
+// cjkReplacement is what an encode error handler substitutes for the
+// unencodable r at position i, or the error it raises.
+func cjkReplacement(codec string, r rune, i int, errorsMode string) (string, error) {
+	switch errorsMode {
+	case "strict":
+		return "", fmt.Errorf("'%s' codec can't encode character %s in position %d: %s", codec, charRepr(r), i, cjkIllegal)
+	case "ignore":
+		return "", nil
+	case "replace":
+		return "?", nil
+	case "backslashreplace":
+		return strings.Trim(charRepr(r), "'"), nil
+	case "xmlcharrefreplace":
+		return fmt.Sprintf("&#%d;", r), nil
+	case "namereplace":
+		return nameReplace(r), nil
+	}
+	return "", fmt.Errorf("unknown error handler name '%s'", errorsMode)
 }
