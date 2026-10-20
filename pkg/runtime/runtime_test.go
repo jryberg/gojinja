@@ -81,7 +81,7 @@ func TestNamespaceStringFormat(t *testing.T) {
 
 // --------------------------------------------------------------------- undefined
 
-// Mirrors jinja2 doctest: str(Undefined(name='foo')) == ''
+// Mirrors jinja2 doctest: str(Undefined(name='foo')) is the empty string.
 func TestUndefinedBaseStringEmpty(t *testing.T) {
 	u := NewBase("", "foo", nil, nil)
 	if got := u.String(); got != "" {

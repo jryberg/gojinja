@@ -17,11 +17,12 @@ import (
 //     carry. Each value is recursively normalized.
 //   - map[any]any → *OrderedDict with keys ordered by their stringified
 //     form. Mirrors the eval-side fallback for map[any]any iteration.
-//   - *OrderedDict → values are replaced with their normalized form
-//     in place; insertion order is preserved. The same pointer is
-//     returned (no copy).
-//   - []any and []map[string]any → fresh slice with element-wise
-//     recursion.
+//   - *OrderedDict → a copy with normalized values; insertion order is
+//     preserved. Like every container, it is copied so that a template
+//     mutating it never changes the caller's data or a later render.
+//   - []any, []string and []map[string]any → a fresh [*PyList] (Python's
+//     mutable list) with element-wise recursion, so templates can
+//     mutate it without touching the caller's data.
 //   - Anything else → returned unchanged. Structs and other Go types
 //     are reached through the engine's attribute lookup, which uses
 //     reflection; they do not need normalization here.
@@ -40,10 +41,11 @@ func NormalizeForTemplate(v any) any {
 		if x == nil {
 			return x
 		}
+		out := NewOrderedDict()
 		for _, k := range x.keys {
-			x.vals[k] = NormalizeForTemplate(x.vals[k])
+			out.Set(k, NormalizeForTemplate(x.vals[hashKeyOf(k)]))
 		}
-		return x
+		return out
 	case map[string]any:
 		return orderedFromStringMap(x)
 	case map[any]any:
@@ -53,15 +55,66 @@ func NormalizeForTemplate(v any) any {
 		for i, e := range x {
 			out[i] = NormalizeForTemplate(e)
 		}
-		return out
+		return NewPyList(out)
+	case []string:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = e
+		}
+		return NewPyList(out)
 	case []map[string]any:
 		out := make([]any, len(x))
 		for i, e := range x {
 			out[i] = orderedFromStringMap(e)
 		}
-		return out
+		return NewPyList(out)
 	}
 	return v
+}
+
+// ToPyList returns v with every []any and []string, at any depth inside
+// lists and tuples, turned into a fresh [*PyList]: the lists filters and
+// Go callables return become Python lists a template can mutate.
+func ToPyList(v any) any {
+	switch x := v.(type) {
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = ToPyList(e)
+		}
+		return NewPyList(out)
+	case []string:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = e
+		}
+		return NewPyList(out)
+	case Tuple:
+		var out Tuple
+		for i, e := range x {
+			if c := ToPyList(e); !sameValue(c, e) {
+				if out == nil {
+					out = append(Tuple(nil), x...)
+				}
+				out[i] = c
+			}
+		}
+		if out != nil {
+			return out
+		}
+	}
+	return v
+}
+
+// sameValue reports whether ToPyList left e unchanged (only lists are
+// replaced, so a type check suffices).
+func sameValue(a, b any) bool {
+	switch a.(type) {
+	case *PyList:
+		_, wasList := b.(*PyList)
+		return wasList
+	}
+	return true
 }
 
 // orderedFromStringMap converts a map[string]any into a fresh
@@ -77,13 +130,9 @@ func orderedFromStringMap(m map[string]any) *OrderedDict {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	out := &OrderedDict{
-		keys: make([]any, 0, len(keys)),
-		vals: make(map[any]any, len(keys)),
-	}
+	out := NewOrderedDict()
 	for _, k := range keys {
-		out.keys = append(out.keys, k)
-		out.vals[k] = NormalizeForTemplate(m[k])
+		out.Set(k, NormalizeForTemplate(m[k]))
 	}
 	return out
 }
@@ -104,13 +153,9 @@ func orderedFromAnyMap(m map[any]any) *OrderedDict {
 		ks = append(ks, kv{k, fmt.Sprint(k)})
 	}
 	sort.Slice(ks, func(i, j int) bool { return ks[i].s < ks[j].s })
-	out := &OrderedDict{
-		keys: make([]any, 0, len(ks)),
-		vals: make(map[any]any, len(ks)),
-	}
+	out := NewOrderedDict()
 	for _, e := range ks {
-		out.keys = append(out.keys, e.k)
-		out.vals[e.k] = NormalizeForTemplate(m[e.k])
+		out.Set(e.k, NormalizeForTemplate(m[e.k]))
 	}
 	return out
 }

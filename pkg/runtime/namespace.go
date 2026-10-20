@@ -12,14 +12,21 @@ import (
 // case-sensitive and returns the gojinja Undefined for missing names.
 type Namespace struct {
 	attrs map[string]any
+	order []string // attribute names in assignment order
 }
 
-// NewNamespace constructs a Namespace seeded from the given map. The map
-// is copied — callers can safely mutate the original afterwards.
+// NewNamespace constructs a Namespace seeded from the given map, in
+// lex-sorted key order (a Go map carries none). The map is copied —
+// callers can safely mutate the original afterwards.
 func NewNamespace(seed map[string]any) *Namespace {
-	ns := &Namespace{attrs: make(map[string]any, len(seed))}
-	for k, v := range seed {
-		ns.attrs[k] = v
+	keys := make([]string, 0, len(seed))
+	for k := range seed {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	ns := &Namespace{}
+	for _, k := range keys {
+		ns.Set(k, seed[k])
 	}
 	return ns
 }
@@ -33,27 +40,28 @@ func (n *Namespace) Get(name string) (any, bool) {
 	return v, ok
 }
 
-// Set assigns name to value, replacing any prior binding.
+// Set assigns name to value, replacing any prior binding; a new name
+// goes last, as in a Python dict.
 func (n *Namespace) Set(name string, value any) {
 	if n.attrs == nil {
 		n.attrs = make(map[string]any)
 	}
+	if _, ok := n.attrs[name]; !ok {
+		n.order = append(n.order, name)
+	}
 	n.attrs[name] = value
 }
 
-// Items returns the namespace's entries sorted by name. Sorting matches
-// jinja2.utils.Namespace.__repr__ (which uses dict order in Python 3.7+,
-// insertion order; gojinja chooses sorted order for deterministic
-// rendering).
+// Items returns the namespace's entries in assignment order, as
+// jinja2.utils.Namespace's dict keeps them.
 func (n *Namespace) Items() []NamespaceEntry {
 	if n == nil {
 		return nil
 	}
-	out := make([]NamespaceEntry, 0, len(n.attrs))
-	for k, v := range n.attrs {
-		out = append(out, NamespaceEntry{Name: k, Value: v})
+	out := make([]NamespaceEntry, 0, len(n.order))
+	for _, k := range n.order {
+		out = append(out, NamespaceEntry{Name: k, Value: n.attrs[k]})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

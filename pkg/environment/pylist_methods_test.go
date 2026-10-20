@@ -2,6 +2,7 @@ package environment
 
 import (
 	"context"
+	"github.com/jryberg/gojinja/pkg/varsutil"
 	"strings"
 	"testing"
 )
@@ -72,28 +73,22 @@ func TestPyListClear(t *testing.T) {
 	}
 }
 
-// Caller-supplied []any must REJECT mutation — the sandbox boundary is
-// "values created inside the template can be mutated; host data cannot".
-// The error is the new Undefined-aware message, naming the missing
-// attribute rather than the bare Go type.
-func TestCallerSuppliedSliceIsImmutable(t *testing.T) {
+// A caller-supplied []any is a Python list in the template, which
+// Jinja2's sandbox lets the template mutate; the template works on a
+// copy, so the caller's slice is left untouched.
+func TestCallerSuppliedSliceIsCopied(t *testing.T) {
 	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
-	tpl, err := e.FromString(`{% do hostList.append("nope") %}`)
+	tpl, err := e.FromString(`{% do hostList.append("c") %}{{ hostList }}`)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	_, err = tpl.RenderContext(context.Background(), map[string]any{
-		"hostList": []any{"a", "b"},
-	})
-	if err == nil {
-		t.Fatalf("expected error, got nil")
+	host := []any{"a", "b"}
+	out, err := tpl.RenderContext(context.Background(), map[string]any{"hostList": host})
+	if err != nil || out != "['a', 'b', 'c']" {
+		t.Fatalf("got %q, %v; want ['a', 'b', 'c']", out, err)
 	}
-	msg := err.Error()
-	if !strings.Contains(msg, "append") {
-		t.Fatalf("error should name the missing attribute %q, got: %v", "append", msg)
-	}
-	if strings.Contains(msg, "runtime.Undefined") {
-		t.Fatalf("error should not leak the bare Go type name; got: %v", msg)
+	if len(host) != 2 {
+		t.Fatalf("caller's slice was mutated: %v", host)
 	}
 }
 
@@ -234,5 +229,34 @@ func TestUndefinedAttrAsCalleeProducesDescriptiveError(t *testing.T) {
 	msg := err.Error()
 	if !strings.Contains(msg, "missing_method") {
 		t.Fatalf("error should name the missing attribute, got: %v", msg)
+	}
+}
+
+// A template mutating host data works on a copy: the caller's values and
+// later renders with the same variables are unaffected.
+func TestHostDataIsolation(t *testing.T) {
+	e := mustEnv(t, WithAutoescape(AutoescapeNever{}))
+	tpl, err := e.FromString(`{% do l.append(3) %}{% do d.update(b=2) %}{% do d.a.append(9) %}{{ l }}|{{ d }}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordered, err := varsutil.JSONVars([]byte(`{"l": [1, 2], "d": {"a": [1]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := map[string]any{"l": []any{1, 2}, "d": map[string]any{"a": []any{1}}}
+	for _, vars := range []any{ordered, plain} {
+		for i := 0; i < 2; i++ {
+			out, err := tpl.RenderContext(context.Background(), vars)
+			if err != nil || out != "[1, 2, 3]|{'a': [1, 9], 'b': 2}" {
+				t.Fatalf("render %d with %T: got %q, %v", i, vars, out, err)
+			}
+		}
+	}
+	if l := plain["l"].([]any); len(l) != 2 {
+		t.Errorf("caller's list was mutated: %v", l)
+	}
+	if a := plain["d"].(map[string]any)["a"].([]any); len(a) != 1 {
+		t.Errorf("caller's nested list was mutated: %v", a)
 	}
 }

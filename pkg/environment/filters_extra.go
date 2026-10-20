@@ -223,68 +223,46 @@ func filterRandom(env *Environment, _ *runtime.Context, value any, _ []any, _ ma
 //
 //	<div{{ {'class': 'red', 'id': 'x'} | xmlattr }}>
 //	→  <div class="red" id="x">
-func filterXmlattr(_ *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
-	// Accept both map[string]any (engine-side) and map[any]any (the
-	// shape produced by `{...}` dict literals).
-	m := make(map[string]any)
-	switch x := value.(type) {
-	case map[string]any:
-		for k, v := range x {
-			m[k] = v
-		}
-	case map[any]any:
-		for k, v := range x {
-			ks, ok := k.(string)
-			if !ok {
-				return nil, gjerrors.NewFilterArgumentError("xmlattr keys must be strings")
-			}
-			m[ks] = v
-		}
-	case *runtime.OrderedDict:
-		for _, k := range x.Keys() {
-			ks, ok := k.(string)
-			if !ok {
-				return nil, gjerrors.NewFilterArgumentError("xmlattr keys must be strings")
-			}
-			v, _ := x.Get(k)
-			m[ks] = v
-		}
-	default:
-		return nil, gjerrors.NewFilterArgumentError("xmlattr requires a mapping")
+func filterXmlattr(_ *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
+	d, ok := value.(*runtime.OrderedDict)
+	if !ok {
+		d, ok = runtime.NormalizeForTemplate(value).(*runtime.OrderedDict)
+	}
+	if !ok || d == nil {
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("'%s' object has no attribute 'items'", runtime.PyTypeName(value)))
 	}
 	autospace := true
-	if len(args) > 0 {
-		autospace, _ = args[0].(bool)
+	if v, ok := paramArg(args, kwargs, 0, "autospace"); ok {
+		autospace = eval.Truthy(v)
 	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for _, k := range keys {
-		if strings.ContainsAny(k, " \t\n\r/>=") {
-			return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("xmlattr: invalid attribute name %q", k))
-		}
-		v := m[k]
-		if v == nil {
+	var items []string
+	for _, it := range d.Items() {
+		kv := it.(runtime.Tuple)
+		key, val := kv[0], kv[1]
+		if val == nil || runtime.IsUndefined(val) {
 			continue
 		}
-		if u, ok := v.(runtime.Undefiner); ok && u.IsUndefined() {
-			continue
+		k, ok := eqString(key)
+		if !ok {
+			return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("expected string or bytes-like object, got '%s'", runtime.PyTypeName(key)))
 		}
-		b.WriteByte(' ')
-		b.WriteString(k)
-		b.WriteString(`="`)
-		b.WriteString(string(escape.Escape(escape.SoftStr(v))))
-		b.WriteByte('"')
+		if xmlattrKeyRe.MatchString(k) {
+			return nil, gjerrors.NewFilterArgumentError("Invalid character in attribute name: " + escape.Repr(key))
+		}
+		items = append(items, string(escape.Escape(key))+`="`+string(escape.Escape(val))+`"`)
 	}
-	out := b.String()
-	if !autospace && strings.HasPrefix(out, " ") {
-		out = out[1:]
+	out := strings.Join(items, " ")
+	if autospace && out != "" {
+		out = " " + out
 	}
-	return escape.Markup(out), nil
+	if ctx != nil && ctx.Eval != nil && ctx.Eval.Autoescape {
+		return escape.Markup(out), nil
+	}
+	return out, nil
 }
+
+// xmlattrKeyRe is Jinja2's _attr_key_re: characters a key may not hold.
+var xmlattrKeyRe = regexp.MustCompile(`[\t\n\v\f\r /=>]`)
 
 // urlRegex matches URL-ish substrings: http(s)://, www., bare emails,
 // and bare domains (`example.com`). Mirrors Python's urlize coverage

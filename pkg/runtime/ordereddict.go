@@ -3,6 +3,8 @@ package runtime
 import (
 	"fmt"
 	"sort"
+
+	"github.com/jryberg/gojinja/pkg/escape"
 )
 
 // OrderedDict is an insertion-ordered map[any]any — the runtime
@@ -17,13 +19,13 @@ import (
 // "insertion" we can reconstruct after the fact. Callers who need
 // stable order on Go-side input should pass an OrderedDict from Go.
 type OrderedDict struct {
-	keys []any
-	vals map[any]any
+	keys []any          // the key objects, in insertion order
+	vals map[string]any // values by HashKey of their key
 }
 
 // NewOrderedDict returns an empty OrderedDict ready for Set.
 func NewOrderedDict() *OrderedDict {
-	return &OrderedDict{vals: map[any]any{}}
+	return &OrderedDict{vals: map[string]any{}}
 }
 
 // NewOrderedDictFromPairs builds an OrderedDict from a sequence of
@@ -50,20 +52,37 @@ func (d *OrderedDict) Get(key any) (any, bool) {
 	if d == nil {
 		return nil, false
 	}
-	v, ok := d.vals[key]
+	k, err := HashKey(key)
+	if err != nil {
+		return nil, false
+	}
+	v, ok := d.vals[k]
 	return v, ok
+}
+
+// Put is Set for a key from a template: an unhashable key (a list or a
+// dict) is Python's TypeError.
+func (d *OrderedDict) Put(key, value any) error {
+	if _, err := HashKey(key); err != nil {
+		return err
+	}
+	d.Set(key, value)
+	return nil
 }
 
 // Set inserts or replaces an entry. New keys are appended to the
 // iteration order; existing keys keep their position.
 func (d *OrderedDict) Set(key, value any) {
 	if d.vals == nil {
-		d.vals = map[any]any{}
+		d.vals = map[string]any{}
 	}
-	if _, ok := d.vals[key]; !ok {
+	// Like Python, a new value for an equal key keeps the first key
+	// object and its position.
+	k := hashKeyOf(key)
+	if _, ok := d.vals[k]; !ok {
 		d.keys = append(d.keys, key)
 	}
-	d.vals[key] = value
+	d.vals[k] = value
 }
 
 // Keys returns a copy of the keys in insertion order.
@@ -83,7 +102,7 @@ func (d *OrderedDict) Values() []any {
 	}
 	out := make([]any, 0, len(d.keys))
 	for _, k := range d.keys {
-		out = append(out, d.vals[k])
+		out = append(out, d.vals[hashKeyOf(k)])
 	}
 	return out
 }
@@ -97,19 +116,7 @@ func (d *OrderedDict) Items() []any {
 	}
 	out := make([]any, 0, len(d.keys))
 	for _, k := range d.keys {
-		out = append(out, Tuple{k, d.vals[k]})
-	}
-	return out
-}
-
-// AsMap returns a snapshot as map[any]any, losing order.
-func (d *OrderedDict) AsMap() map[any]any {
-	if d == nil {
-		return nil
-	}
-	out := make(map[any]any, len(d.vals))
-	for k, v := range d.vals {
-		out[k] = v
+		out = append(out, Tuple{k, d.vals[hashKeyOf(k)]})
 	}
 	return out
 }
@@ -119,12 +126,13 @@ func (d *OrderedDict) Delete(key any) bool {
 	if d == nil {
 		return false
 	}
-	if _, ok := d.vals[key]; !ok {
+	hk := hashKeyOf(key)
+	if _, ok := d.vals[hk]; !ok {
 		return false
 	}
-	delete(d.vals, key)
+	delete(d.vals, hk)
 	for i, k := range d.keys {
-		if k == key {
+		if hashKeyOf(k) == hk {
 			d.keys = append(d.keys[:i], d.keys[i+1:]...)
 			break
 		}
@@ -147,7 +155,7 @@ func (d *OrderedDict) Update(other any) error {
 			return nil
 		}
 		for _, k := range x.keys {
-			d.Set(k, x.vals[k])
+			d.Set(k, x.vals[hashKeyOf(k)])
 		}
 		return nil
 	case map[string]any:
@@ -207,14 +215,14 @@ func (d *OrderedDict) Pop(key any, def any, hasDef bool) (any, error) {
 		}
 		return nil, fmt.Errorf("pop from empty dict")
 	}
-	if v, ok := d.vals[key]; ok {
+	if v, ok := d.Get(key); ok {
 		d.Delete(key)
 		return v, nil
 	}
 	if hasDef {
 		return def, nil
 	}
-	return nil, fmt.Errorf("KeyError: %v", key)
+	return nil, fmt.Errorf("%s", escape.Repr(key))
 }
 
 // SetDefault returns d[key] if present; otherwise inserts and returns
@@ -223,7 +231,7 @@ func (d *OrderedDict) SetDefault(key any, def any) any {
 	if d == nil {
 		return def
 	}
-	if v, ok := d.vals[key]; ok {
+	if v, ok := d.Get(key); ok {
 		return v
 	}
 	d.Set(key, def)
@@ -239,9 +247,10 @@ func (d *OrderedDict) PopItem() (Tuple, error) {
 	}
 	last := len(d.keys) - 1
 	k := d.keys[last]
-	v := d.vals[k]
+	hk := hashKeyOf(k)
+	v := d.vals[hk]
 	d.keys = d.keys[:last]
-	delete(d.vals, k)
+	delete(d.vals, hk)
 	return Tuple{k, v}, nil
 }
 
@@ -253,7 +262,7 @@ func (d *OrderedDict) Copy() *OrderedDict {
 	}
 	out := &OrderedDict{
 		keys: append([]any(nil), d.keys...),
-		vals: make(map[any]any, len(d.vals)),
+		vals: make(map[string]any, len(d.vals)),
 	}
 	for k, v := range d.vals {
 		out.vals[k] = v
@@ -267,7 +276,7 @@ func (d *OrderedDict) Clear() {
 		return
 	}
 	d.keys = d.keys[:0]
-	d.vals = map[any]any{}
+	d.vals = map[string]any{}
 }
 
 // MergeMap appends entries from m into d in lex-sorted key order.

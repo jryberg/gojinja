@@ -39,12 +39,7 @@ func (e *evaluator) evalExprAny(n ast.Expr, ctx *runtime.Context) (any, error) {
 		}
 		return runtime.Tuple(out), nil
 	case *ast.List:
-		// In-template list literals produce a *runtime.PyList so they
-		// expose Python-parity mutating methods (append, extend, etc.)
-		// when the `do` extension is used. Caller-supplied []any from
-		// the render context keeps its bare type and stays immutable —
-		// the sandbox boundary is "values created inside the template
-		// can be mutated; host data cannot".
+		// List literals are Python lists, with their mutating methods.
 		out := make([]any, 0, len(x.Items))
 		for _, it := range x.Items {
 			v, err := e.evalExprAny(it, ctx)
@@ -68,7 +63,9 @@ func (e *evaluator) evalExprAny(n ast.Expr, ctx *runtime.Context) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			out.Set(k, v)
+			if err := out.Put(k, v); err != nil {
+				return nil, err
+			}
 		}
 		return out, nil
 	case *ast.Getattr:
@@ -175,67 +172,76 @@ func (e *evaluator) evalCall(n *ast.Call, ctx *runtime.Context) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	args, kwargs, err := e.evalCallArgs(n.Args, n.Kwargs, n.DynArgs, n.DynKwargs, ctx)
+	args, kwargs, order, err := e.evalCallArgs(n.Args, n.Kwargs, n.DynArgs, n.DynKwargs, ctx)
 	if err != nil {
 		return nil, err
 	}
 	if mv, ok := fn.(*macroValue); ok {
-		return e.CallMacro(mv, ctx, args, kwargs, nil)
+		return e.CallMacro(mv, ctx, args, kwargs, order, nil)
 	}
-	return e.eng.Call(ctx, fn, args, kwargs)
+	if oc, ok := e.eng.(orderedCaller); ok {
+		v, err := oc.CallOrdered(ctx, fn, args, kwargs, order)
+		return runtime.ToPyList(v), err
+	}
+	v, err := e.eng.Call(ctx, fn, args, kwargs)
+	return runtime.ToPyList(v), err
 }
 
 // evalCallArgs evaluates a call's arguments: the positional ones followed
-// by the items of `*dynArgs`, the keywords merged with `**dynKwargs`.
-func (e *evaluator) evalCallArgs(astArgs []ast.Expr, astKwargs []*ast.Keyword, dynArgs, dynKwargs ast.Expr, ctx *runtime.Context) ([]any, map[string]any, error) {
+// by the items of `*dynArgs`, the keywords merged with `**dynKwargs`. The
+// last result is the keywords' order, which Python preserves.
+func (e *evaluator) evalCallArgs(astArgs []ast.Expr, astKwargs []*ast.Keyword, dynArgs, dynKwargs ast.Expr, ctx *runtime.Context) ([]any, map[string]any, []string, error) {
 	args := make([]any, 0, len(astArgs))
 	for _, a := range astArgs {
 		v, err := e.evalExprAny(a, ctx)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		args = append(args, v)
 	}
 	kwargs := make(map[string]any, len(astKwargs))
+	order := make([]string, 0, len(astKwargs))
 	for _, kw := range astKwargs {
 		v, err := e.evalExprAny(kw.Value, ctx)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		kwargs[kw.Key] = v
+		order = append(order, kw.Key)
 	}
 	if dynArgs != nil {
 		v, err := e.evalExprAny(dynArgs, ctx)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		items, err := ToIterable(v)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		args = append(args, items...)
 	}
 	if dynKwargs != nil {
 		v, err := e.evalExprAny(dynKwargs, ctx)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		m, ok := v.(*runtime.OrderedDict)
 		if !ok {
-			return nil, nil, fmt.Errorf("argument after ** must be a mapping, not %s", runtime.PyTypeName(v))
+			return nil, nil, nil, fmt.Errorf("argument after ** must be a mapping, not %s", runtime.PyTypeName(v))
 		}
 		for _, k := range m.Keys() {
 			key, ok := k.(string)
 			if !ok {
-				return nil, nil, fmt.Errorf("keywords must be strings")
+				return nil, nil, nil, fmt.Errorf("keywords must be strings")
 			}
 			if _, dup := kwargs[key]; dup {
-				return nil, nil, fmt.Errorf("got multiple values for keyword argument %s", escape.Repr(key))
+				return nil, nil, nil, fmt.Errorf("got multiple values for keyword argument %s", escape.Repr(key))
 			}
 			kwargs[key], _ = m.Get(k)
+			order = append(order, key)
 		}
 	}
-	return args, kwargs, nil
+	return args, kwargs, order, nil
 }
 
 func (e *evaluator) evalFilter(n *ast.Filter, ctx *runtime.Context) (any, error) {
@@ -246,11 +252,12 @@ func (e *evaluator) evalFilter(n *ast.Filter, ctx *runtime.Context) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	args, kwargs, err := e.evalCallArgs(n.Args, n.Kwargs, n.DynArgs, n.DynKwargs, ctx)
+	args, kwargs, _, err := e.evalCallArgs(n.Args, n.Kwargs, n.DynArgs, n.DynKwargs, ctx)
 	if err != nil {
 		return nil, err
 	}
-	return e.eng.CallFilter(n.Name, ctx, value, args, kwargs)
+	v, err := e.eng.CallFilter(n.Name, ctx, value, args, kwargs)
+	return runtime.ToPyList(v), err
 }
 
 func (e *evaluator) evalTest(n *ast.Test, ctx *runtime.Context) (any, error) {
@@ -258,7 +265,7 @@ func (e *evaluator) evalTest(n *ast.Test, ctx *runtime.Context) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	args, kwargs, err := e.evalCallArgs(n.Args, n.Kwargs, n.DynArgs, n.DynKwargs, ctx)
+	args, kwargs, _, err := e.evalCallArgs(n.Args, n.Kwargs, n.DynArgs, n.DynKwargs, ctx)
 	if err != nil {
 		return nil, err
 	}

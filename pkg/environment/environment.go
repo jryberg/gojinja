@@ -873,6 +873,8 @@ func (e *Environment) Call(ctx *runtime.Context, callee any, args []any, kwargs 
 		return fn()
 	case KwargsCallable:
 		return fn(args, kwargs)
+	case orderedKwargsFunc, dictClass:
+		return e.CallOrdered(ctx, fn, args, kwargs, nil)
 	case func(args []any, kwargs map[string]any) (any, error):
 		return fn(args, kwargs)
 	}
@@ -1005,18 +1007,15 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 			return m, nil
 		}
 	case []any:
-		if m := listMethod(x, attr); m != nil {
+		if m := seqMethod("list", x, attr); m != nil {
 			return m, nil
 		}
 	case runtime.Tuple:
-		if m := listMethod([]any(x), attr); m != nil {
+		if m := seqMethod("tuple", []any(x), attr); m != nil {
 			return m, nil
 		}
 	case *runtime.PyList:
-		// In-template lists expose mutating methods (append, extend,
-		// insert, pop, remove, clear, reverse, sort) plus the same
-		// non-mutating ones the bare-slice path offers.
-		if m := pyListMethod(x, attr); m != nil {
+		if m := listMethod(e, nil, x, attr); m != nil {
 			return m, nil
 		}
 	}
@@ -1090,10 +1089,8 @@ func (e *Environment) GetItem(obj any, arg any) (any, error) {
 			}
 		}
 	case *runtime.OrderedDict:
-		if hashable(arg) {
-			if v, ok := x.Get(arg); ok {
-				return v, nil
-			}
+		if v, ok := x.Get(arg); ok {
+			return v, nil
 		}
 	case []any:
 		return e.getSeqItem(obj, x, arg, false)

@@ -404,8 +404,13 @@ func inValue(needle, haystack any) (bool, error) {
 		if col == nil {
 			return false, nil
 		}
+		if _, err := runtime.HashKey(needle); err != nil {
+			return false, err
+		}
 		_, ok := col.Get(needle)
 		return ok, nil
+	case *runtime.DictView:
+		return col.Contains(needle, SameOrEqual)
 	case runtime.Undefined:
 		// Mirrors Python: iterating Undefined (default mode) yields the
 		// empty sequence, so `x in undef` is False. ModeStrict errors at

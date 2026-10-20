@@ -106,6 +106,10 @@ func walkRegistrations(f *ast.File, seen map[string]bool) []Entry {
 	return out
 }
 
+// callableConversions are the func types builtins are converted to when
+// registered; the documented func is the converted one.
+var callableConversions = map[string]bool{"KwargsCallable": true, "orderedKwargsFunc": true, "dictClass": true}
+
 // extractFuncIdent walks an RHS expression and returns the bottom-most
 // function identifier. Handles the small set of shapes the registry
 // uses today:
@@ -117,6 +121,7 @@ func walkRegistrations(f *ast.File, seen map[string]bool) []Entry {
 //	globalRange(e)                  → "globalRange"
 //	KwargsCallable(globalDict)      → "globalDict"
 //	namespaceCtor                   → "namespaceCtor"
+//	dictClass(globalDict)           → "globalDict"
 func extractFuncIdent(e ast.Expr) string {
 	switch x := e.(type) {
 	case *ast.Ident:
@@ -137,11 +142,11 @@ func extractFuncIdent(e ast.Expr) string {
 			}
 		}
 	case *ast.CallExpr:
-		// Either `KwargsCallable(globalDict)` — recurse on the only arg
-		// (it should be an Ident), or `globalRange(e)` — return the
-		// callee's name.
+		// Either a conversion such as `KwargsCallable(globalJoiner)` or
+		// `dictClass(globalDict)` — use the only arg (it should be an
+		// Ident) — or a call such as `globalRange(e)` — use the callee.
 		if id, ok := x.Fun.(*ast.Ident); ok {
-			if id.Name == "KwargsCallable" && len(x.Args) == 1 {
+			if callableConversions[id.Name] && len(x.Args) == 1 {
 				if arg, ok := x.Args[0].(*ast.Ident); ok {
 					return arg.Name
 				}

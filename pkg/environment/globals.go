@@ -2,7 +2,6 @@ package environment
 
 import (
 	"fmt"
-	"sort"
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/runtime"
@@ -60,64 +59,33 @@ func globalRange(e *Environment) func(...int) ([]any, error) {
 // globalDict implements the `dict` global: build a dict from positional
 // pairs, keyword arguments, or another mapping.
 //
-// Signature: dict(**kwargs) | dict(mapping, **kwargs) | dict(*alternating)
+// Signature: dict(**kwargs) | dict(mapping, **kwargs) | dict(pairs, **kwargs)
 //
-// Three call shapes:
-//   - `dict(a=1, b=2)`: keyword arguments become entries.
+// Python's dict():
+//   - `dict(a=1, b=2)`: keyword arguments become entries, in call order.
 //   - `dict(mapping)`: shallow-copies an existing mapping.
 //   - `dict(pairs)`: builds from a sequence of (key, value) pairs.
-//   - `dict('a', 1, 'b', 2)`: alternating key/value pairs (string keys only).
 //
-// Returns a [runtime.OrderedDict]. kwargs are sorted alphabetically
-// (Go's map iteration is randomized; alphabetic insertion keeps
-// `{{ dict(a=1, b=2) | items }}` output stable across renders).
+// Keyword arguments are added after the positional argument's entries.
+// Returns a [runtime.OrderedDict]. `dict.fromkeys(keys, value=None)`
+// is available too.
 //
 // Example:
 //
 //	{{ dict(a=1, b=2) | items }}  →  [('a', 1), ('b', 2)]
-func globalDict(args []any, kwargs map[string]any) (any, error) {
+func globalDict(args []any, kwargs *runtime.OrderedDict) (any, error) {
+	if len(args) > 1 {
+		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("dict expected at most 1 argument, got %d", len(args)))
+	}
 	out := runtime.NewOrderedDict()
 	if len(args) == 1 {
-		switch x := args[0].(type) {
-		case *runtime.OrderedDict:
-			for _, k := range x.Keys() {
-				v, _ := x.Get(k)
-				out.Set(k, v)
-			}
-		case map[string]any:
-			for k, v := range x {
-				out.Set(k, v)
-			}
-		case map[any]any:
-			for k, v := range x {
-				out.Set(k, v)
-			}
-		case []any, runtime.Tuple, *runtime.PyList:
-			if err := out.Update(x); err != nil {
-				return nil, gjerrors.NewTemplateRuntimeError(err.Error())
-			}
-		default:
-			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("dict() argument must be a mapping or alternating pairs, got %T", x))
-		}
-	} else {
-		if len(args)%2 != 0 {
-			return nil, gjerrors.NewTemplateRuntimeError("dict() requires alternating key/value")
-		}
-		for i := 0; i < len(args); i += 2 {
-			k, ok := args[i].(string)
-			if !ok {
-				return nil, gjerrors.NewTemplateRuntimeError("dict() keys must be strings")
-			}
-			out.Set(k, args[i+1])
+		if err := updateDict(out, args[0]); err != nil {
+			return nil, err
 		}
 	}
-	ks := make([]string, 0, len(kwargs))
-	for k := range kwargs {
-		ks = append(ks, k)
-	}
-	sort.Strings(ks)
-	for _, k := range ks {
-		out.Set(k, kwargs[k])
+	for _, k := range kwargs.Keys() {
+		v, _ := kwargs.Get(k)
+		out.Set(k, v)
 	}
 	return out, nil
 }

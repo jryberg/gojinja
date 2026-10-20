@@ -21,6 +21,11 @@ func (RecursionError) Error() string {
 	return "maximum recursion depth exceeded while getting the repr of an object"
 }
 
+// viewRepr is implemented by dict views, whose repr is dict_keys([...]).
+type viewRepr interface {
+	ReprView() (string, []any)
+}
+
 // attrsRepr is implemented by objects whose repr is `<Name {attrs}>`
 // (Jinja2's Namespace), kept without an import on pkg/runtime.
 type attrsRepr interface {
@@ -103,6 +108,9 @@ func (st *reprState) repr(v any) string {
 		return st.dict(v, x)
 	case orderedDictRepr:
 		return st.orderedDict(x)
+	case viewRepr:
+		name, items := x.ReprView()
+		return name + "(" + st.list(v, items) + ")"
 	case listRepr:
 		return st.list(v, x.Items())
 	case attrsRepr:

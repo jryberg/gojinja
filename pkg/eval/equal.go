@@ -54,6 +54,12 @@ func valuesEqual(a, b any, depth int) (bool, error) {
 		bb, ok := b.(runtime.Bytes)
 		return ok && string(ab) == string(bb), nil
 	}
+	if av, ok := a.(*runtime.DictView); ok {
+		return viewEqual(av, b, depth)
+	}
+	if bv, ok := b.(*runtime.DictView); ok {
+		return viewEqual(bv, a, depth)
+	}
 	if al, aTuple, ok := eqSeq(a); ok {
 		bl, bTuple, ok := eqSeq(b)
 		if !ok || aTuple != bTuple || len(al) != len(bl) {
@@ -87,6 +93,10 @@ func valuesEqual(a, b any, depth int) (bool, error) {
 	}
 	return reflect.DeepEqual(a, b), nil
 }
+
+// SameOrEqual is CPython's identity-then-== comparison, which `in`,
+// list.index/count/remove and container equality use for members.
+func SameOrEqual(a, b any) (bool, error) { return elemEqual(a, b, 0) }
 
 // elemEqual compares container members the way CPython does: identity
 // first, then `==`.
@@ -196,4 +206,26 @@ func eqMapping(v any) (mappingView, bool) {
 // test shares the operator's semantics.
 func Contains(needle, haystack any) (bool, error) {
 	return inValue(needle, haystack)
+}
+
+// viewEqual is == for a dict view: keys and items views compare as sets
+// with another view of the same kind, a values view only with itself.
+func viewEqual(a *runtime.DictView, b any, depth int) (bool, error) {
+	bv, ok := b.(*runtime.DictView)
+	if !ok || a.Kind != bv.Kind {
+		return false, nil
+	}
+	if a.Kind == "values" {
+		return a == bv, nil
+	}
+	if a.Len() != bv.Len() {
+		return false, nil
+	}
+	for _, it := range a.Items() {
+		found, err := bv.Contains(it, func(x, y any) (bool, error) { return elemEqual(x, y, depth) })
+		if err != nil || !found {
+			return false, err
+		}
+	}
+	return true, nil
 }

@@ -6,15 +6,13 @@ import (
 	"sort"
 )
 
-// PyList is the runtime representation of a list literal built inside a
-// template (`{% set xs = [] %}`, `[1, 2, 3]`). It carries pointer-receiver
-// mutating methods that mirror Python's list — `append`, `extend`,
-// `insert`, `pop`, `remove`, `clear`, `reverse`, `sort` — so templates
-// that work in canonical Jinja2 with the `do` extension also work here.
-//
-// Caller-supplied `[]any` (data injected via the render context) keeps
-// its bare slice type and stays immutable. The split honours the sandbox
-// principle: only values created inside the template gain mutation.
+// PyList is the runtime representation of a Python list: list literals
+// built in a template (`{% set xs = [] %}`, `[1, 2, 3]`), the lists
+// filters and calls return, and copies of the caller's slices (see
+// [NormalizeForTemplate]). It carries pointer-receiver mutating methods
+// that mirror Python's list — `append`, `extend`, `insert`, `pop`,
+// `remove`, `clear`, `reverse`, `sort` — so templates that work in
+// canonical Jinja2 with the `do` extension also work here.
 //
 // PyList implements the [Lister] interface so generic consumers can
 // recover the underlying slice without binding to this concrete type.
@@ -137,6 +135,11 @@ func (l *PyList) Remove(v any, eq func(a, b any) bool) error {
 		}
 	}
 	return fmt.Errorf("list.remove(x): x not in list")
+}
+
+// RemoveAt deletes the item at index i.
+func (l *PyList) RemoveAt(i int) {
+	l.items = append(l.items[:i], l.items[i+1:]...)
 }
 
 // Clear empties the list in place.

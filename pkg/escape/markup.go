@@ -125,7 +125,7 @@ func SoftStr(v any) string {
 		return pyFloatStr(float64(x))
 	case float64:
 		return pyFloatStr(x)
-	case []any, tupleRepr, map[string]any, map[any]any, orderedDictRepr, listRepr, attrsRepr:
+	case []any, tupleRepr, map[string]any, map[any]any, orderedDictRepr, viewRepr, listRepr, attrsRepr:
 		// str() of a container is its repr.
 		return pyRepr(v)
 	case fmt.Stringer:

@@ -21,8 +21,8 @@ import (
 func registerBuiltins(e *Environment) {
 	// ------------------------------------------------------- globals
 	e.globals["range"] = globalRange(e)
-	e.globals["dict"] = KwargsCallable(globalDict)
-	e.globals["namespace"] = namespaceCtor
+	e.globals["dict"] = dictClass(globalDict)
+	e.globals["namespace"] = orderedKwargsFunc(namespaceCtor)
 	e.globals["cycler"] = globalCycler
 	e.globals["joiner"] = globalJoiner
 	e.globals["lipsum"] = globalLipsum
@@ -151,35 +151,22 @@ func registerBuiltins(e *Environment) {
 //
 // Both a positional mapping and keyword arguments seed the resulting
 // Namespace.
-func namespaceCtor(args []any, kwargs map[string]any) (any, error) {
-	seed := map[string]any{}
-	for _, a := range args {
-		switch x := a.(type) {
-		case map[string]any:
-			for k, v := range x {
-				seed[k] = v
-			}
-		case map[any]any:
-			for k, v := range x {
-				if s, ok := k.(string); ok {
-					seed[s] = v
-				}
-			}
-		case *runtime.OrderedDict:
-			for _, k := range x.Keys() {
-				if s, ok := k.(string); ok {
-					v, _ := x.Get(k)
-					seed[s] = v
-				}
-			}
-		default:
-			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("namespace argument must be a mapping, got %T", a))
+func namespaceCtor(args []any, kwargs *runtime.OrderedDict) (any, error) {
+	// Namespace(*args, **kwargs) seeds its attributes like dict().
+	seed, err := globalDict(args, kwargs)
+	if err != nil {
+		return nil, err
+	}
+	ns := runtime.NewNamespace(nil)
+	for _, it := range seed.(*runtime.OrderedDict).Items() {
+		kv := it.(runtime.Tuple)
+		name, ok := kv[0].(string)
+		if !ok {
+			return nil, gjerrors.NewTemplateRuntimeError("keywords must be strings")
 		}
+		ns.Set(name, kv[1])
 	}
-	for k, v := range kwargs {
-		seed[k] = v
-	}
-	return runtime.NewNamespace(seed), nil
+	return ns, nil
 }
 
 // =========================================================== Filter funcs
@@ -342,8 +329,6 @@ func filterLength(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 		return len(x), nil
 	case map[any]any:
 		return len(x), nil
-	case *runtime.OrderedDict:
-		return x.Len(), nil
 	case runtime.Undefined:
 		// Mirrors Python: Undefined.__len__ → 0 for ModeBase /
 		// ModeChainable. ModeStrict raises through Iter; we honour
@@ -353,8 +338,11 @@ func filterLength(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 			return 0, err
 		}
 		return 0, nil
+	case interface{ Len() int }:
+		// Lists, dicts and dict views.
+		return x.Len(), nil
 	}
-	return 0, gjerrors.NewFilterArgumentError("length: object has no length")
+	return 0, gjerrors.NewFilterArgumentError(fmt.Sprintf("object of type '%s' has no len()", runtime.PyTypeName(value)))
 }
 
 // filterString implements the `string` filter: stringify a value the way
@@ -1289,7 +1277,7 @@ func filterUnique(env *Environment, _ *runtime.Context, value any, args []any, k
 	if v, ok := paramArg(args, kwargs, 1, "attribute"); ok && v != nil {
 		attr = escape.SoftStr(v)
 	}
-	seen := map[any]bool{}
+	seen := map[string]bool{}
 	out := []any{}
 	for _, it := range x {
 		key := it
@@ -1303,11 +1291,12 @@ func filterUnique(env *Environment, _ *runtime.Context, value any, args []any, k
 				key = strings.ToLower(s)
 			}
 		}
-		if err := unhashable(key); err != nil {
-			return nil, err
+		hk, err := runtime.HashKey(key)
+		if err != nil {
+			return nil, gjerrors.NewTemplateRuntimeError(err.Error())
 		}
-		if !seen[key] {
-			seen[key] = true
+		if !seen[hk] {
+			seen[hk] = true
 			out = append(out, it)
 		}
 	}

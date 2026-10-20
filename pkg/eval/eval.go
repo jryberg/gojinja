@@ -553,11 +553,12 @@ func (e *evaluator) evalFilterBlock(n *ast.FilterBlock, ctx *runtime.Context) er
 
 // applyFilter runs a filter chain against a starting value.
 func (e *evaluator) applyFilter(f *ast.Filter, value any, ctx *runtime.Context) (any, error) {
-	args, kwargs, err := e.evalCallArgs(f.Args, f.Kwargs, f.DynArgs, f.DynKwargs, ctx)
+	args, kwargs, _, err := e.evalCallArgs(f.Args, f.Kwargs, f.DynArgs, f.DynKwargs, ctx)
 	if err != nil {
 		return nil, err
 	}
 	v, err := e.eng.CallFilter(f.Name, ctx, value, args, kwargs)
+	v = runtime.ToPyList(v)
 	if err != nil {
 		return nil, err
 	}
@@ -681,6 +682,12 @@ func requiredBlockError(name string) error {
 // definition.
 func RequiredBlock(name string) runtime.BlockRenderFunc {
 	return func(*runtime.Context) (string, error) { return "", requiredBlockError(name) }
+}
+
+// orderedCaller is satisfied by the environment: Call with the order of
+// the keyword arguments, for callables that keep it (dict(), namespace()).
+type orderedCaller interface {
+	CallOrdered(ctx *runtime.Context, callee any, args []any, kwargs map[string]any, order []string) (any, error)
 }
 
 // blocksProvider is satisfied by the environment: it returns the block
@@ -980,7 +987,7 @@ func (mv *macroValue) String() string {
 // nil, is bound as `caller`; extra arguments go to `varargs` / `kwargs`
 // when the body uses them and are an error otherwise. The result is
 // Markup when the calling context autoescapes.
-func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, kwargs map[string]any, caller any) (any, error) {
+func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, kwargs map[string]any, kwOrder []string, caller any) (any, error) {
 	leave, err := enter(ctx)
 	if err != nil {
 		return nil, err
@@ -1033,7 +1040,14 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 		}
 	}
 	if mv.CatchKwargs {
-		frame.Set("kwargs", anyMap(remainingKw))
+		// Python's kwargs dict keeps the call's keyword order.
+		rest := runtime.NewOrderedDict()
+		for _, k := range kwOrder {
+			if v, ok := remainingKw[k]; ok {
+				rest.Set(k, v)
+			}
+		}
+		frame.Set("kwargs", rest)
 	} else if len(remainingKw) > 0 {
 		if _, ok := remainingKw["caller"]; ok {
 			//lint:ignore ST1005 Jinja2's exact message
@@ -1066,17 +1080,6 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 	return b.String(), nil
 }
 
-// anyMap reboxes a map[string]any as map[any]any so renderers and the
-// `tojson` filter see a uniform shape — this matches what Jinja2 produces
-// when binding `kwargs` (Python dict).
-func anyMap(m map[string]any) map[any]any {
-	out := make(map[any]any, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
-}
-
 // evalCallBlock evaluates `{% call %}`: the body becomes an anonymous
 // macro, Jinja2's `caller`, passed to the called macro.
 func (e *evaluator) evalCallBlock(n *ast.CallBlock, ctx *runtime.Context) error {
@@ -1088,7 +1091,7 @@ func (e *evaluator) evalCallBlock(n *ast.CallBlock, ctx *runtime.Context) error 
 	if !ok {
 		return fmt.Errorf("call block target is not a macro: %T", macro)
 	}
-	args, kwargs, err := e.evalCallArgs(n.Call.Args, n.Call.Kwargs, n.Call.DynArgs, n.Call.DynKwargs, ctx)
+	args, kwargs, order, err := e.evalCallArgs(n.Call.Args, n.Call.Kwargs, n.Call.DynArgs, n.Call.DynKwargs, ctx)
 	if err != nil {
 		return err
 	}
@@ -1106,7 +1109,7 @@ func (e *evaluator) evalCallBlock(n *ast.CallBlock, ctx *runtime.Context) error 
 		AccessesCaller: hasCaller,
 		DefCtx:         ctx,
 	}
-	v, err := e.CallMacro(mv, ctx, args, kwargs, caller)
+	v, err := e.CallMacro(mv, ctx, args, kwargs, order, caller)
 	if err != nil {
 		return err
 	}
@@ -1142,6 +1145,8 @@ func Truthy(v any) bool {
 	case *runtime.PyList:
 		return x.Len() != 0
 	case *runtime.OrderedDict:
+		return x.Len() != 0
+	case *runtime.DictView:
 		return x.Len() != 0
 	case map[any]any:
 		return len(x) != 0
@@ -1228,6 +1233,8 @@ func ToIterable(v any) ([]any, error) {
 		// Iterating a dict yields its keys in insertion order, matching
 		// Python's `for k in d` semantics.
 		return x.Keys(), nil
+	case *runtime.DictView:
+		return x.Items(), nil
 	}
 	if u, ok := v.(runtime.Undefined); ok {
 		return u.Iter()
@@ -1235,7 +1242,7 @@ func ToIterable(v any) ([]any, error) {
 	if u, ok := v.(runtime.Undefiner); ok && u.IsUndefined() {
 		return nil, nil
 	}
-	return nil, fmt.Errorf("eval: value of type %T is not iterable", v)
+	return nil, fmt.Errorf("'%s' object is not iterable", runtime.PyTypeName(v))
 }
 
 func runeStrings(s string) []any {

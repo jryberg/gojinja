@@ -1,0 +1,8 @@
+{%- set rows = [] -%}
+{% for i in [1, 2] %}{% set row = [] %}{% do rows.append(row) %}{% do row.append(i) %}{% do row.extend([i * 10]) %}{% endfor %}{{ rows }}
+{% set d = dict(b=1, a=2) %}{% do d.update(c=3, **{'z': 0}) %}{% do d.setdefault('l', []).append(1) %}{{ d }}|{{ d.keys() }}|{{ d.values() }}|{{ d.items() }}
+{{ dict.fromkeys(['x', 'y'], 0) }}|{{ {}.fromkeys('ab') }}|{{ namespace(b=1, a=2) }}|{{ 'a' in d.keys() }}|{{ ('b', 1) in d.items() }}|{{ d.keys()|length }}
+{{ {(1, 2): 'tuple key', 1: 'int', 1.0: 'float wins value', true: 'bool'} }}|{{ [1, 1.0, true, (1, 2), (1, 2)]|unique|list }}
+{% set l = [3, 1, 2] %}{% do l.sort(reverse=true) %}{{ l }}|{{ l.index(1) }}|{{ l.count(3) }}|{{ l.copy() is sameas l }}|{{ l.pop() }}|{{ l }}
+{% set x = host %}{% do x.append(3) %}{{ host }}|{{ {'href': '/x', 'class': 'btn', 'skip': none}|xmlattr }}
+{% macro m() %}{{ kwargs }}|{{ kwargs|list }}{% endmacro %}{{ m(y=1, x=2) }}

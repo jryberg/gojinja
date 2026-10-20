@@ -50,8 +50,12 @@ func TestNormalizeForTemplate_OrderedDictPreservesOuterOrder(t *testing.T) {
 	od.Set("alpha", 1)
 	out := NormalizeForTemplate(od).(*OrderedDict)
 
-	if out != od {
-		t.Errorf("NormalizeForTemplate returned a fresh pointer; want same pointer")
+	// A copy, so a template mutating it leaves the caller's dict alone.
+	if out == od {
+		t.Errorf("NormalizeForTemplate returned the caller's dict; want a copy")
+	}
+	if v, _ := od.Get("zeta"); reflect.TypeOf(v) != reflect.TypeOf(map[string]any{}) {
+		t.Errorf("caller's dict was modified: zeta = %T", v)
 	}
 	keys := out.Keys()
 	if !reflect.DeepEqual(keys, []any{"zeta", "alpha"}) {
@@ -78,7 +82,7 @@ func TestNormalizeForTemplate_AnySliceWalks(t *testing.T) {
 		"plain",
 		42,
 	}
-	out := NormalizeForTemplate(in).([]any)
+	out := NormalizeForTemplate(in).(*PyList).Items()
 	if len(out) != 3 {
 		t.Fatalf("len = %d, want 3", len(out))
 	}
@@ -106,7 +110,7 @@ func TestNormalizeForTemplate_TypedMapSliceWalks(t *testing.T) {
 		{"z": 1, "a": 2},
 		{"name": "B"},
 	}
-	out := NormalizeForTemplate(in).([]any)
+	out := NormalizeForTemplate(in).(*PyList).Items()
 	if len(out) != 2 {
 		t.Fatalf("len = %d, want 2", len(out))
 	}

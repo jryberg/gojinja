@@ -455,8 +455,8 @@ func TestXmlattrFilter(t *testing.T) {
 	e := mustEnv(t)
 	got := render(t, e, "<a{{ {'href': '/x', 'class': 'btn'} | xmlattr }}>",
 		nil)
-	// Sorted: class first, then href.
-	want := `<a class="btn" href="/x">`
+	// In dict order, as Jinja2 iterates d.items().
+	want := `<a href="/x" class="btn">`
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
