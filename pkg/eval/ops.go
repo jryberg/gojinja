@@ -19,6 +19,8 @@ func applyBinop(op string, a, b any) (any, error) {
 	// an Undefined included.
 	if op == "%" {
 		switch f := a.(type) {
+		case runtime.Bytes:
+			return PercentFormatBytes(f, b)
 		case string:
 			return PercentFormat(f, b, false)
 		case escape.Markup:
@@ -26,13 +28,23 @@ func applyBinop(op string, a, b any) (any, error) {
 			return escape.Markup(s), err
 		}
 	}
+	// Markup.__mul__ asks str for the count before Undefined can fail.
+	if _, ok := a.(escape.Markup); ok && op == "*" && runtime.IsUndefined(b) {
+		return nil, binopError(op, a, b)
+	}
 	if err := FailUndefined(a, b); err != nil {
 		return nil, err
 	}
 	// Python's bool is an int subclass in arithmetic.
+	origA, origB := a, b
 	a, b = boolToInt(a), boolToInt(b)
 	if out, ok := markupBinop(op, a, b); ok {
 		return out, nil
+	}
+	if bb, ok := b.(runtime.Bytes); ok && op == "*" {
+		if n, ok := asInt(a); ok {
+			return runtime.Bytes(strings.Repeat(string(bb), max(n, 0))), nil
+		}
 	}
 	if ab, ok := a.(runtime.Bytes); ok {
 		switch bb := b.(type) {
@@ -115,9 +127,59 @@ func applyBinop(op string, a, b any) (any, error) {
 	}
 	v, err := runtime.NumBinop(op, a, b)
 	if runtime.IsNotNumber(err) {
-		return nil, fmt.Errorf("unsupported operand type(s) for %s: '%s' and '%s'", op, runtime.PyTypeName(a), runtime.PyTypeName(b))
+		return nil, binopError(op, origA, origB)
 	}
 	return v, err
+}
+
+// binopError is CPython's TypeError for `a op b` with operands that do
+// not support it: the sequence that tried a concatenation or repetition
+// words it, Markup's __mul__ needs an index, and otherwise it is the
+// generic "unsupported operand type(s)".
+func binopError(op string, a, b any) error {
+	at, bt := runtime.PyTypeName(a), runtime.PyTypeName(b)
+	switch op {
+	case "**":
+		return fmt.Errorf("unsupported operand type(s) for ** or pow(): '%s' and '%s'", at, bt)
+	case "+":
+		// Markup's __add__ declines non-strings: the generic message.
+		switch a.(type) {
+		case string:
+			return fmt.Errorf("can only concatenate str (not \"%s\") to str", bt)
+		case []any, *runtime.PyList:
+			return fmt.Errorf("can only concatenate list (not \"%s\") to list", bt)
+		case runtime.Tuple:
+			return fmt.Errorf("can only concatenate tuple (not \"%s\") to tuple", bt)
+		case runtime.Bytes:
+			return fmt.Errorf("can't concat %s to bytes", bt)
+		}
+	case "*":
+		switch {
+		case isMarkup(a):
+			return fmt.Errorf("'%s' object cannot be interpreted as an integer", bt)
+		case isMarkup(b):
+			return fmt.Errorf("'%s' object cannot be interpreted as an integer", at)
+		case isRepeatable(a):
+			return fmt.Errorf("can't multiply sequence by non-int of type '%s'", bt)
+		case isRepeatable(b):
+			return fmt.Errorf("can't multiply sequence by non-int of type '%s'", at)
+		}
+	}
+	return fmt.Errorf("unsupported operand type(s) for %s: '%s' and '%s'", op, at, bt)
+}
+
+func isMarkup(v any) bool {
+	_, ok := v.(escape.Markup)
+	return ok
+}
+
+// isRepeatable reports whether v is a sequence `*` repeats.
+func isRepeatable(v any) bool {
+	switch v.(type) {
+	case string, []any, *runtime.PyList, runtime.Tuple, runtime.Bytes:
+		return true
+	}
+	return false
 }
 
 var errIndexSized = errors.New("cannot fit 'int' into an index-sized integer")
@@ -312,6 +374,11 @@ func orderDepth(op string, a, b any, depth int) (bool, error) {
 			return cmpOrdered(op, as, bs), nil
 		}
 	}
+	if ab, ok := a.(runtime.Bytes); ok {
+		if bb, ok := b.(runtime.Bytes); ok {
+			return cmpOrdered(op, string(ab), string(bb)), nil
+		}
+	}
 	if al, aTuple, ok := eqSeq(a); ok {
 		if bl, bTuple, ok := eqSeq(b); ok && aTuple == bTuple {
 			for i := 0; i < len(al) && i < len(bl); i++ {
@@ -360,7 +427,7 @@ func inValue(needle, haystack any) (bool, error) {
 		hay, _ := eqStr(col)
 		s, ok := eqStr(needle)
 		if !ok {
-			return false, fmt.Errorf("'in <string>' requires string as left operand, not %T", needle)
+			return false, fmt.Errorf("'in <string>' requires string as left operand, not %s", runtime.PyTypeName(needle))
 		}
 		return strings.Contains(hay, s), nil
 	case []any:
@@ -395,6 +462,20 @@ func inValue(needle, haystack any) (bool, error) {
 		return col.Contains(needle, SameOrEqual)
 	case *runtime.Range:
 		return col.Contains(needle, SameOrEqual)
+	case runtime.Bytes:
+		switch x := boolToInt(needle).(type) {
+		case runtime.Bytes:
+			return strings.Contains(string(col), string(x)), nil
+		default:
+			n, ok := runtime.BigInt(x)
+			if !ok {
+				return false, fmt.Errorf("a bytes-like object is required, not '%s'", runtime.PyTypeName(needle))
+			}
+			if !n.IsInt64() || n.Int64() < 0 || n.Int64() > 255 {
+				return false, fmt.Errorf("byte must be in range(0, 256)")
+			}
+			return strings.IndexByte(string(col), byte(n.Int64())) >= 0, nil
+		}
 	case *runtime.Iterator:
 		// Reads the iterator up to the first match.
 		for {
@@ -415,7 +496,7 @@ func inValue(needle, haystack any) (bool, error) {
 		}
 		return false, nil
 	}
-	return false, fmt.Errorf("'in' on unsupported type %T", haystack)
+	return false, fmt.Errorf("argument of type '%s' is not iterable", runtime.PyTypeName(haystack))
 }
 
 func containsAny(needle any, col []any) (bool, error) {

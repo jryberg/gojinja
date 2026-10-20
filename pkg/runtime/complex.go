@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"errors"
-	"fmt"
 	"math"
 )
 
@@ -44,7 +43,8 @@ func complexBinop(op string, a, b any) (any, error) {
 	case "**":
 		return complexPow(x, y)
 	}
-	return nil, fmt.Errorf("unsupported operand type(s) for %s: '%s' and '%s'", op, PyTypeName(a), PyTypeName(b))
+	// complex has no // or %.
+	return nil, errNotNumber
 }
 
 // complexProd is _Py_c_prod.

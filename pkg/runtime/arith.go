@@ -115,6 +115,10 @@ func intBinop(op string, a, b any) (any, error) {
 		if by.Sign() == 0 {
 			return nil, errors.New("division by zero")
 		}
+		if bx.Sign() == 0 {
+			// 0 / -3 is -0.0.
+			return math.Copysign(0, float64(by.Sign())), nil
+		}
 		f, _ := new(big.Rat).SetFrac(bx, by).Float64()
 		if math.IsInf(f, 0) {
 			return nil, errors.New("integer division result too large for a float")

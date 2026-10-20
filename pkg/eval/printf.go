@@ -18,7 +18,26 @@ import (
 // set the format is a Markup: like markupsafe's escape helper, %s, %r
 // and %a escape their argument while numeric conversions see it as is.
 func PercentFormat(format string, args any, markup bool) (string, error) {
-	p := percentFormatter{markup: markup}
+	p := newPercentFormatter(args, false)
+	p.markup = markup
+	return p.format(format)
+}
+
+// PercentFormatBytes is printf-style `format % args` for bytes (CPython's
+// _PyBytes_FormatEx): the str conversions on bytes, with %s and %b taking
+// bytes, %c a byte, and %r and %a both ascii().
+func PercentFormatBytes(format runtime.Bytes, args any) (runtime.Bytes, error) {
+	p := newPercentFormatter(args, true)
+	// The formatter works on runes; each byte is one, as in Latin-1.
+	s, err := p.format(latin1(format))
+	if err != nil {
+		return nil, err
+	}
+	return fromLatin1(s), nil
+}
+
+func newPercentFormatter(args any, bytes bool) *percentFormatter {
+	p := &percentFormatter{bytes: bytes}
 	switch a := args.(type) {
 	case runtime.Tuple:
 		p.args = a
@@ -26,13 +45,33 @@ func PercentFormat(format string, args any, markup bool) (string, error) {
 		p.args = []any{args}
 	}
 	// CPython treats anything with __getitem__ except tuples and strings
-	// as a possible mapping for %(key) conversions.
+	// (and, formatting bytes, bytes) as a possible mapping for %(key)
+	// conversions.
 	switch args.(type) {
-	case runtime.Tuple, string, escape.Markup:
-	case map[string]any, map[any]any, *runtime.OrderedDict, []any, *runtime.PyList, runtime.Undefined:
+	case runtime.Bytes:
+		if !bytes {
+			p.mapping = args
+		}
+	case map[string]any, map[any]any, *runtime.OrderedDict, []any, *runtime.PyList, *runtime.Range, runtime.Undefined:
 		p.mapping = args
 	}
-	return p.format(format)
+	return p
+}
+
+func latin1(b runtime.Bytes) string {
+	rs := make([]rune, len(b))
+	for i, c := range b {
+		rs[i] = rune(c)
+	}
+	return string(rs)
+}
+
+func fromLatin1(s string) runtime.Bytes {
+	out := make(runtime.Bytes, 0, len(s))
+	for _, r := range s {
+		out = append(out, byte(r))
+	}
+	return out
 }
 
 type percentFormatter struct {
@@ -40,6 +79,7 @@ type percentFormatter struct {
 	next    int
 	mapping any
 	markup  bool
+	bytes   bool
 }
 
 func (p *percentFormatter) nextArg() (any, error) {
@@ -82,7 +122,10 @@ func (p *percentFormatter) format(f string) (string, error) {
 			if depth > 0 {
 				return "", fmt.Errorf("incomplete format key")
 			}
-			key := string(rs[i+1 : k-1])
+			var key any = string(rs[i+1 : k-1])
+			if p.bytes {
+				key = fromLatin1(key.(string))
+			}
 			v, err := percentKey(p.mapping, key)
 			if err != nil {
 				return "", err
@@ -153,6 +196,9 @@ func (p *percentFormatter) format(f string) (string, error) {
 	}
 	// CPython only complains about leftovers when args is not a mapping.
 	if p.next < len(p.args) && p.mapping == nil {
+		if p.bytes {
+			return "", fmt.Errorf("not all arguments converted during bytes formatting")
+		}
 		return "", fmt.Errorf("not all arguments converted during string formatting")
 	}
 	return b.String(), nil
@@ -183,11 +229,13 @@ func (p *percentFormatter) number(rs []rune, i int) (int, int, error) {
 	return n, end, nil
 }
 
-func percentKey(mapping any, key string) (any, error) {
+func percentKey(mapping any, key any) (any, error) {
 	switch m := mapping.(type) {
 	case map[string]any:
-		if v, ok := m[key]; ok {
-			return v, nil
+		if k, ok := key.(string); ok {
+			if v, ok := m[k]; ok {
+				return v, nil
+			}
 		}
 	case map[any]any:
 		if v, ok := m[key]; ok {
@@ -200,9 +248,10 @@ func percentKey(mapping any, key string) (any, error) {
 	case runtime.Undefined:
 		return m.GetItem(key)
 	default:
-		return nil, fmt.Errorf("list indices must be integers or slices, not str")
+		name := map[string]string{"list": "list", "range": "range", "bytes": "byte"}[runtime.PyTypeName(mapping)]
+		return nil, fmt.Errorf("%s indices must be integers or slices, not %s", name, runtime.PyTypeName(key))
 	}
-	return nil, fmt.Errorf("KeyError: %s", escape.Repr(key))
+	return nil, fmt.Errorf("%s", escape.Repr(key))
 }
 
 type percentSpec struct {
@@ -211,6 +260,11 @@ type percentSpec struct {
 }
 
 func (p *percentFormatter) convert(verb rune, arg any, spec percentSpec, index int) (string, error) {
+	if p.bytes {
+		if s, done, err := p.convertBytes(verb, arg, spec); done {
+			return s, err
+		}
+	}
 	switch verb {
 	case 's', 'r', 'a':
 		if verb == 's' {
@@ -301,6 +355,40 @@ func (p *percentFormatter) convert(verb rune, arg any, spec percentSpec, index i
 		return formatFloat(f, verb, spec), nil
 	}
 	return "", fmt.Errorf("unsupported format character '%c' (0x%x) at index %d", verb, verb, index)
+}
+
+// convertBytes is a conversion that formats bytes differently from str;
+// done=false leaves it to the str conversions.
+func (p *percentFormatter) convertBytes(verb rune, arg any, spec percentSpec) (string, bool, error) {
+	clip := func(s string) string {
+		if spec.prec >= 0 && utf8.RuneCountInString(s) > spec.prec {
+			s = string([]rune(s)[:spec.prec])
+		}
+		return pad(s, spec, false)
+	}
+	switch verb {
+	case 's', 'b':
+		b, ok := arg.(runtime.Bytes)
+		if !ok {
+			return "", true, fmt.Errorf("%%b requires a bytes-like object, or an object that implements __bytes__, not '%s'", runtime.PyTypeName(arg))
+		}
+		return clip(latin1(b)), true, nil
+	case 'r', 'a':
+		return clip(pyASCII(escape.Repr(arg))), true, nil
+	case 'c':
+		if b, ok := arg.(runtime.Bytes); ok && len(b) == 1 {
+			return pad(string(rune(b[0])), spec, false), true, nil
+		}
+		n, ok := runtime.BigInt(boolToInt(arg))
+		if !ok {
+			return "", true, fmt.Errorf("%%c requires an integer in range(256) or a single byte")
+		}
+		if !n.IsInt64() || n.Int64() < 0 || n.Int64() > 255 {
+			return "", true, fmt.Errorf("%%c arg not in range(256)")
+		}
+		return pad(string(rune(n.Int64())), spec, false), true, nil
+	}
+	return "", false, nil
 }
 
 func pyFloatWord(f float64) string {
