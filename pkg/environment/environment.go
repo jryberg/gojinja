@@ -10,6 +10,7 @@ package environment
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"os"
 	"reflect"
 	"strings"
@@ -962,6 +963,10 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 		}
 	case runtime.AttrGetter:
 		if v, ok := x.Get(attr); ok {
+			return v, nil
+		}
+	case bool, float64, float32, complex128, int, int64, *big.Int:
+		if v, ok := numberAttr(x, attr); ok {
 			return v, nil
 		}
 	case map[string]any:
