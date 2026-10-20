@@ -1,7 +1,6 @@
 package environment
 
 import (
-	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"regexp"
@@ -158,23 +157,19 @@ func filterWordwrap(env *Environment, _ *runtime.Context, value any, args []any,
 	return strings.Join(paras, wrapstring), nil
 }
 
-// filterPprint implements the `pprint` filter: pretty-print any value as
-// indented JSON.
+// filterPprint implements the `pprint` filter: pretty-print a value.
 //
 // Signature: pprint(value)
 //
-// Useful for debugging template context. Falls back to `fmt.Sprintf("%v")`
-// for values JSON can't represent.
+// Python's pprint.pformat with its defaults: reprs on one line when they
+// fit in 80 columns, otherwise dicts (keys sorted), lists and tuples one
+// item per line and long strings split into adjacent literals.
 //
 // Example:
 //
-//	{{ ctx | pprint }}
+//	{{ {'b': 1, 'a': [1, 2]} | pprint }}  →  {'a': [1, 2], 'b': 1}
 func filterPprint(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	b, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return fmt.Sprintf("%v", value), nil
-	}
-	return string(b), nil
+	return pformat(value), nil
 }
 
 // filterRandom implements the `random` filter: pick a random element from
