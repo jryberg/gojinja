@@ -1,0 +1,4 @@
+{{ 'see (http://a.com/x). <http://b.org> go www.c.com, now'|urlize }}
+{{ 'mail mailto:a@b.com and x@y.org. a.com b.co.uk shop.net café.com'|urlize }}
+{{ 'trailing http://a.com/x), https://a.com/(x) http://[::1]:80/x https://10.0.0.1:8080/p?q=1&r=2#f'|urlize }}
+{{ 'ftp://a.com tel:123 x'|urlize(extra_schemes=['ftp://', 'tel:']) }}|{{ 'go http://example.com/long/path'|urlize(12, true, '_blank', 'me') }}

@@ -1022,12 +1022,12 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 		}
 	}
 	if obj == nil {
-		return e.undefined("", attr, nil, nil), nil
+		return e.undefined("", attr, runtime.None, nil), nil
 	}
 	v := reflect.ValueOf(obj)
 	for v.Kind() == reflect.Ptr {
 		if v.IsNil() {
-			return e.undefined("", attr, nil, nil), nil
+			return e.undefined("", attr, runtime.None, nil), nil
 		}
 		v = v.Elem()
 	}
@@ -1066,12 +1066,10 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 // GetItem fetches obj[arg].
 func (e *Environment) GetItem(obj any, arg any) (any, error) {
 	if obj == nil {
-		return e.undefined("", "", nil, nil), nil
+		return e.undefinedItem(runtime.None, arg), nil
 	}
-	if u, ok := obj.(runtime.Undefiner); ok && u.IsUndefined() {
-		if und, ok := obj.(runtime.Undefined); ok {
-			return und.GetItem(arg)
-		}
+	if und, ok := obj.(runtime.Undefined); ok {
+		return und.GetItem(arg)
 	}
 	switch x := obj.(type) {
 	case map[string]any:
@@ -1080,64 +1078,24 @@ func (e *Environment) GetItem(obj any, arg any) (any, error) {
 				return v, nil
 			}
 		}
-		return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
 	case map[any]any:
-		if v, ok := x[arg]; ok {
-			return v, nil
+		if hashable(arg) {
+			if v, ok := x[arg]; ok {
+				return v, nil
+			}
 		}
-		return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
 	case *runtime.OrderedDict:
-		if v, ok := x.Get(arg); ok {
-			return v, nil
+		if hashable(arg) {
+			if v, ok := x.Get(arg); ok {
+				return v, nil
+			}
 		}
-		return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
 	case []any:
-		if sv, ok := arg.(ast.SliceVal); ok {
-			return sliceList(x, sv), nil
-		}
-		idx, ok := asInt(arg)
-		if !ok {
-			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("list indices must be integers, not %T", arg))
-		}
-		if idx < 0 {
-			idx += len(x)
-		}
-		if idx < 0 || idx >= len(x) {
-			return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
-		}
-		return x[idx], nil
+		return e.getSeqItem(obj, x, arg, false)
 	case *runtime.PyList:
-		items := x.Items()
-		if sv, ok := arg.(ast.SliceVal); ok {
-			return sliceList(items, sv), nil
-		}
-		idx, ok := asInt(arg)
-		if !ok {
-			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("list indices must be integers, not %T", arg))
-		}
-		if idx < 0 {
-			idx += len(items)
-		}
-		if idx < 0 || idx >= len(items) {
-			return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
-		}
-		return items[idx], nil
+		return e.getSeqItem(obj, x.Items(), arg, false)
 	case runtime.Tuple:
-		if sv, ok := arg.(ast.SliceVal); ok {
-			out := sliceList([]any(x), sv)
-			return runtime.Tuple(out), nil
-		}
-		idx, ok := asInt(arg)
-		if !ok {
-			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("tuple indices must be integers, not %T", arg))
-		}
-		if idx < 0 {
-			idx += len(x)
-		}
-		if idx < 0 || idx >= len(x) {
-			return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
-		}
-		return x[idx], nil
+		return e.getSeqItem(obj, x, arg, true)
 	case string:
 		return e.getStringItem(obj, x, arg)
 	case escape.Markup:
@@ -1148,11 +1106,70 @@ func (e *Environment) GetItem(obj any, arg any) (any, error) {
 		}
 		return v, err
 	}
-	// Fallback: try attribute access.
+	// Like Environment.getitem: a failed subscript with a string key
+	// falls back to attribute access, anything else is undefined.
 	if k, ok := arg.(string); ok {
 		return e.GetAttr(obj, k)
 	}
-	return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
+	return e.undefinedItem(obj, arg), nil
+}
+
+// getSeqItem indexes or slices a list or tuple.
+func (e *Environment) getSeqItem(obj any, items []any, arg any, tuple bool) (any, error) {
+	if sv, ok := arg.(ast.SliceVal); ok {
+		out := sliceList(items, sv)
+		if tuple {
+			return runtime.Tuple(out), nil
+		}
+		return out, nil
+	}
+	idx, ok := seqIndex(arg)
+	if !ok {
+		if k, ok := arg.(string); ok {
+			return e.GetAttr(obj, k)
+		}
+		return e.undefinedItem(obj, arg), nil
+	}
+	if idx < 0 {
+		idx += len(items)
+	}
+	if idx < 0 || idx >= len(items) {
+		return e.undefinedItem(obj, arg), nil
+	}
+	return items[idx], nil
+}
+
+// seqIndex accepts the subscripts Python sequences do: ints and bools.
+func seqIndex(arg any) (int, bool) {
+	switch x := arg.(type) {
+	case bool:
+		if x {
+			return 1, true
+		}
+		return 0, true
+	case int:
+		return x, true
+	case int64:
+		return int(x), true
+	}
+	return 0, false
+}
+
+// hashable reports whether v can be a dict key without panicking.
+func hashable(v any) bool {
+	return v == nil || reflect.TypeOf(v).Comparable()
+}
+
+// undefinedItem is the Undefined for a failed obj[arg]: Python reports a
+// string key as a missing attribute and anything else as a missing
+// element.
+func (e *Environment) undefinedItem(obj, arg any) runtime.Undefined {
+	if k, ok := arg.(string); ok {
+		return e.undefined("", k, obj, nil)
+	}
+	u := e.undefined("", fmt.Sprint(arg), obj, nil)
+	u.Key = arg
+	return u
 }
 
 // convertArg coerces a template-supplied argument to the destination
@@ -1235,20 +1252,20 @@ func (e *Environment) getStringItem(obj any, s string, arg any) (any, error) {
 	if sv, ok := arg.(ast.SliceVal); ok {
 		return sliceString(s, sv), nil
 	}
-	idx, ok := asInt(arg)
+	idx, ok := seqIndex(arg)
 	if !ok {
 		// String indexed by string falls back to attribute access.
 		if k, ok := arg.(string); ok {
 			return e.GetAttr(obj, k)
 		}
-		return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("string indices must be integers, not %T", arg))
+		return e.undefinedItem(obj, arg), nil
 	}
 	rs := []rune(s)
 	if idx < 0 {
 		idx += len(rs)
 	}
 	if idx < 0 || idx >= len(rs) {
-		return e.undefined("", fmt.Sprintf("%v", arg), obj, nil), nil
+		return e.undefinedItem(obj, arg), nil
 	}
 	return string(rs[idx]), nil
 }

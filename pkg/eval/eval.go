@@ -481,7 +481,7 @@ func (e *evaluator) evalBlock(n *ast.Block, ctx *runtime.Context) error {
 	}
 	if stack, ok := ctx.Blocks[n.Name]; ok && len(stack) > 0 {
 		// Render the topmost (most-derived) block. super() walks toward 0.
-		s, err := callBlockAtDepth(stack, len(stack)-1, ctx, n.Name)
+		s, err := callBlockAtDepth(stack, len(stack)-1, ctx, n.Name, e.eng.UndefinedFactory())
 		if err != nil {
 			return err
 		}
@@ -494,14 +494,14 @@ func (e *evaluator) evalBlock(n *ast.Block, ctx *runtime.Context) error {
 // callBlockAtDepth invokes the block at `depth` in `stack`, binding a
 // `super` callable that recurses into depth-1 (or yields Undefined when
 // no parent exists).
-func callBlockAtDepth(stack []runtime.BlockRenderFunc, depth int, ctx *runtime.Context, name string) (string, error) {
+func callBlockAtDepth(stack []runtime.BlockRenderFunc, depth int, ctx *runtime.Context, name string, undef runtime.UndefinedFactory) (string, error) {
 	prev, hadSuper := ctx.Vars["super"]
 	if depth > 0 {
 		ctx.Vars["super"] = func() (any, error) {
-			return callBlockAtDepth(stack, depth-1, ctx, name)
+			return callBlockAtDepth(stack, depth-1, ctx, name, undef)
 		}
 	} else {
-		ctx.Vars["super"] = runtime.NewBase("there is no parent block called "+name, "super", nil, nil)
+		ctx.Vars["super"] = undef("there is no parent block called "+escape.Repr(name)+".", "super", runtime.Missing, nil)
 	}
 	defer func() {
 		if hadSuper {
@@ -897,7 +897,7 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 			frame.Set(name.Name, dv)
 			continue
 		}
-		frame.Set(name.Name, runtime.NewBase("", name.Name, nil, nil))
+		frame.Set(name.Name, missingParam(e.eng, name.Name))
 	}
 	// caller binding — explicit value wins; otherwise, if the body
 	// references caller, surface an Undefined so reads produce a clear
@@ -910,7 +910,7 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 			frame.Set("caller", v)
 			delete(remainingKw, "caller")
 		} else {
-			frame.Set("caller", runtime.NewBase("No caller defined", "caller", nil, nil))
+			frame.Set("caller", e.eng.UndefinedFactory()("No caller defined", "caller", runtime.Missing, nil))
 		}
 	}
 	// kwargs catcher: collect leftover keyword arguments.
@@ -1021,7 +1021,7 @@ func (c callerOnce) fn() runtime.CallerFunc {
 				frame.Set(name.Name, dv)
 				continue
 			}
-			frame.Set(name.Name, runtime.NewBase("", name.Name, nil, nil))
+			frame.Set(name.Name, missingParam(c.ev.eng, name.Name))
 		}
 		var b strings.Builder
 		sub := &evaluator{eng: c.ev.eng, w: &b, goCtx: c.ev.goCtx}
@@ -1159,6 +1159,11 @@ func runeStrings(s string) []any {
 		out = append(out, string(r))
 	}
 	return out
+}
+
+// missingParam is the value of a macro parameter the call did not pass.
+func missingParam(eng Engine, name string) runtime.Undefined {
+	return eng.UndefinedFactory()("parameter "+escape.Repr(name)+" was not provided", name, runtime.Missing, nil)
 }
 
 // stringList turns a single string or a list of strings into []string.

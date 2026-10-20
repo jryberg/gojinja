@@ -80,9 +80,9 @@ func (c *Context) ResolveOrUndefined(name string, factory UndefinedFactory) any 
 		return v
 	}
 	if factory == nil {
-		return NewBase("", name, nil, nil)
+		return NewBase("", name, Missing, nil)
 	}
-	return factory("", name, nil, nil)
+	return factory("", name, Missing, nil)
 }
 
 // Derived returns a child context that inherits parent + vars but allows

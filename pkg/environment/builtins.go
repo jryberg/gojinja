@@ -819,13 +819,13 @@ func filterList(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[st
 // Example:
 //
 //	{{ [1, 2, 3]  | first }}  →  1
-func filterFirst(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
+func filterFirst(env *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	x, err := iterArg("first", value)
 	if err != nil {
 		return nil, err
 	}
 	if len(x) == 0 {
-		return runtime.NewBase("", "first", value, nil), nil
+		return env.undefined("No first item, sequence was empty.", "", runtime.Missing, nil), nil
 	}
 	return x[0], nil
 }
@@ -840,13 +840,13 @@ func filterFirst(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 // Example:
 //
 //	{{ [1, 2, 3]  | last }}  →  3
-func filterLast(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
+func filterLast(env *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	x, err := iterArg("last", value)
 	if err != nil {
 		return nil, err
 	}
 	if len(x) == 0 {
-		return runtime.NewBase("", "last", value, nil), nil
+		return env.undefined("No last item, sequence was empty.", "", runtime.Missing, nil), nil
 	}
 	return x[len(x)-1], nil
 }
@@ -1018,7 +1018,7 @@ func filterMin(env *Environment, _ *runtime.Context, value any, args []any, kwar
 		return nil, err
 	}
 	if len(x) == 0 {
-		return runtime.NewBase("", "min", value, nil), nil
+		return env.undefined("No aggregated item, sequence was empty.", "", runtime.Missing, nil), nil
 	}
 	keyFn := minMaxKeyFn(env, args, kwargs)
 	mi := x[0]
@@ -1055,7 +1055,7 @@ func filterMax(env *Environment, _ *runtime.Context, value any, args []any, kwar
 		return nil, err
 	}
 	if len(x) == 0 {
-		return runtime.NewBase("", "max", value, nil), nil
+		return env.undefined("No aggregated item, sequence was empty.", "", runtime.Missing, nil), nil
 	}
 	keyFn := minMaxKeyFn(env, args, kwargs)
 	mx := x[0]
@@ -1230,7 +1230,7 @@ func filterDictsort(_ *Environment, _ *runtime.Context, value any, args []any, k
 func unhashable(v any) error {
 	switch v.(type) {
 	case []any, *runtime.PyList, []string, map[string]any, map[any]any, *runtime.OrderedDict:
-		return gjerrors.NewTemplateRuntimeError(fmt.Sprintf("unhashable type: '%s'", eval.PyTypeName(v)))
+		return gjerrors.NewTemplateRuntimeError(fmt.Sprintf("unhashable type: '%s'", runtime.PyTypeName(v)))
 	}
 	return nil
 }
@@ -1256,7 +1256,7 @@ func indexArg(v any) (int, error) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return int(rv.Uint()), nil
 	}
-	return 0, gjerrors.NewFilterArgumentError(fmt.Sprintf("'%s' object cannot be interpreted as an integer", eval.PyTypeName(v)))
+	return 0, gjerrors.NewFilterArgumentError(fmt.Sprintf("'%s' object cannot be interpreted as an integer", runtime.PyTypeName(v)))
 }
 
 // paramArg returns the argument bound to the Python parameter at
@@ -1809,7 +1809,7 @@ func filterUrlencode(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 	for _, it := range items {
 		pair, err := eval.ToIterable(it)
 		if err != nil {
-			return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("cannot unpack non-iterable %s object", eval.PyTypeName(it)))
+			return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("cannot unpack non-iterable %s object", runtime.PyTypeName(it)))
 		}
 		switch {
 		case len(pair) > 2:
@@ -1876,7 +1876,7 @@ func filterTojson(_ *Environment, _ *runtime.Context, value any, args []any, kwa
 func filterAttr(env *Environment, _ *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
 	name, ok := eqString(args[0])
 	if !ok {
-		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("attribute name must be string, not '%s'", eval.PyTypeName(args[0])))
+		return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("attribute name must be string, not '%s'", runtime.PyTypeName(args[0])))
 	}
 	// attr is getattr(): on a dict only its methods are attributes, never
 	// its keys.

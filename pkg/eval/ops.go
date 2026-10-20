@@ -3,7 +3,6 @@ package eval
 import (
 	"fmt"
 	"math"
-	"reflect"
 	"strings"
 
 	"github.com/jryberg/gojinja/pkg/escape"
@@ -322,7 +321,7 @@ func orderDepth(op string, a, b any, depth int) (bool, error) {
 			return cmpOrdered(op, len(al), len(bl)), nil
 		}
 	}
-	return false, fmt.Errorf("'%s' not supported between instances of '%s' and '%s'", orderSymbols[op], PyTypeName(a), PyTypeName(b))
+	return false, fmt.Errorf("'%s' not supported between instances of '%s' and '%s'", orderSymbols[op], runtime.PyTypeName(a), runtime.PyTypeName(b))
 }
 
 func cmpOrdered[T int | int64 | float64 | string](op string, a, b T) bool {
@@ -348,36 +347,6 @@ func Compare(op string, a, b any) (bool, error) {
 // "//", "%", "**") with the template operators' semantics.
 func BinaryOp(op string, a, b any) (any, error) {
 	return applyBinop(op, a, b)
-}
-
-// PyTypeName is the Python type name of v, for TypeError messages.
-func PyTypeName(v any) string {
-	switch v.(type) {
-	case nil:
-		return "NoneType"
-	case bool:
-		return "bool"
-	case string:
-		return "str"
-	case escape.Markup:
-		return "Markup"
-	case float32, float64:
-		return "float"
-	case []any, *runtime.PyList, []string:
-		return "list"
-	case runtime.Tuple:
-		return "tuple"
-	case map[string]any, map[any]any, *runtime.OrderedDict:
-		return "dict"
-	case runtime.Undefined:
-		return "Undefined"
-	}
-	switch reflect.ValueOf(v).Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return "int"
-	}
-	return fmt.Sprintf("%T", v)
 }
 
 func inValue(needle, haystack any) (bool, error) {

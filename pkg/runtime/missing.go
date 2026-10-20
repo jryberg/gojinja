@@ -12,6 +12,17 @@ var Missing missingType
 // String makes Missing print as "missing", matching Jinja2's repr.
 func (missingType) String() string { return "missing" }
 
+// noneType is the type of [None].
+type noneType struct{}
+
+// None marks an [Undefined] produced by a lookup on Python's None
+// (`none.x`, `none['x']`), where Undefined.Obj would otherwise be nil,
+// which means the variable itself is missing.
+var None noneType
+
+// String makes None print as Python's None.
+func (noneType) String() string { return "None" }
+
 // IsMissing returns true iff v is the [Missing] sentinel.
 func IsMissing(v any) bool {
 	_, ok := v.(missingType)

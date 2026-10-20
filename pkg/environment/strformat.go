@@ -10,7 +10,6 @@ import (
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
-	"github.com/jryberg/gojinja/pkg/eval"
 	"github.com/jryberg/gojinja/pkg/runtime"
 	"github.com/jryberg/gojinja/pkg/sandbox"
 )
@@ -275,7 +274,7 @@ func (f *strFormatter) getField(name string) (any, error) {
 // matching SandboxedEnvironment.unsafe_undefined; unsafe reports that.
 func (f *strFormatter) getAttr(obj any, attr string) (v any, unsafe bool, err error) {
 	if f.env.sandboxed && !sandbox.IsSafeAttribute(obj, attr) {
-		msg := fmt.Sprintf("access to attribute %s of %s object is unsafe.", escape.Repr(attr), escape.Repr(eval.PyTypeName(obj)))
+		msg := fmt.Sprintf("access to attribute %s of %s object is unsafe.", escape.Repr(attr), escape.Repr(runtime.PyTypeName(obj)))
 		return f.env.undefined(msg, attr, obj, func(m string) error { return gjerrors.NewSecurityError(m) }), true, nil
 	}
 	v, err = f.env.GetAttr(obj, attr)
@@ -307,7 +306,7 @@ func (f *strFormatter) getValue(key string) (any, error) {
 				return v, nil
 			}
 		default:
-			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("'%s' object is not subscriptable", eval.PyTypeName(f.mapping)))
+			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("'%s' object is not subscriptable", runtime.PyTypeName(f.mapping)))
 		}
 	} else if v, ok := f.kwargs[key]; ok {
 		return v, nil
@@ -344,7 +343,7 @@ func (f *strFormatter) formatField(v any, spec string) (string, error) {
 		return string(x), nil
 	case escape.HTMLer:
 		if spec != "" {
-			return "", formatValueError(fmt.Sprintf("Format specifier %s given, but %s does not define __html_format__. A class that defines __html__ must define __html_format__ to work with format specifiers.", spec, eval.PyTypeName(v)))
+			return "", formatValueError(fmt.Sprintf("Format specifier %s given, but %s does not define __html_format__. A class that defines __html__ must define __html_format__ to work with format specifiers.", spec, runtime.PyTypeName(v)))
 		}
 		return string(x.HTML()), nil
 	}
@@ -543,7 +542,7 @@ func pyFormat(v any, spec string) (string, error) {
 	if u, ok := v.(runtime.Undefined); ok && u.Mode == runtime.ModeStrict {
 		return "", u.Fail()
 	}
-	return "", gjerrors.NewTemplateRuntimeError(fmt.Sprintf("unsupported format string passed to %s.__format__", eval.PyTypeName(v)))
+	return "", gjerrors.NewTemplateRuntimeError(fmt.Sprintf("unsupported format string passed to %s.__format__", runtime.PyTypeName(v)))
 }
 
 func formatStr(s, spec string) (string, error) {

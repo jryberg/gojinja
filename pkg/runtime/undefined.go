@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
+	"github.com/jryberg/gojinja/pkg/escape"
 )
 
 // UndefinedMode selects the behavioral variant of an Undefined value.
@@ -46,8 +47,14 @@ const (
 type Undefined struct {
 	Mode UndefinedMode
 	Hint string
+	// Name is the variable, attribute or key that was looked up.
 	Name string
-	Obj  any
+	// Obj is the object the lookup was made on: nil or [Missing] when the
+	// variable itself is undefined, [None] when the object was None.
+	Obj any
+	// Key is the subscript when it was not a string (`items[5]`); Python
+	// then reports "has no element 5" instead of an attribute.
+	Key any
 	// ExcConstructor builds the error returned by Fail. Defaults to
 	// errors.NewUndefinedError. Sandbox-related Undefineds use
 	// errors.NewSecurityError.
@@ -145,13 +152,24 @@ func (u Undefined) Fail() error {
 // Message builds the undefined-message text mirroring Python's
 // _undefined_message property.
 func (u Undefined) Message() string {
-	if u.Hint != "" {
+	switch {
+	case u.Hint != "":
 		return u.Hint
+	case u.Obj == nil || IsMissing(u.Obj):
+		return fmt.Sprintf("%s is undefined", escape.Repr(u.Name))
+	case u.Key != nil:
+		return fmt.Sprintf("%s has no element %s", ObjectTypeRepr(u.Obj), escape.Repr(u.Key))
 	}
-	if u.Obj == nil || IsMissing(u.Obj) {
-		return fmt.Sprintf("%q is undefined", u.Name)
+	return fmt.Sprintf("%s has no attribute %s", escape.Repr(ObjectTypeRepr(u.Obj)), escape.Repr(u.Name))
+}
+
+// lookup is the key as Python's Undefined stores it: the subscript when
+// it was not a string, otherwise the name.
+func (u Undefined) lookup() any {
+	if u.Key != nil {
+		return u.Key
 	}
-	return fmt.Sprintf("%s has no attribute %q", typeRepr(u.Obj), u.Name)
+	return u.Name
 }
 
 // debugForm builds the `{{ … }}` placeholder used by ModeDebug. The exact
@@ -163,17 +181,8 @@ func (u Undefined) debugForm() string {
 	case u.Obj == nil || IsMissing(u.Obj):
 		return fmt.Sprintf("{{ %s }}", u.Name)
 	default:
-		return fmt.Sprintf("{{ no such element: %s[%q] }}", typeRepr(u.Obj), u.Name)
+		return fmt.Sprintf("{{ no such element: %s[%s] }}", ObjectTypeRepr(u.Obj), escape.Repr(u.lookup()))
 	}
-}
-
-// typeRepr mimics jinja2.utils.object_type_repr: short, human-friendly
-// label for an arbitrary Go value's type.
-func typeRepr(obj any) string {
-	if obj == nil {
-		return "None"
-	}
-	return fmt.Sprintf("%T object", obj)
 }
 
 // UndefinedFactory is the constructor signature an Environment registers

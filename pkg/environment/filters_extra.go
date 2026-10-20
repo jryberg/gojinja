@@ -3,7 +3,7 @@ package environment
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"regexp"
 	"sort"
 	"strings"
@@ -188,25 +188,35 @@ func filterPprint(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[
 //
 // Signature: random(seq)
 //
-// Empty sequences yield Undefined. The RNG is seeded deterministically
-// from the sequence length, so the same input gives the same output —
-// this is intentional, to keep gojinja's output reproducible for snapshot
-// tests. (Python's `random` filter is non-deterministic; gojinja
-// intentionally diverges here.)
+// Like Python's random.choice, every call picks independently. Empty
+// sequences yield Undefined. A mapping is indexed with the chosen
+// position, as Python does, so it raises unless it has that int key.
 //
 // Example:
 //
 //	{{ ['rock', 'paper', 'scissors'] | random }}
-func filterRandom(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
+func filterRandom(env *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
 	x, err := iterArg("random", value)
 	if err != nil {
 		return nil, err
 	}
 	if len(x) == 0 {
-		return runtime.NewBase("", "random", value, nil), nil
+		return env.undefined("No random item, sequence was empty.", "", runtime.Missing, nil), nil
 	}
-	r := rand.New(rand.NewSource(int64(len(x)))) // deterministic-ish
-	return x[r.Intn(len(x))], nil
+	i := rand.IntN(len(x))
+	switch value.(type) {
+	case map[string]any, map[any]any, *runtime.OrderedDict:
+		// random.choice(seq) is seq[i].
+		v, err := env.GetItem(value, int64(i))
+		if err != nil {
+			return nil, err
+		}
+		if runtime.IsUndefined(v) {
+			return nil, gjerrors.NewFilterArgumentError(fmt.Sprintf("KeyError: %d", i))
+		}
+		return v, nil
+	}
+	return x[i], nil
 }
 
 // filterXmlattr implements the `xmlattr` filter: render a mapping as
@@ -290,7 +300,25 @@ func filterXmlattr(_ *Environment, _ *runtime.Context, value any, args []any, _ 
 // urlRegex matches URL-ish substrings: http(s)://, www., bare emails,
 // and bare domains (`example.com`). Mirrors Python's urlize coverage
 // closely enough for template parity.
-var urlRegex = regexp.MustCompile(`(?i)(?:https?://[^\s<>"]+|www\.[^\s<>"]+|[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}|[a-z0-9.\-]+\.[a-z]{2,}(?:/[^\s<>"]*)?)`)
+// Regexes ported from jinja2.utils.urlize. Python's \w, \d and \s are
+// Unicode-aware, so they are spelled out here; Go's are ASCII-only.
+const (
+	pyWord  = `\p{L}\p{N}_`
+	pySpace = `\t\n\v\f\r \x1c-\x1f\x85\p{Z}`
+)
+
+var (
+	urlizeSplitRe = regexp.MustCompile(`[` + pySpace + `]+`)
+	urlizeHeadRe  = regexp.MustCompile(`^(?:[(<]|&lt;)+`)
+	urlizeTailRe  = regexp.MustCompile(`(?:[)>.,\n]|&gt;)+$`)
+	urlizeHTTPRe  = regexp.MustCompile(`(?i)^(?:` +
+		`(?:https?://|www\.)(?:(?:[` + pyWord + `%-]+\.)+)?(?:[a-z]{2,63}|xn--[` + pyWord + `%]{2,59})` +
+		`|(?:[` + pyWord + `%-]{2,63}\.)+(?:com|net|int|edu|gov|org|info|mil)` +
+		`|https?://(?:\p{Nd}{1,3}(?:\.\p{Nd}{1,3}){3}|\[(?:[\p{Nd}a-f]{0,4}:){2}(?:[\p{Nd}a-f]{0,4}:?){1,6}\])` +
+		`)(?::\p{Nd}{1,5})?(?:[/?#][^` + pySpace + `]*)?$`)
+	urlizeEmailRe = regexp.MustCompile(`^[^` + pySpace + `]+@[` + pyWord + `][` + pyWord + `.-]*\.[` + pyWord + `]+$`)
+	uriSchemeRe   = regexp.MustCompile(`^[` + pyWord + `.+-]{2,}:/{0,2}$`)
+)
 
 // filterUrlize implements the `urlize` filter: convert URLs and email
 // addresses in text into HTML links.
@@ -300,7 +328,8 @@ var urlRegex = regexp.MustCompile(`(?i)(?:https?://[^\s<>"]+|www\.[^\s<>"]+|[a-z
 // `trim_url_limit` truncates display text (the href stays full). Web
 // links get `rel` set to the sorted union of `rel`, "nofollow" (with
 // `nofollow=True`) and the "noopener" policy, plus `target` when given;
-// `mailto:` links get neither.
+// `mailto:` links get neither. Words starting with one of
+// `extra_schemes` (validated like Python's) are linked too.
 //
 // The input is escaped first unless it is already Markup, and the result
 // is Markup only under autoescape (as in Python).
@@ -316,7 +345,6 @@ func filterUrlize(env *Environment, ctx *runtime.Context, value any, args []any,
 	if v, ok := paramArg(args, kwargs, 0, "trim_url_limit"); ok {
 		trim = v
 	}
-	var trimErr error
 	// rel is the sorted union of the rel argument, "nofollow" when asked
 	// for, and the urlize.rel policy ("noopener"), as in do_urlize.
 	relParts := map[string]bool{"noopener": true}
@@ -338,53 +366,101 @@ func filterUrlize(env *Environment, ctx *runtime.Context, value any, args []any,
 		linkAttrs += fmt.Sprintf(` target="%s"`, escape.Escape(v))
 	}
 
+	var schemes []string
+	if v, ok := paramArg(args, kwargs, 4, "extra_schemes"); ok && v != nil {
+		items, err := iterArg("urlize", v)
+		if err != nil {
+			return nil, err
+		}
+		for _, it := range items {
+			scheme := escape.SoftStr(it)
+			if !uriSchemeRe.MatchString(scheme) {
+				return nil, gjerrors.NewFilterArgumentError(escape.Repr(scheme) + " is not a valid URI scheme prefix.")
+			}
+			schemes = append(schemes, scheme)
+		}
+	}
+	var trimErr error
+	trimURL := func(u string) string {
+		if trim == nil || trimErr != nil {
+			return u
+		}
+		rs := []rune(u)
+		long, err := eval.Compare("gt", int64(len(rs)), trim)
+		if err == nil && long {
+			var n int
+			if n, err = indexArg(trim); err == nil {
+				u = string(rs[:max(0, min(n, len(rs)))]) + "..."
+			}
+		}
+		trimErr = err
+		return u
+	}
 	// escape() leaves a Markup subject as is.
-	out := urlRegex.ReplaceAllStringFunc(string(escape.Escape(value)), func(match string) string {
-		var href, text string
-		isEmail := false
-		switch {
-		case strings.HasPrefix(match, "http"):
-			href = match
-		case strings.HasPrefix(match, "www."):
-			href = "https://" + match
-		case strings.Contains(match, "@"):
-			href = "mailto:" + match
-			isEmail = true
-		default:
-			// Bare domain: only treat as a link if it has a TLD
-			// (already enforced by urlRegex) and at least one dot.
-			if strings.Contains(match, ".") {
-				href = "https://" + match
-			} else {
-				return match
-			}
-		}
-		text = match
-		if trim != nil && trimErr == nil {
-			rs := []rune(text)
-			long, err := eval.Compare("gt", int64(len(rs)), trim)
-			if err == nil && long {
-				var n int
-				if n, err = indexArg(trim); err == nil {
-					text = string(rs[:max(0, min(n, len(rs)))]) + "..."
-				}
-			}
-			trimErr = err
-		}
-		// Python's urlize puts rel/target on web links only, never on
-		// mailto: links.
-		attrStr := linkAttrs
-		if isEmail {
-			attrStr = ""
-		}
-		return fmt.Sprintf(`<a href="%s"%s>%s</a>`, href, attrStr, text)
-	})
-	_ = env // signature parity
+	text := string(escape.Escape(value))
+	var b strings.Builder
+	pos := 0
+	for _, loc := range append(urlizeSplitRe.FindAllStringIndex(text, -1), []int{len(text), len(text)}) {
+		b.WriteString(urlizeWord(text[pos:loc[0]], linkAttrs, schemes, trimURL))
+		b.WriteString(text[loc[0]:loc[1]])
+		pos = loc[1]
+	}
 	if trimErr != nil {
 		return nil, trimErr
 	}
+	_ = env // signature parity
 	if autoescapeOn(ctx) {
-		return escape.Markup(out), nil
+		return escape.Markup(b.String()), nil
 	}
-	return out, nil
+	return b.String(), nil
+}
+
+// urlizeWord links one whitespace-delimited word the way
+// jinja2.utils.urlize does, keeping surrounding punctuation outside the
+// link and balancing brackets.
+func urlizeWord(word, attrs string, schemes []string, trimURL func(string) string) string {
+	head, middle, tail := "", word, ""
+	if m := urlizeHeadRe.FindString(middle); m != "" {
+		head, middle = m, middle[len(m):]
+	}
+	for _, suffix := range []string{")", ">", ".", ",", "\n", "&gt;"} {
+		if strings.HasSuffix(middle, suffix) {
+			if loc := urlizeTailRe.FindStringIndex(middle); loc != nil {
+				tail, middle = middle[loc[0]:], middle[:loc[0]]
+			}
+			break
+		}
+	}
+	// Prefer balancing brackets in the URL over leaving a trailing one.
+	for _, pair := range [][2]string{{"(", ")"}, {"<", ">"}, {"&lt;", "&gt;"}} {
+		opens := strings.Count(middle, pair[0])
+		if opens <= strings.Count(middle, pair[1]) {
+			continue
+		}
+		for range min(opens, strings.Count(tail, pair[1])) {
+			end := strings.Index(tail, pair[1]) + len(pair[1])
+			middle += tail[:end]
+			tail = tail[end:]
+		}
+	}
+	switch {
+	case urlizeHTTPRe.MatchString(middle):
+		href := middle
+		if !strings.HasPrefix(middle, "https://") && !strings.HasPrefix(middle, "http://") {
+			href = "https://" + middle
+		}
+		middle = fmt.Sprintf(`<a href="%s"%s>%s</a>`, href, attrs, trimURL(middle))
+	case strings.HasPrefix(middle, "mailto:") && urlizeEmailRe.MatchString(middle[7:]):
+		middle = fmt.Sprintf(`<a href="%s">%s</a>`, middle, middle[7:])
+	case strings.Contains(middle, "@") && !strings.HasPrefix(middle, "www.") &&
+		!strings.HasPrefix(middle, "@") && !strings.Contains(middle, ":") && urlizeEmailRe.MatchString(middle):
+		middle = fmt.Sprintf(`<a href="mailto:%s">%s</a>`, middle, middle)
+	default:
+		for _, scheme := range schemes {
+			if middle != scheme && strings.HasPrefix(middle, scheme) {
+				middle = fmt.Sprintf(`<a href="%s"%s>%s</a>`, middle, attrs, middle)
+			}
+		}
+	}
+	return head + middle + tail
 }

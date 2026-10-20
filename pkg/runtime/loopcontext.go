@@ -69,7 +69,7 @@ func (l *LoopContext) Depth0() int { return l.depth0 }
 // PrevItem returns the previous iteration's value, or Undefined if first.
 func (l *LoopContext) PrevItem() any {
 	if l.idx <= 0 {
-		return NewBase("there is no previous item", "previtem", nil, nil)
+		return NewBase("there is no previous item", "previtem", Missing, nil)
 	}
 	return l.items[l.idx-1]
 }
@@ -77,7 +77,7 @@ func (l *LoopContext) PrevItem() any {
 // NextItem returns the next iteration's value, or Undefined if last.
 func (l *LoopContext) NextItem() any {
 	if l.idx+1 >= len(l.items) {
-		return NewBase("there is no next item", "nextitem", nil, nil)
+		return NewBase("there is no next item", "nextitem", Missing, nil)
 	}
 	return l.items[l.idx+1]
 }
@@ -85,7 +85,7 @@ func (l *LoopContext) NextItem() any {
 // Cycle returns args[index0 % len(args)]; used for round-robin classnames etc.
 func (l *LoopContext) Cycle(args ...any) any {
 	if len(args) == 0 {
-		return NewBase("no items for cycle", "cycle", nil, nil)
+		return NewBase("no items for cycle", "cycle", Missing, nil)
 	}
 	return args[l.idx%len(args)]
 }

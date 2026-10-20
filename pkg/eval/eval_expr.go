@@ -236,7 +236,12 @@ func (e *evaluator) evalCondExpr(n *ast.CondExpr, ctx *runtime.Context) (any, er
 	if n.Expr2 != nil {
 		return e.evalExprAny(n.Expr2, ctx)
 	}
-	return e.eng.UndefinedFactory()("", "", nil, nil), nil
+	// Python always uses the plain Undefined class for this implicit else.
+	pos := fmt.Sprintf("line %d", n.Position().Lineno)
+	if ctx.Name != "" {
+		pos += " in " + escape.Repr(ctx.Name)
+	}
+	return runtime.NewBase("the inline if-expression on "+pos+" evaluated to false and no else section was defined.", "", runtime.Missing, nil), nil
 }
 
 // evalConcat implements `~`. Under autoescape it mirrors Python's
