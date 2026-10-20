@@ -20,12 +20,16 @@ type LoopContext struct {
 	hasLastVal  bool
 
 	// recurse, when set, is the closure for `{% for %}` recursive loops.
-	recurse func(items []any, depth int) (string, error)
+	recurse func(iterable any, depth int) (any, error)
+
+	// Equal is Python equality, which Changed compares with; the
+	// evaluator sets it.
+	Equal func(a, b any) bool
 }
 
 // NewLoopContext constructs a LoopContext over items. depth is 0 for top-
 // level loops, ≥ 1 for recursive ones.
-func NewLoopContext(items []any, depth int, recurse func([]any, int) (string, error)) *LoopContext {
+func NewLoopContext(items []any, depth int, recurse func(any, int) (any, error)) *LoopContext {
 	return &LoopContext{items: items, idx: -1, depth0: depth, recurse: recurse}
 }
 
@@ -90,28 +94,36 @@ func (l *LoopContext) Cycle(args ...any) any {
 	return args[l.idx%len(args)]
 }
 
-// Changed reports whether `value` differs from the value of the previous
-// `Changed` call. The first call always returns true.
-func (l *LoopContext) Changed(value any) bool {
-	if !l.hasLastVal {
-		l.hasLastVal = true
-		l.lastChanged = value
-		return true
+// Changed reports whether values differ from the previous call's (true
+// on the first call), as Jinja2's loop.changed(*values) does.
+func (l *LoopContext) Changed(values ...any) bool {
+	cur := Tuple(values)
+	if l.hasLastVal && l.Equal != nil && l.Equal(l.lastChanged, cur) {
+		return false
 	}
-	if !equal(l.lastChanged, value) {
-		l.lastChanged = value
-		return true
-	}
-	return false
+	l.hasLastVal, l.lastChanged = true, cur
+	return true
 }
 
-// Call delegates to the recursive closure passed at construction. Errors
-// if the loop wasn't created with `recursive`.
-func (l *LoopContext) Call(items []any) (string, error) {
+// Call renders the loop body again over iterable, one level deeper:
+// `loop(children)` in a recursive loop.
+func (l *LoopContext) Call(iterable any) (any, error) {
 	if l.recurse == nil {
-		return "", fmt.Errorf("loop is not marked recursive")
+		//lint:ignore ST1005 Jinja2's exact message
+		return nil, fmt.Errorf("The loop must have the 'recursive' marker to be called recursively.")
 	}
-	return l.recurse(items, l.depth0+1)
+	return l.recurse(iterable, l.depth0+1)
+}
+
+// String is Jinja2's LoopContext repr.
+func (l *LoopContext) String() string {
+	return fmt.Sprintf("<LoopContext %d/%d>", l.Index(), l.Length())
+}
+
+// AttrGetter is implemented by template-visible objects that resolve
+// their own attributes, such as macros.
+type AttrGetter interface {
+	Get(attr string) (any, bool)
 }
 
 // Get implements attribute access for the template's `loop.<name>` syntax.
@@ -145,15 +157,4 @@ func (l *LoopContext) Get(attr string) (any, bool) {
 		return l.Changed, true
 	}
 	return nil, false
-}
-
-// equal compares two values for the Changed test. Uses == when types are
-// comparable; falls back to false for slices/maps (always treated as
-// changed, mirroring Python's `!=` on non-hashables — `Changed` is
-// expected to be called with hashable inputs).
-func equal(a, b any) bool {
-	defer func() {
-		recover() //nolint:errcheck — defensive against incomparable types
-	}()
-	return a == b
 }

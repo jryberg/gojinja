@@ -1,0 +1,12 @@
+{%- set z = 0 -%}
+{% for i in [1, 2] %}{{ z }}{% set z = i %}{{ z }};{% endfor %}[{{ z }}]
+{% for i in [1, 2] %}{% set leaked = i %}{% endfor %}[{{ leaked }}]
+{% set a = 1 %}{% with a = a + 1, b = a %}[{{ a }}{{ b }}]{% endwith %}[{{ a }}]
+{% filter upper %}{% set a = 'in' %}{{ a }}{% endfilter %}[{{ a }}]
+{% set ns = namespace(total=0) %}{% for i in [1, 2, 3] %}{% set ns.total = ns.total + i %}{% endfor %}[{{ ns.total }}]
+{% for i in [[1, [2]], [3]] recursive %}{{ loop.depth }}{% if i is iterable %}{{ loop(i) }}{% endif %}{% endfor %}
+{% for i in [[1], [1], [2]] %}{{ loop.changed(i) }} {% endfor %}{% for i in [1, 2] %}{{ loop }}{% endfor %}
+{% macro detail(a) %}{{ caller(a, *varargs) }}{% endmacro %}{% call(x, y) detail(1, 2) %}[{{ x }}|{{ y }}]{% endcall %}
+{% macro m(a, b=a * 2) %}{{ a }}/{{ b }}{% endmacro %}{{ m(*[3]) }} {{ m(**{'a': 4, 'b': 5}) }} {{ m }} {{ m.name }} {{ m.arguments }}
+{{ none|map('upper')|list }} {{ none|select|list }} {{ 0|map('string')|list }}
+{% block b %}[block {{ self.b is defined }}]{% endblock %}

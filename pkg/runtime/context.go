@@ -16,6 +16,10 @@ type Context struct {
 	Parent *OrderedDict
 	// Vars is the mutable scope filled by `{% set %}` and `{% for %}`.
 	Vars map[string]any
+	// Outer is the enclosing scope of a loop iteration, `with`, filter,
+	// call or block body (see [Context.Child]): names resolve through
+	// it, assignments stay in Vars.
+	Outer *Context
 	// Eval carries the eval-time autoescape / volatile flags.
 	Eval *EvalContext
 	// Name is the template name being rendered ("" for from-string).
@@ -34,12 +38,6 @@ type Context struct {
 
 // BlockRenderFunc renders one level of a block in the inheritance chain.
 type BlockRenderFunc func(*Context) (string, error)
-
-// CallerFunc is the runtime contract for `caller()` produced by the
-// `{% call %}` block. Lives here so both pkg/eval (which produces it)
-// and pkg/environment (which dispatches the call) share the same named
-// type — Go type switches only match named types when the names agree.
-type CallerFunc func(args []any, kwargs map[string]any) (any, error)
 
 // NewContext constructs a Context with the supplied parent globals and a
 // freshly allocated empty Vars map. parent may be nil (treated as
@@ -63,8 +61,10 @@ func NewContext(name string, env any, parent *OrderedDict, eval *EvalContext) *C
 // hit; (nil, false) on miss. Templates use [Context.ResolveOrUndefined]
 // instead so that misses produce an Undefined sentinel.
 func (c *Context) Resolve(name string) (any, bool) {
-	if v, ok := c.Vars[name]; ok {
-		return v, true
+	for s := c; s != nil; s = s.Outer {
+		if v, ok := s.Vars[name]; ok {
+			return v, true
+		}
 	}
 	if v, ok := c.Parent.Get(name); ok {
 		return v, true
@@ -85,6 +85,46 @@ func (c *Context) ResolveOrUndefined(name string, factory UndefinedFactory) any 
 	return factory("", name, Missing, nil)
 }
 
+// Child returns a nested scope, as Jinja2 opens for every loop iteration
+// and for `with`, filter, call and block bodies: it reads through to c,
+// while its assignments (and exports) are dropped with it.
+func (c *Context) Child() *Context {
+	return &Context{
+		Parent:   c.Parent,
+		Vars:     map[string]any{},
+		Outer:    c,
+		Eval:     c.Eval,
+		Name:     c.Name,
+		Blocks:   c.Blocks,
+		Exported: map[string]bool{},
+		Env:      c.Env,
+	}
+}
+
+// Root returns the template-level scope c is nested in.
+func (c *Context) Root() *Context {
+	for c.Outer != nil {
+		c = c.Outer
+	}
+	return c
+}
+
+// Locals returns the variables assigned in c and its enclosing scopes,
+// inner scopes winning. The result is a copy.
+func (c *Context) Locals() map[string]any {
+	var chain []*Context
+	for s := c; s != nil; s = s.Outer {
+		chain = append(chain, s)
+	}
+	out := map[string]any{}
+	for i := len(chain) - 1; i >= 0; i-- {
+		for k, v := range chain[i].Vars {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // Derived returns a child context that inherits parent + vars but allows
 // independent mutation. Used by includes/macros. The merged Parent keeps
 // insertion order: existing keys retain their slot, new keys append.
@@ -96,7 +136,7 @@ func (c *Context) Derived(locals map[string]any) *Context {
 			merged.Set(k, v)
 		}
 	}
-	for k, v := range c.Vars {
+	for k, v := range c.Locals() {
 		merged.Set(k, v)
 	}
 	for k, v := range locals {
@@ -132,7 +172,8 @@ func (c *Context) All() map[string]any {
 	if c.Parent != nil {
 		parentLen = c.Parent.Len()
 	}
-	out := make(map[string]any, parentLen+len(c.Vars))
+	locals := c.Locals()
+	out := make(map[string]any, parentLen+len(locals))
 	if c.Parent != nil {
 		for _, k := range c.Parent.Keys() {
 			ks, ok := k.(string)
@@ -143,7 +184,7 @@ func (c *Context) All() map[string]any {
 			out[ks] = v
 		}
 	}
-	for k, v := range c.Vars {
+	for k, v := range locals {
 		out[k] = v
 	}
 	return out
@@ -161,13 +202,14 @@ func (c *Context) AllOrdered() *OrderedDict {
 			out.Set(k, v)
 		}
 	}
-	keys := make([]string, 0, len(c.Vars))
-	for k := range c.Vars {
+	locals := c.Locals()
+	keys := make([]string, 0, len(locals))
+	for k := range locals {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		out.Set(k, c.Vars[k])
+		out.Set(k, locals[k])
 	}
 	return out
 }

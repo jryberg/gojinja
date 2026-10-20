@@ -1949,7 +1949,9 @@ func formatError(err error) error {
 //	{{ ['a', 'b']  | map('upper')         | list }}  →  ['A', 'B']
 //	{{ users       | map(attribute='name') | list }}  →  list of names
 func filterMap(env *Environment, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
-	// Python: map(seq, ...) treats None / missing as empty.
+	if empty, err := skipFalsy(value); empty || err != nil {
+		return []any{}, err
+	}
 	x, err := iterArg("map", value)
 	if err != nil {
 		return nil, err
@@ -2020,6 +2022,17 @@ func filterSelect(env *Environment, ctx *runtime.Context, value any, args []any,
 	return selectReject(env, ctx, value, args, true, "")
 }
 
+// skipFalsy reports whether a map/select-style filter yields nothing for
+// value: Python's filters start with `if value:`, so a falsy value (None,
+// 0, an empty sequence) gives an empty result before any argument is
+// checked. A StrictUndefined raises, as bool() of it does.
+func skipFalsy(value any) (bool, error) {
+	if err := eval.FailStrict(value); err != nil {
+		return true, err
+	}
+	return !eval.Truthy(value), nil
+}
+
 // filterReject implements the `reject` filter: drop items where a test
 // passes (the complement of [filterSelect]).
 //
@@ -2044,6 +2057,9 @@ func filterReject(env *Environment, ctx *runtime.Context, value any, args []any,
 //	{{ users | selectattr('admin') | list }}                →  admins
 //	{{ users | selectattr('age', 'gt', 18) | list }}        →  adults
 func filterSelectAttr(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
+	if empty, err := skipFalsy(value); empty || err != nil {
+		return []any{}, err
+	}
 	if len(args) < 1 {
 		return nil, gjerrors.NewFilterArgumentError("selectattr requires an attribute name")
 	}
@@ -2063,6 +2079,9 @@ func filterSelectAttr(env *Environment, ctx *runtime.Context, value any, args []
 //
 //	{{ users | rejectattr('banned') | list }}  →  non-banned users
 func filterRejectAttr(env *Environment, ctx *runtime.Context, value any, args []any, _ map[string]any) (any, error) {
+	if empty, err := skipFalsy(value); empty || err != nil {
+		return []any{}, err
+	}
 	if len(args) < 1 {
 		return nil, gjerrors.NewFilterArgumentError("rejectattr requires an attribute name")
 	}
@@ -2077,6 +2096,9 @@ func filterRejectAttr(env *Environment, ctx *runtime.Context, value any, args []
 // keep=true means "include items where the test passes"; attr (if set)
 // means "test the named attribute of each item, not the item itself".
 func selectReject(env *Environment, ctx *runtime.Context, value any, args []any, keep bool, attr string) (any, error) {
+	if empty, err := skipFalsy(value); empty || err != nil {
+		return []any{}, err
+	}
 	x, err := iterArg("select", value)
 	if err != nil {
 		return nil, err

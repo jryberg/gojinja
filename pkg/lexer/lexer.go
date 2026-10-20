@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
+	"github.com/jryberg/gojinja/pkg/escape"
 )
 
 // stateName is the lexer's per-position state. Mirrors the keys of
@@ -321,7 +322,7 @@ func (l *Lexer) tokenize(source, name, filename string) ([]rawToken, error) {
 		}
 		if advanced == 0 {
 			return nil, gjerrors.NewTemplateSyntaxError(
-				fmt.Sprintf("unexpected char %q at %d", source[pos], pos),
+				fmt.Sprintf("unexpected char %s at %d", escape.Repr(firstRune(source[pos:])), pos),
 				lineno, name, filename)
 		}
 	}
@@ -686,14 +687,14 @@ func (l *Lexer) lexTagBody(st stateName, source string, pos, lineno int, out *[]
 			*balStack = (*balStack)[:len(*balStack)-1]
 			if string(expected) != val {
 				return 0, gjerrors.NewTemplateSyntaxError(
-					fmt.Sprintf("unexpected %q, expected %q", val, string(expected)), lineno, name, filename)
+					fmt.Sprintf("unexpected '%s', expected '%s'", val, string(expected)), lineno, name, filename)
 			}
 		}
 		*out = append(*out, rawToken{Lineno: lineno, Kind: TokenOperator, Value: val})
 		return loc[1], nil
 	}
 	return 0, gjerrors.NewTemplateSyntaxError(
-		fmt.Sprintf("unexpected char %q", rest[0]), lineno, name, filename)
+		fmt.Sprintf("unexpected char %s", escape.Repr(firstRune(rest))), lineno, name, filename)
 }
 
 // wrap is the post-processing pass that converts rawTokens into Tokens
@@ -761,7 +762,7 @@ func (l *Lexer) wrap(raw []rawToken, name, filename string) ([]Token, error) {
 			opKind, ok := operators[v]
 			if !ok {
 				return nil, gjerrors.NewTemplateSyntaxError(
-					fmt.Sprintf("unknown operator %q", v), t.Lineno, name, filename)
+					fmt.Sprintf("unknown operator %s", escape.Repr(v)), t.Lineno, name, filename)
 			}
 			k = opKind
 		}
@@ -797,4 +798,12 @@ func parseIntLiteral(s string) (int64, error) {
 // parseFloatLiteral parses a Jinja2 float literal, allowing `_` separators.
 func parseFloatLiteral(s string) (float64, error) {
 	return strconv.ParseFloat(strings.ReplaceAll(s, "_", ""), 64)
+}
+
+// firstRune returns the first character of s, for error messages.
+func firstRune(s string) string {
+	for _, r := range s {
+		return string(r)
+	}
+	return ""
 }

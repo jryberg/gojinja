@@ -55,7 +55,30 @@ type Engine interface {
 // written and any error.
 func Render(ctx context.Context, w io.Writer, tpl *ast.Template, rctx *runtime.Context, eng Engine) error {
 	ev := &evaluator{eng: eng, w: w, goCtx: ctx}
-	return ev.evalBody(tpl.Body, rctx)
+	return ev.evalTemplate(tpl.Body, rctx)
+}
+
+// maxInheritance bounds an extends chain, so circular inheritance fails
+// instead of looping (Python runs out of recursion depth).
+const maxInheritance = 256
+
+// evalTemplate runs a template's top level and then, as Jinja2 does when
+// a child template's root code finishes, the parent it extends.
+func (e *evaluator) evalTemplate(body []ast.Node, ctx *runtime.Context) error {
+	if err := e.evalBody(body, ctx); err != nil {
+		return err
+	}
+	for depth := 0; e.parent != nil; depth++ {
+		if depth == maxInheritance {
+			return gjerrors.NewTemplateRuntimeError("circular template inheritance")
+		}
+		parent := e.parent
+		e.parent, e.extendsFired = nil, false
+		if err := e.evalBody(parent.Body, ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RenderString is a convenience over Render that returns the output as
@@ -73,13 +96,16 @@ type evaluator struct {
 	eng   Engine
 	w     io.Writer
 	goCtx context.Context
-	// extendsFired flips to true after `{% extends %}` runs to render
-	// the parent. Output (`{{ … }}`) statements that follow it in the
-	// child body are discarded — Python skips them entirely (no
-	// evaluation, no side effects). Non-output statements
-	// (`{% set %}`, `{% macro %}`, `{% import %}`, …) are NOT
-	// suppressed, mirroring Jinja2's `parent_template`-gate model.
+	// extendsFired flips to true once `{% extends %}` runs. Output
+	// (`{{ … }}`) statements that follow it in the child body are
+	// discarded — Python skips them entirely (no evaluation, no side
+	// effects). Non-output statements (`{% set %}`, `{% macro %}`,
+	// `{% import %}`, …) still run, mirroring Jinja2's
+	// `parent_template` gate.
 	extendsFired bool
+	// parent is the template the running one extends; evalTemplate
+	// renders it once the child's top level is done.
+	parent *ast.Template
 }
 
 // evalBody evaluates a slice of statements.
@@ -125,7 +151,7 @@ func (e *evaluator) evalNode(n ast.Node, ctx *runtime.Context) error {
 	case *ast.Block:
 		return e.evalBlock(x, ctx)
 	case *ast.Scope:
-		return e.evalBody(x.Body, ctx)
+		return e.evalBody(x.Body, ctx.Child())
 	case *ast.FilterBlock:
 		return e.evalFilterBlock(x, ctx)
 	case *ast.ScopedEvalContextModifier:
@@ -239,143 +265,94 @@ func (e *evaluator) evalFor(n *ast.For, ctx *runtime.Context) error {
 	if err != nil {
 		return err
 	}
-	// Save and later restore every variable the target mentions, so the
-	// loop's iteration variables don't leak into the surrounding scope.
-	// Python's for-loop scope rule: outside the loop body, outer-scope
-	// names are restored. The else branch sees the outer scope, not the
-	// (never-set) loop variable.
-	restoreNames := collectTargetNames(n.Target)
-	saved := make(map[string]any, len(restoreNames))
-	hadKey := make(map[string]bool, len(restoreNames))
-	for _, name := range restoreNames {
-		if v, ok := ctx.Vars[name]; ok {
-			saved[name] = v
-			hadKey[name] = true
+	// Like Jinja2, every iteration (and the else body) runs in a fresh
+	// scope of its own: the targets, `loop` and any `{% set %}` in the
+	// body are gone when it ends. The loop's `if` filters the items of
+	// recursive calls too.
+	filter := func(items []any) ([]any, error) {
+		if n.Test == nil {
+			return items, nil
 		}
-	}
-	defer func() {
-		for _, name := range restoreNames {
-			if hadKey[name] {
-				ctx.Vars[name] = saved[name]
-			} else {
-				delete(ctx.Vars, name)
-			}
-		}
-	}()
-
-	if n.Test != nil {
 		filtered := items[:0:0]
 		for _, it := range items {
-			if err := assignTarget(n.Target, it, ctx); err != nil {
-				return err
+			scope := ctx.Child()
+			if err := assignTarget(n.Target, it, scope); err != nil {
+				return nil, err
 			}
-			tv, err := e.evalExprAny(n.Test.(ast.Expr), ctx)
+			tv, err := e.evalExprAny(n.Test.(ast.Expr), scope)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			ok, err := truth(tv)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if ok {
 				filtered = append(filtered, it)
 			}
 		}
-		items = filtered
+		return filtered, nil
 	}
-
+	if items, err = filter(items); err != nil {
+		return err
+	}
 	if len(items) == 0 {
-		// Restore outer scope so the else block sees pre-loop bindings.
-		for _, name := range restoreNames {
-			if hadKey[name] {
-				ctx.Vars[name] = saved[name]
-			} else {
-				delete(ctx.Vars, name)
+		return e.evalBody(n.Else, ctx.Child())
+	}
+	var recurse func(any, int) (any, error)
+	run := func(ev *evaluator, lc *runtime.LoopContext) error {
+		lc.Equal = func(a, b any) bool { ok, err := ValuesEqual(a, b); return err == nil && ok }
+		for {
+			v, ok := lc.Iterate()
+			if !ok {
+				return nil
+			}
+			scope := ctx.Child()
+			scope.Set("loop", lc)
+			if err := assignTarget(n.Target, v, scope); err != nil {
+				return err
+			}
+			if err := ev.evalBody(n.Body, scope); err != nil {
+				if err == errContinue {
+					continue
+				}
+				if err == errBreak {
+					return nil
+				}
+				return err
 			}
 		}
-		return e.evalBody(n.Else, ctx)
 	}
-
-	parentLoop, hadParent := ctx.Vars["loop"]
-	defer func() {
-		if hadParent {
-			ctx.Vars["loop"] = parentLoop
-		} else {
-			delete(ctx.Vars, "loop")
-		}
-	}()
-
-	var recurse func([]any, int) (string, error)
 	if n.Recursive {
-		recurse = func(its []any, depth int) (string, error) {
+		recurse = func(iterable any, depth int) (any, error) {
+			leave, err := enter(ctx)
+			if err != nil {
+				return nil, err
+			}
+			defer leave()
+			its, err := ToIterable(iterable)
+			if err != nil {
+				return nil, err
+			}
+			if its, err = filter(its); err != nil {
+				return nil, err
+			}
 			var b strings.Builder
 			subEv := &evaluator{eng: e.eng, w: &b, goCtx: e.goCtx}
-			lc := runtime.NewLoopContext(its, depth, recurse)
-			ctx.Vars["loop"] = lc
-			for {
-				v, ok := lc.Iterate()
-				if !ok {
-					break
+			if len(its) == 0 {
+				if err := subEv.evalBody(n.Else, ctx.Child()); err != nil {
+					return nil, err
 				}
-				if err := assignTarget(n.Target, v, ctx); err != nil {
-					return "", err
-				}
-				if err := subEv.evalBody(n.Body, ctx); err != nil {
-					if err == errContinue {
-						continue
-					}
-					if err == errBreak {
-						break
-					}
-					return "", err
-				}
+			} else if err := run(subEv, runtime.NewLoopContext(its, depth, recurse)); err != nil {
+				return nil, err
+			}
+			if ctx.Eval != nil && ctx.Eval.Autoescape {
+				return escape.Markup(b.String()), nil
 			}
 			return b.String(), nil
 		}
 	}
-
-	lc := runtime.NewLoopContext(items, 0, recurse)
-	ctx.Vars["loop"] = lc
-	for {
-		v, ok := lc.Iterate()
-		if !ok {
-			break
-		}
-		if err := assignTarget(n.Target, v, ctx); err != nil {
-			return err
-		}
-		if err := e.evalBody(n.Body, ctx); err != nil {
-			if err == errContinue {
-				continue
-			}
-			if err == errBreak {
-				break
-			}
-			return err
-		}
-	}
-	return nil
-}
-
-// collectTargetNames walks an assignment target and returns every plain
-// Name's identifier — the for-loop's iteration variables. NSRef and
-// Getitem/Getattr targets don't shadow outer scope names so they're
-// skipped.
-func collectTargetNames(n ast.Node) []string {
-	var out []string
-	var walk func(ast.Node)
-	walk = func(x ast.Node) {
-		switch t := x.(type) {
-		case *ast.Name:
-			out = append(out, t.Name)
-		case *ast.Tuple:
-			for _, it := range t.Items {
-				walk(it)
-			}
-		}
-	}
-	walk(n)
-	return out
+	return run(e, runtime.NewLoopContext(items, 0, recurse))
 }
 
 // assignTarget writes value to target, supporting Name, NSRef, and Tuple
@@ -428,7 +405,7 @@ func (e *evaluator) evalAssign(n *ast.Assign, ctx *runtime.Context) error {
 func (e *evaluator) evalAssignBlock(n *ast.AssignBlock, ctx *runtime.Context) error {
 	var b strings.Builder
 	sub := &evaluator{eng: e.eng, w: &b, goCtx: e.goCtx}
-	if err := sub.evalBody(n.Body, ctx); err != nil {
+	if err := sub.evalBody(n.Body, ctx.Child()); err != nil {
 		return err
 	}
 	v := any(b.String())
@@ -442,32 +419,24 @@ func (e *evaluator) evalAssignBlock(n *ast.AssignBlock, ctx *runtime.Context) er
 	return assignTarget(n.Target, v, ctx)
 }
 
+// evalWith evaluates every value in the enclosing scope, then binds the
+// targets in a scope of the body's own.
 func (e *evaluator) evalWith(n *ast.With, ctx *runtime.Context) error {
-	saved := make(map[string]any, len(n.Targets))
-	hadKey := make(map[string]bool, len(n.Targets))
-	for i, tgt := range n.Targets {
+	values := make([]any, len(n.Targets))
+	for i := range n.Targets {
 		v, err := e.evalExprAny(n.Values[i], ctx)
 		if err != nil {
 			return err
 		}
-		name := tgt.(*ast.Name).Name
-		if old, ok := ctx.Vars[name]; ok {
-			saved[name] = old
-			hadKey[name] = true
-		}
-		ctx.Set(name, v)
+		values[i] = v
 	}
-	defer func() {
-		for name := range hadKey {
-			ctx.Vars[name] = saved[name]
+	scope := ctx.Child()
+	for i, tgt := range n.Targets {
+		if err := assignTarget(tgt, values[i], scope); err != nil {
+			return err
 		}
-		for _, tgt := range n.Targets {
-			if !hadKey[tgt.(*ast.Name).Name] {
-				delete(ctx.Vars, tgt.(*ast.Name).Name)
-			}
-		}
-	}()
-	return e.evalBody(n.Body, ctx)
+	}
+	return e.evalBody(n.Body, scope)
 }
 
 func (e *evaluator) evalBlock(n *ast.Block, ctx *runtime.Context) error {
@@ -479,44 +448,89 @@ func (e *evaluator) evalBlock(n *ast.Block, ctx *runtime.Context) error {
 	if e.extendsFired {
 		return nil
 	}
+	// A block sees the template-level names; a scoped one also sees the
+	// enclosing loop's or with's.
+	scope := ctx.Root()
+	if n.Scoped {
+		scope = ctx
+	}
+	if n.Required && len(ctx.Blocks[n.Name]) == 0 {
+		return requiredBlockError(n.Name)
+	}
 	if stack, ok := ctx.Blocks[n.Name]; ok && len(stack) > 0 {
 		// Render the topmost (most-derived) block. super() walks toward 0.
-		s, err := callBlockAtDepth(stack, len(stack)-1, ctx, n.Name, e.eng.UndefinedFactory())
+		s, err := callBlockAtDepth(stack, len(stack)-1, scope, n.Name, e.eng.UndefinedFactory())
 		if err != nil {
 			return err
 		}
 		_, err = io.WriteString(e.w, s)
 		return err
 	}
-	return e.evalBody(n.Body, ctx)
+	return e.evalBody(n.Body, scope.Child())
 }
 
 // callBlockAtDepth invokes the block at `depth` in `stack`, binding a
 // `super` callable that recurses into depth-1 (or yields Undefined when
 // no parent exists).
 func callBlockAtDepth(stack []runtime.BlockRenderFunc, depth int, ctx *runtime.Context, name string, undef runtime.UndefinedFactory) (string, error) {
-	prev, hadSuper := ctx.Vars["super"]
-	if depth > 0 {
-		ctx.Vars["super"] = func() (any, error) {
-			return callBlockAtDepth(stack, depth-1, ctx, name, undef)
-		}
-	} else {
-		ctx.Vars["super"] = undef("there is no parent block called "+escape.Repr(name)+".", "super", runtime.Missing, nil)
+	leave, err := enter(ctx)
+	if err != nil {
+		return "", err
 	}
-	defer func() {
-		if hadSuper {
-			ctx.Vars["super"] = prev
-		} else {
-			delete(ctx.Vars, "super")
+	defer leave()
+	scope := ctx.Child()
+	if depth > 0 {
+		scope.Set("super", func() (any, error) {
+			return blockResult(callBlockAtDepth(stack, depth-1, ctx, name, undef))(ctx)
+		})
+	} else {
+		scope.Set("super", undef("there is no parent block called "+escape.Repr(name)+".", "super", runtime.Missing, nil))
+	}
+	return stack[depth](scope)
+}
+
+// blockResult wraps a rendered block the way Jinja2's BlockReference
+// returns it: Markup when autoescaping, so it is not escaped again.
+func blockResult(s string, err error) func(*runtime.Context) (any, error) {
+	return func(ctx *runtime.Context) (any, error) {
+		if err != nil {
+			return nil, err
 		}
-	}()
-	return stack[depth](ctx)
+		if ctx.Eval != nil && ctx.Eval.Autoescape {
+			return escape.Markup(s), nil
+		}
+		return s, nil
+	}
+}
+
+// templateReference is Jinja2's `self`: attribute or item access renders
+// the named block, most-derived definition first.
+type templateReference struct {
+	ctx   *runtime.Context
+	undef runtime.UndefinedFactory
+}
+
+func (r *templateReference) String() string {
+	if r.ctx.Name == "" {
+		return "<TemplateReference None>"
+	}
+	return "<TemplateReference " + escape.Repr(r.ctx.Name) + ">"
+}
+
+func (r *templateReference) block(name string) any {
+	stack := r.ctx.Blocks[name]
+	if len(stack) == 0 {
+		return r.undef("'jinja2.runtime.TemplateReference object' has no attribute "+escape.Repr(name), name, r, nil)
+	}
+	return func() (any, error) {
+		return blockResult(callBlockAtDepth(stack, len(stack)-1, r.ctx, name, r.undef))(r.ctx)
+	}
 }
 
 func (e *evaluator) evalFilterBlock(n *ast.FilterBlock, ctx *runtime.Context) error {
 	var b strings.Builder
 	sub := &evaluator{eng: e.eng, w: &b, goCtx: e.goCtx}
-	if err := sub.evalBody(n.Body, ctx); err != nil {
+	if err := sub.evalBody(n.Body, ctx.Child()); err != nil {
 		return err
 	}
 	v, err := e.applyFilter(n.Filter, b.String(), ctx)
@@ -528,7 +542,7 @@ func (e *evaluator) evalFilterBlock(n *ast.FilterBlock, ctx *runtime.Context) er
 
 // applyFilter runs a filter chain against a starting value.
 func (e *evaluator) applyFilter(f *ast.Filter, value any, ctx *runtime.Context) (any, error) {
-	args, kwargs, err := e.evalCallArgs(f.Args, f.Kwargs, ctx)
+	args, kwargs, err := e.evalCallArgs(f.Args, f.Kwargs, f.DynArgs, f.DynKwargs, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -555,7 +569,7 @@ func (e *evaluator) evalScopedECM(n *ast.ScopedEvalContextModifier, ctx *runtime
 		applyEvalOption(ctx.Eval, opt.Key, v)
 	}
 	defer func() { *ctx.Eval = saved }()
-	return e.evalBody(n.Body, ctx)
+	return e.evalBody(n.Body, ctx.Child())
 }
 
 func (e *evaluator) evalECM(n *ast.EvalContextModifier, ctx *runtime.Context) error {
@@ -602,7 +616,9 @@ func (e *evaluator) evalInclude(n *ast.Include, ctx *runtime.Context) error {
 		}
 		return gjerrors.NewTemplateNotFound(v, "")
 	}
-	subCtx := ctx
+	// The included template gets a context of its own over the caller's
+	// names, so its assignments stay inside it.
+	subCtx := ctx.Derived(nil)
 	if !n.WithContext {
 		// Python: `without context` strips the caller's vars but
 		// keeps env globals visible. We rebuild a fresh parent from
@@ -613,7 +629,53 @@ func (e *evaluator) evalInclude(n *ast.Include, ctx *runtime.Context) error {
 		}
 		subCtx = runtime.NewContext(names[0], ctx.Env, parent, ctx.Eval)
 	}
-	return e.evalBody(loaded.Body, subCtx)
+	// Like a standalone render, the included template runs with its own
+	// inheritance chain's blocks and its own extends state.
+	if bp, ok := e.eng.(blocksProvider); ok {
+		blocks, err := bp.TemplateBlocks(loaded)
+		if err != nil {
+			return err
+		}
+		subCtx.Blocks = blocks
+	}
+	leave, err := enter(ctx)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	sub := &evaluator{eng: e.eng, w: e.w, goCtx: e.goCtx}
+	return sub.evalTemplate(loaded.Body, subCtx)
+}
+
+// enter guards a nested template call (macro, caller, block, include,
+// import, recursive loop) against runaway recursion; call the returned
+// func when the call ends.
+func enter(ctx *runtime.Context) (func(), error) {
+	if ctx.Eval == nil {
+		return func() {}, nil
+	}
+	if err := ctx.Eval.Enter(); err != nil {
+		return nil, err
+	}
+	return ctx.Eval.Leave, nil
+}
+
+// requiredBlockError is what a required block that nothing overrides
+// raises when it is rendered.
+func requiredBlockError(name string) error {
+	return gjerrors.NewTemplateRuntimeError("Required block " + escape.Repr(name) + " not found")
+}
+
+// RequiredBlock is the render function of a required block's own
+// definition.
+func RequiredBlock(name string) runtime.BlockRenderFunc {
+	return func(*runtime.Context) (string, error) { return "", requiredBlockError(name) }
+}
+
+// blocksProvider is satisfied by the environment: it returns the block
+// stacks a template renders with, its inheritance chain resolved.
+type blocksProvider interface {
+	TemplateBlocks(t *ast.Template) (map[string][]runtime.BlockRenderFunc, error)
 }
 
 // globalsProvider is satisfied by the environment so the eval layer can
@@ -623,15 +685,13 @@ type globalsProvider interface {
 	Globals() map[string]any
 }
 
-// evalExtends loads the parent template and renders its body in the
-// current context. Block overrides defined in the child are already
-// layered onto ctx.Blocks before evaluation starts, so {% block %} in
-// the parent dispatches up to the child's most-recent override. After
-// the parent finishes, control returns to the child's body; the
-// `extendsFired` gate then suppresses the child's remaining output
-// statements but lets `{% set %}`, `{% macro %}`, `{% import %}`, etc.
-// continue to execute (matching Python's `parent_template`-gate model).
+// evalExtends records the parent template, which evalTemplate renders
+// after the child's top level, and layers the parent's blocks beneath
+// the ones already registered so the child's overrides win.
 func (e *evaluator) evalExtends(n *ast.Extends, ctx *runtime.Context) error {
+	if e.parent != nil {
+		return gjerrors.NewTemplateRuntimeError("extended multiple times")
+	}
 	v, err := e.evalExprAny(n.Template, ctx)
 	if err != nil {
 		return err
@@ -644,9 +704,16 @@ func (e *evaluator) evalExtends(n *ast.Extends, ctx *runtime.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := e.evalBody(parent.Body, ctx); err != nil {
-		return err
+	if bp, ok := e.eng.(blocksProvider); ok {
+		blocks, err := bp.TemplateBlocks(parent)
+		if err != nil {
+			return err
+		}
+		for name, stack := range blocks {
+			ctx.Blocks[name] = append(stack, ctx.Blocks[name]...)
+		}
 	}
+	e.parent = parent
 	e.extendsFired = true
 	return nil
 }
@@ -670,7 +737,7 @@ func (e *evaluator) evalImport(n *ast.Import, ctx *runtime.Context) error {
 	}
 	subCtx := runtime.NewContext(names[0], ctx.Env, parent, ctx.Eval)
 	if n.WithContext {
-		for k, v := range ctx.Vars {
+		for k, v := range ctx.Locals() {
 			subCtx.Set(k, v)
 		}
 	}
@@ -692,10 +759,13 @@ func (e *evaluator) evalImport(n *ast.Import, ctx *runtime.Context) error {
 // newline or stray `{{ … }}` in the imported file leaks into the
 // caller's render output.
 func (e *evaluator) runImportedBody(body []ast.Node, ctx *runtime.Context) error {
-	saved := e.w
-	e.w = io.Discard
-	defer func() { e.w = saved }()
-	return e.evalBody(body, ctx)
+	leave, err := enter(ctx)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	sub := &evaluator{eng: e.eng, w: io.Discard, goCtx: e.goCtx}
+	return sub.evalTemplate(body, ctx)
 }
 
 // importParent returns a globals-only parent OrderedDict — used for
@@ -727,7 +797,7 @@ func (e *evaluator) evalFromImport(n *ast.FromImport, ctx *runtime.Context) erro
 	}
 	subCtx := runtime.NewContext(names[0], ctx.Env, parent, ctx.Eval)
 	if n.WithContext {
-		for k, v := range ctx.Vars {
+		for k, v := range ctx.Locals() {
 			subCtx.Set(k, v)
 		}
 	}
@@ -761,8 +831,6 @@ type macroValue struct {
 	Args     []*ast.Name
 	Defaults []ast.Expr
 	Body     []ast.Node
-	// Captured eval-context (autoescape flag at definition site).
-	Autoescape bool
 	// CatchVarargs is true when the macro body references the bare name
 	// `varargs` without first storing it. Extra positional arguments at
 	// call time are bound as a list to that name.
@@ -784,10 +852,6 @@ type macroValue struct {
 }
 
 func (e *evaluator) evalMacroDef(n *ast.Macro, ctx *runtime.Context) error {
-	autoescape := false
-	if ctx.Eval != nil {
-		autoescape = ctx.Eval.Autoescape
-	}
 	declared := map[string]bool{}
 	for _, a := range n.Args {
 		declared[a.Name] = true
@@ -798,7 +862,6 @@ func (e *evaluator) evalMacroDef(n *ast.Macro, ctx *runtime.Context) error {
 		Args:           n.Args,
 		Defaults:       n.Defaults,
 		Body:           n.Body,
-		Autoescape:     autoescape,
 		CatchVarargs:   catchVar,
 		CatchKwargs:    catchKw,
 		AccessesCaller: hasCaller,
@@ -852,33 +915,82 @@ func detectMacroSpecials(body []ast.Node, declared map[string]bool) (catchVar, c
 	return undeclared["varargs"], undeclared["kwargs"], undeclared["caller"]
 }
 
-// CallMacro invokes a macro value with positional args + kwargs and
-// returns the rendered string (always a Markup if the macro was defined
-// in autoescape mode). caller, if non-nil, is bound as `caller` inside
-// the macro body so `{{ caller() }}` re-renders the {% call %} body. Any
-// positional or keyword arguments not consumed by declared parameters are
-// bound to `varargs` / `kwargs` when the macro body references those
-// names; otherwise they raise an error.
+// macroRepr is a macro's name the way Jinja2's messages show it.
+func (mv *macroValue) macroRepr() string {
+	if mv.Name == "" {
+		return "None"
+	}
+	return escape.Repr(mv.Name)
+}
+
+// Get exposes the public attributes of Jinja2's Macro.
+func (mv *macroValue) Get(attr string) (any, bool) {
+	switch attr {
+	case "name":
+		if mv.Name == "" {
+			return nil, true
+		}
+		return mv.Name, true
+	case "arguments":
+		names := make(runtime.Tuple, len(mv.Args))
+		for i, a := range mv.Args {
+			names[i] = a.Name
+		}
+		return names, true
+	case "catch_kwargs":
+		return mv.CatchKwargs, true
+	case "catch_varargs":
+		return mv.CatchVarargs, true
+	case "caller":
+		return mv.AccessesCaller, true
+	case "explicit_caller":
+		for _, a := range mv.Args {
+			if a.Name == "caller" {
+				return true, true
+			}
+		}
+		return false, true
+	}
+	return nil, false
+}
+
+// String is Jinja2's Macro repr.
+func (mv *macroValue) String() string {
+	if mv.Name == "" {
+		return "<Macro anonymous>"
+	}
+	return "<Macro " + escape.Repr(mv.Name) + ">"
+}
+
+// CallMacro invokes a macro the way Jinja2's Macro.__call__ does:
+// parameters are filled from the positional arguments, then from
+// keywords, then from their defaults, which are evaluated in the macro's
+// own frame so they can refer to earlier parameters. caller, when not
+// nil, is bound as `caller`; extra arguments go to `varargs` / `kwargs`
+// when the body uses them and are an error otherwise. The result is
+// Markup when the calling context autoescapes.
 func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, kwargs map[string]any, caller any) (any, error) {
+	leave, err := enter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
 	// The macro frame's Parent merges the captured definition-site
-	// scope (Parent + Vars). This is the macro's closure: imported
-	// macros see the imported template's namespace; locally-defined
-	// macros see (and can mutually call) their siblings.
+	// scope. This is the macro's closure: imported macros see the
+	// imported template's namespace; locally-defined macros see (and can
+	// mutually call) their siblings.
 	defCtx := mv.DefCtx
 	if defCtx == nil {
 		defCtx = ctx
 	}
 	parent := runtime.NewOrderedDict()
 	parent.MergeOrderedDict(defCtx.Parent)
-	parent.MergeMap(defCtx.Vars)
+	parent.MergeMap(defCtx.Locals())
 	frame := runtime.NewContext(ctx.Name, ctx.Env, parent, ctx.Eval)
-	// kwargs is mutated as we bind named parameters; copy so callers
-	// don't observe pops.
 	remainingKw := make(map[string]any, len(kwargs))
 	for k, v := range kwargs {
 		remainingKw[k] = v
 	}
-	// Fill declared positional args.
 	for i, name := range mv.Args {
 		if i < len(args) {
 			frame.Set(name.Name, args[i])
@@ -890,7 +1002,7 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 			continue
 		}
 		if di := i - (len(mv.Args) - len(mv.Defaults)); di >= 0 && di < len(mv.Defaults) {
-			dv, err := e.evalExprAny(mv.Defaults[di], ctx)
+			dv, err := e.evalExprAny(mv.Defaults[di], frame)
 			if err != nil {
 				return nil, err
 			}
@@ -899,12 +1011,8 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 		}
 		frame.Set(name.Name, missingParam(e.eng, name.Name))
 	}
-	// caller binding — explicit value wins; otherwise, if the body
-	// references caller, surface an Undefined so reads produce a clear
-	// error rather than a NameError equivalent.
 	if caller != nil {
 		frame.Set("caller", caller)
-		delete(remainingKw, "caller")
 	} else if mv.AccessesCaller {
 		if v, ok := remainingKw["caller"]; ok {
 			frame.Set("caller", v)
@@ -913,18 +1021,20 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 			frame.Set("caller", e.eng.UndefinedFactory()("No caller defined", "caller", runtime.Missing, nil))
 		}
 	}
-	// kwargs catcher: collect leftover keyword arguments.
 	if mv.CatchKwargs {
 		frame.Set("kwargs", anyMap(remainingKw))
 	} else if len(remainingKw) > 0 {
 		if _, ok := remainingKw["caller"]; ok {
-			return nil, fmt.Errorf("macro %q was invoked with two values for the special caller argument", mv.Name)
+			//lint:ignore ST1005 Jinja2's exact message
+			return nil, fmt.Errorf("macro %s was invoked with two values for the special caller argument. This is most likely a bug.", mv.macroRepr())
 		}
+		names := make([]string, 0, len(remainingKw))
 		for k := range remainingKw {
-			return nil, fmt.Errorf("macro %q takes no keyword argument %q", mv.Name, k)
+			names = append(names, k)
 		}
+		sort.Strings(names)
+		return nil, fmt.Errorf("macro %s takes no keyword argument %s", mv.macroRepr(), escape.Repr(names[0]))
 	}
-	// varargs catcher: collect overflow positional arguments.
 	if mv.CatchVarargs {
 		extra := []any{}
 		if len(args) > len(mv.Args) {
@@ -932,14 +1042,14 @@ func (e *evaluator) CallMacro(mv *macroValue, ctx *runtime.Context, args []any, 
 		}
 		frame.Set("varargs", runtime.Tuple(extra))
 	} else if len(args) > len(mv.Args) {
-		return nil, fmt.Errorf("macro %q takes not more than %d argument(s)", mv.Name, len(mv.Args))
+		return nil, fmt.Errorf("macro %s takes not more than %d argument(s)", mv.macroRepr(), len(mv.Args))
 	}
 	var b strings.Builder
 	sub := &evaluator{eng: e.eng, w: &b, goCtx: e.goCtx}
 	if err := sub.evalBody(mv.Body, frame); err != nil {
 		return nil, err
 	}
-	if mv.Autoescape {
+	if ctx.Eval != nil && ctx.Eval.Autoescape {
 		return escape.Markup(b.String()), nil
 	}
 	return b.String(), nil
@@ -956,8 +1066,8 @@ func anyMap(m map[string]any) map[any]any {
 	return out
 }
 
-// evalCallBlock evaluates `{% call %}` — invokes the macro named in the
-// inner Call, passing a caller closure that renders the call-block body.
+// evalCallBlock evaluates `{% call %}`: the body becomes an anonymous
+// macro, Jinja2's `caller`, passed to the called macro.
 func (e *evaluator) evalCallBlock(n *ast.CallBlock, ctx *runtime.Context) error {
 	macro, err := e.evalExprAny(n.Call.Node, ctx)
 	if err != nil {
@@ -967,73 +1077,29 @@ func (e *evaluator) evalCallBlock(n *ast.CallBlock, ctx *runtime.Context) error 
 	if !ok {
 		return fmt.Errorf("call block target is not a macro: %T", macro)
 	}
-	args, kwargs, err := e.evalCallArgs(n.Call.Args, n.Call.Kwargs, ctx)
+	args, kwargs, err := e.evalCallArgs(n.Call.Args, n.Call.Kwargs, n.Call.DynArgs, n.Call.DynKwargs, ctx)
 	if err != nil {
 		return err
 	}
-	// Build the caller. Its signature mirrors a Go-side macro: it takes
-	// args + kwargs and returns the rendered call-body. If the call block
-	// declares its own arg list, those bind for each invocation.
-	caller := callerOnce{
-		args:     n.Args,
-		defaults: n.Defaults,
-		body:     n.Body,
-		ctx:      ctx,
-		ev:       e,
+	declared := map[string]bool{}
+	for _, a := range n.Args {
+		declared[a.Name] = true
 	}
-	v, err := e.CallMacro(mv, ctx, args, kwargs, any(caller.fn()))
+	catchVar, catchKw, hasCaller := detectMacroSpecials(n.Body, declared)
+	caller := &macroValue{
+		Args:           n.Args,
+		Defaults:       n.Defaults,
+		Body:           n.Body,
+		CatchVarargs:   catchVar,
+		CatchKwargs:    catchKw,
+		AccessesCaller: hasCaller,
+		DefCtx:         ctx,
+	}
+	v, err := e.CallMacro(mv, ctx, args, kwargs, caller)
 	if err != nil {
 		return err
 	}
 	return e.write(v, ctx)
-}
-
-// callerOnce binds a {% call %} body so `caller()` (and `caller(arg, ...)`)
-// can re-render it from inside the macro.
-type callerOnce struct {
-	args     []*ast.Name
-	defaults []ast.Expr
-	body     []ast.Node
-	ctx      *runtime.Context
-	ev       *evaluator
-}
-
-func (c callerOnce) fn() runtime.CallerFunc {
-	return func(args []any, kwargs map[string]any) (any, error) {
-		frame := runtime.NewContext(c.ctx.Name, c.ctx.Env, c.ctx.Parent, c.ctx.Eval)
-		for k, v := range c.ctx.Vars {
-			frame.Set(k, v)
-		}
-		for i, name := range c.args {
-			if i < len(args) {
-				frame.Set(name.Name, args[i])
-				continue
-			}
-			if v, ok := kwargs[name.Name]; ok {
-				frame.Set(name.Name, v)
-				continue
-			}
-			if di := i - (len(c.args) - len(c.defaults)); di >= 0 && di < len(c.defaults) {
-				dv, err := c.ev.evalExprAny(c.defaults[di], c.ctx)
-				if err != nil {
-					return nil, err
-				}
-				frame.Set(name.Name, dv)
-				continue
-			}
-			frame.Set(name.Name, missingParam(c.ev.eng, name.Name))
-		}
-		var b strings.Builder
-		sub := &evaluator{eng: c.ev.eng, w: &b, goCtx: c.ev.goCtx}
-		if err := sub.evalBody(c.body, frame); err != nil {
-			return nil, err
-		}
-		// Caller output respects the parent context's autoescape state.
-		if c.ctx.Eval != nil && c.ctx.Eval.Autoescape {
-			return escape.Markup(b.String()), nil
-		}
-		return b.String(), nil
-	}
 }
 
 // =============================================================== helpers
@@ -1084,7 +1150,7 @@ func Truthy(v any) bool {
 func ToIterable(v any) ([]any, error) {
 	switch x := v.(type) {
 	case nil:
-		return nil, nil
+		return nil, fmt.Errorf("'NoneType' object is not iterable")
 	case runtime.Tuple:
 		return []any(x), nil
 	case []any:
@@ -1177,17 +1243,18 @@ func missingParam(eng Engine, name string) runtime.Undefined {
 // stringList turns a single string or a list of strings into []string.
 // Used by include / extends for selecting templates.
 func stringList(v any) []string {
-	switch x := v.(type) {
-	case string:
-		return []string{x}
-	case []any:
-		out := make([]string, 0, len(x))
-		for _, it := range x {
-			if s, ok := it.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
+	if s, ok := v.(string); ok {
+		return []string{s}
 	}
-	return nil
+	items, err := ToIterable(v)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		if s, ok := it.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }

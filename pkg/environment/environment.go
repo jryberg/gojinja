@@ -655,17 +655,11 @@ func (t *Template) RenderContext(ctx context.Context, vars any) (string, error) 
 	ec := runtime.NewEvalContext(t.env, t.name)
 	rctx := runtime.NewContext(t.name, t.env, parent, ec)
 
-	chain, err := t.env.resolveInheritance(t.ast)
+	blocks, err := t.env.TemplateBlocks(t.ast)
 	if err != nil {
 		return "", err
 	}
-	// Layer block overrides oldest-first (chain[0] is the root). The
-	// child wins because its blocks are appended last.
-	for _, lvl := range chain {
-		for name, fn := range collectBlocks(t.env, lvl.Body) {
-			rctx.Blocks[name] = append(rctx.Blocks[name], fn)
-		}
-	}
+	rctx.Blocks = blocks
 	// Render the child's body. Its `{% extends %}` statement (if any)
 	// will recursively render the parent at the appropriate point. This
 	// matches Python's behaviour: top-level statements in the child
@@ -869,8 +863,11 @@ func (e *Environment) Call(ctx *runtime.Context, callee any, args []any, kwargs 
 	switch fn := callee.(type) {
 	case *runtime.Joiner:
 		return fn.Call(), nil
-	case runtime.CallerFunc:
-		return fn(args, kwargs)
+	case *runtime.LoopContext:
+		if len(args) != 1 || len(kwargs) != 0 {
+			return nil, gjerrors.NewTemplateRuntimeError(fmt.Sprintf("LoopContext.__call__() takes 2 positional arguments but %d were given", len(args)+1))
+		}
+		return fn.Call(args[0])
 	case func() (any, error):
 		// `super()` binding — see eval.callBlockAtDepth.
 		return fn()
@@ -958,6 +955,10 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 			return v, nil
 		}
 	case *runtime.Namespace:
+		if v, ok := x.Get(attr); ok {
+			return v, nil
+		}
+	case runtime.AttrGetter:
 		if v, ok := x.Get(attr); ok {
 			return v, nil
 		}

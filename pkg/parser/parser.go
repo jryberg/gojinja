@@ -9,6 +9,7 @@ import (
 
 	"github.com/jryberg/gojinja/pkg/ast"
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
+	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/lexer"
 )
 
@@ -87,7 +88,7 @@ func (p *Parser) failAssertion(msg string, lineno int) error {
 }
 
 func (p *Parser) failUnknownTag(name string, lineno int) error {
-	return p.fail(fmt.Sprintf("Encountered unknown tag %q.", name), lineno)
+	return p.fail(fmt.Sprintf("Encountered unknown tag %s.", escape.Repr(name)), lineno)
 }
 
 func (p *Parser) failEOF(end []string, lineno int) error {
@@ -1153,7 +1154,7 @@ func (p *Parser) parsePrimary(withNamespace bool) (ast.Expr, error) {
 	case lexer.TokenLBrace:
 		return p.parseDict()
 	default:
-		return nil, p.fail(fmt.Sprintf("unexpected %q", tok.String()), tok.Lineno)
+		return nil, p.fail(fmt.Sprintf("unexpected %s", escape.Repr(tok.String())), tok.Lineno)
 	}
 }
 
@@ -1196,7 +1197,7 @@ func (p *Parser) parseTuple(simplified, withCondExpr bool, extraEnd []string, ex
 			return args[0], nil
 		}
 		if !explicitParens {
-			return nil, p.fail(fmt.Sprintf("Expected an expression, got %q", p.stream.Current().String()), p.currentLine())
+			return nil, p.fail(fmt.Sprintf("Expected an expression, got %s", escape.Repr(p.stream.Current().String())), p.currentLine())
 		}
 	}
 	t := &ast.Tuple{Items: args, Ctx: ast.CtxLoad}

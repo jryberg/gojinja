@@ -128,6 +128,9 @@ func (e *evaluator) evalName(n *ast.Name, ctx *runtime.Context) any {
 	if v, ok := ctx.Resolve(n.Name); ok {
 		return v
 	}
+	if n.Name == "self" {
+		return &templateReference{ctx: ctx.Root(), undef: e.eng.UndefinedFactory()}
+	}
 	return ctx.ResolveOrUndefined(n.Name, e.eng.UndefinedFactory())
 }
 
@@ -144,6 +147,9 @@ func (e *evaluator) evalGetattr(n *ast.Getattr, ctx *runtime.Context) (any, erro
 	if err != nil {
 		return nil, err
 	}
+	if ref, ok := v.(*templateReference); ok {
+		return ref.block(n.Attr), nil
+	}
 	return e.eng.GetAttr(v, n.Attr)
 }
 
@@ -156,6 +162,11 @@ func (e *evaluator) evalGetitem(n *ast.Getitem, ctx *runtime.Context) (any, erro
 	if err != nil {
 		return nil, err
 	}
+	if ref, ok := v.(*templateReference); ok {
+		if name, ok := arg.(string); ok {
+			return ref.block(name), nil
+		}
+	}
 	return e.eng.GetItem(v, arg)
 }
 
@@ -164,7 +175,7 @@ func (e *evaluator) evalCall(n *ast.Call, ctx *runtime.Context) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	args, kwargs, err := e.evalCallArgs(n.Args, n.Kwargs, ctx)
+	args, kwargs, err := e.evalCallArgs(n.Args, n.Kwargs, n.DynArgs, n.DynKwargs, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +185,9 @@ func (e *evaluator) evalCall(n *ast.Call, ctx *runtime.Context) (any, error) {
 	return e.eng.Call(ctx, fn, args, kwargs)
 }
 
-func (e *evaluator) evalCallArgs(astArgs []ast.Expr, astKwargs []*ast.Keyword, ctx *runtime.Context) ([]any, map[string]any, error) {
+// evalCallArgs evaluates a call's arguments: the positional ones followed
+// by the items of `*dynArgs`, the keywords merged with `**dynKwargs`.
+func (e *evaluator) evalCallArgs(astArgs []ast.Expr, astKwargs []*ast.Keyword, dynArgs, dynKwargs ast.Expr, ctx *runtime.Context) ([]any, map[string]any, error) {
 	args := make([]any, 0, len(astArgs))
 	for _, a := range astArgs {
 		v, err := e.evalExprAny(a, ctx)
@@ -191,6 +204,37 @@ func (e *evaluator) evalCallArgs(astArgs []ast.Expr, astKwargs []*ast.Keyword, c
 		}
 		kwargs[kw.Key] = v
 	}
+	if dynArgs != nil {
+		v, err := e.evalExprAny(dynArgs, ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		items, err := ToIterable(v)
+		if err != nil {
+			return nil, nil, err
+		}
+		args = append(args, items...)
+	}
+	if dynKwargs != nil {
+		v, err := e.evalExprAny(dynKwargs, ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		m, ok := v.(*runtime.OrderedDict)
+		if !ok {
+			return nil, nil, fmt.Errorf("argument after ** must be a mapping, not %s", runtime.PyTypeName(v))
+		}
+		for _, k := range m.Keys() {
+			key, ok := k.(string)
+			if !ok {
+				return nil, nil, fmt.Errorf("keywords must be strings")
+			}
+			if _, dup := kwargs[key]; dup {
+				return nil, nil, fmt.Errorf("got multiple values for keyword argument %s", escape.Repr(key))
+			}
+			kwargs[key], _ = m.Get(k)
+		}
+	}
 	return args, kwargs, nil
 }
 
@@ -202,7 +246,7 @@ func (e *evaluator) evalFilter(n *ast.Filter, ctx *runtime.Context) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	args, kwargs, err := e.evalCallArgs(n.Args, n.Kwargs, ctx)
+	args, kwargs, err := e.evalCallArgs(n.Args, n.Kwargs, n.DynArgs, n.DynKwargs, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +258,7 @@ func (e *evaluator) evalTest(n *ast.Test, ctx *runtime.Context) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	args, kwargs, err := e.evalCallArgs(n.Args, n.Kwargs, ctx)
+	args, kwargs, err := e.evalCallArgs(n.Args, n.Kwargs, n.DynArgs, n.DynKwargs, ctx)
 	if err != nil {
 		return nil, err
 	}

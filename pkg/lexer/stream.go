@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
+	"github.com/jryberg/gojinja/pkg/escape"
 )
 
 // TokenStream is a forward iterator over [Token]s with a single-token
@@ -101,12 +102,12 @@ func (s *TokenStream) Expect(expr string) (Token, error) {
 		desc := describeExpr(expr)
 		if s.current.Kind == TokenEOF {
 			return Token{}, gjerrors.NewTemplateSyntaxError(
-				fmt.Sprintf("unexpected end of template, expected %q.", desc),
+				fmt.Sprintf("unexpected end of template, expected %s.", escape.Repr(desc)),
 				s.current.Lineno, s.name, s.filename,
 			)
 		}
 		return Token{}, gjerrors.NewTemplateSyntaxError(
-			fmt.Sprintf("expected token %q, got %q", desc, s.current.String()),
+			fmt.Sprintf("expected token %s, got %s", escape.Repr(desc), escape.Repr(s.current.String())),
 			s.current.Lineno, s.name, s.filename,
 		)
 	}
