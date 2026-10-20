@@ -10,14 +10,16 @@ for the full list of inverted defaults.
 The sandbox layer in `pkg/sandbox` provides four predicates:
 
 - `IsSafeAttribute(obj, attr) bool` — gates attribute access. Rejects
-  Python-style dunder attributes (`__class__`, `__mro__`, `__bases__`,
-  `__subclasses__`, `__init__`, etc.) that classic Jinja2 sandbox-escape
-  exploits use to climb the type hierarchy.
-- `IsSafeCallable(fn) bool` — gates calls. Rejects bound methods that
-  could mutate shared state.
+  every name starting with an underscore — Python-style dunders such as
+  `__class__`, `__mro__`, `__subclasses__` and `__init__` that classic
+  Jinja2 sandbox-escape exploits use to climb the type hierarchy among
+  them — and every attribute of Go's `reflect` and `runtime` types.
+- `IsSafeCallable(fn) bool` — gates calls. Rejects callables marked with
+  `UnsafeFunc`.
 - `IsMutatingMethod(name) bool` — names of methods that mutate their
-  receiver (`pop`, `append`, `clear`, etc.). The sandbox refuses to call
-  these even on objects the template otherwise has access to.
+  receiver (`pop`, `append`, `clear`, etc.), for your own checks. The
+  default sandbox does not apply it: like Jinja2's `SandboxedEnvironment`,
+  it lets templates call `{% do items.append(x) %}`.
 - `UnsafeFunc(fn)` — wrap a Go function you want to **mark as
   unsafe-to-call**, even though it's been registered as a global. Useful
   for callables you only want available in a `WithUnsafe()`-built

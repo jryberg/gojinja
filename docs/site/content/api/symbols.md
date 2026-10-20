@@ -203,6 +203,7 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `RecursionError` | type | RecursionError is what [Repr] and [SoftStr] panic with for a value | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#RecursionError) |
 | `Repr` | func | Repr returns Python's repr() of v: strings single-quoted with | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#Repr) |
 | `SoftStr` | func | SoftStr returns the string form of v *without* escaping. It mirrors | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#SoftStr) |
+| `Unescape` | func | Unescape is Python's html.unescape, which markupsafe's | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#Unescape) |
 | `ValueError` | type | ValueError is what [Repr] and [SoftStr] panic with for an int too long | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/escape#ValueError) |
 
 ## `github.com/jryberg/gojinja/pkg/ext`
@@ -246,7 +247,7 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `FileSystem` | type | FileSystem reads templates from one or more allowlisted root directories. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/loader#FileSystem) |
 | `FileSystemOption` | type | FileSystemOption configures a [FileSystem] loader. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/loader#FileSystemOption) |
 | `FuncLoader` | type | FuncLoader wraps an arbitrary fetch function. Useful for adapting to | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/loader#FuncLoader) |
-| `Loader` | type | Loader is the in-package interface every loader implements. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/loader#Loader) |
+| `Loader` | type | Loader is the in-package interface every loader implements. A | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/loader#Loader) |
 | `NewCached` | func | NewCached returns a Cached over inner. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/loader#NewCached) |
 | `NewEmbed` | func | NewEmbed returns an Embed loader rooted at prefix inside fsys. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/loader#NewEmbed) |
 | `NewFileSystem` | func | NewFileSystem builds a FileSystem loader over the given root(s). Roots | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/loader#NewFileSystem) |
@@ -277,8 +278,10 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `Atan2` | func | Atan2 is C's atan2(). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Atan2) |
 | `AttrGetter` | type | AttrGetter is implemented by template-visible objects that resolve | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#AttrGetter) |
 | `BigInt` | func | BigInt returns v as a *big.Int when v is a Python int: any Go integer | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#BigInt) |
+| `BlockReference` | type | BlockReference is a block as `self.name` and `super` give it, a port of | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#BlockReference) |
 | `BlockRenderFunc` | type | BlockRenderFunc renders one level of a block in the inheritance chain. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#BlockRenderFunc) |
 | `Bytes` | type | Bytes is Python's bytes, produced by str.encode. str() and repr() of | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Bytes) |
+| `Callable` | type | Callable is a builtin callable as a template sees it: a method bound | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Callable) |
 | `CompareNumbers` | func | CompareNumbers compares two Python numbers (ints, bools, floats) | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#CompareNumbers) |
 | `Context` | type | Context carries the per-render variable bindings and inheritance state. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Context) |
 | `Cos` | func | Cos is C's cos(). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Cos) |
@@ -313,22 +316,28 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `NamespaceEntry` | type | NamespaceEntry is a (name, value) pair returned by [Namespace.Items]. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NamespaceEntry) |
 | `NegateNumber` | func | NegateNumber is unary minus on a number. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NegateNumber) |
 | `NewBase` | func | NewBase returns a ModeBase Undefined. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewBase) |
+| `NewBoundMethod` | func | NewBoundMethod is a method defined in Python on class, bound to self: | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewBoundMethod) |
+| `NewBuiltinMethod` | func | NewBuiltinMethod is a method of a builtin type bound to self, of | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewBuiltinMethod) |
 | `NewChainable` | func | NewChainable returns a ModeChainable Undefined. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewChainable) |
+| `NewClass` | func | NewClass is a Python class with the qualified name qualname, such as | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewClass) |
 | `NewContext` | func | NewContext constructs a Context with the supplied parent globals and a | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewContext) |
 | `NewCycler` | func | NewCycler builds a Cycler over items. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewCycler) |
 | `NewDebug` | func | NewDebug returns a ModeDebug Undefined. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewDebug) |
 | `NewDelegatingGenerator` | func | NewDelegatingGenerator is NewGenerator for a generator whose body is | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewDelegatingGenerator) |
 | `NewEvalContext` | func | NewEvalContext constructs an EvalContext for the given (env, template | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewEvalContext) |
+| `NewFunction` | func | NewFunction is a Python function with the qualified name qualname. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewFunction) |
 | `NewGenerator` | func | NewGenerator returns the generator a Python generator function fn | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewGenerator) |
 | `NewGroupTuple` | func | NewGroupTuple returns the groupby filter's (grouper, list) tuple, | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewGroupTuple) |
 | `NewIterator` | func | NewIterator returns an iterator of Python type typ over next. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewIterator) |
 | `NewJoiner` | func | NewJoiner returns a Joiner that emits sep between items (default ", "). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewJoiner) |
 | `NewLoopContext` | func | NewLoopContext constructs a LoopContext over the items next produces. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewLoopContext) |
+| `NewMappingProxy` | func | NewMappingProxy is types.MappingProxyType(d), which dict views' | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewMappingProxy) |
 | `NewNamespace` | func | NewNamespace constructs a Namespace seeded from the given map, in | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewNamespace) |
 | `NewOrderedDict` | func | NewOrderedDict returns an empty OrderedDict ready for Set. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewOrderedDict) |
 | `NewOrderedDictFromPairs` | func | NewOrderedDictFromPairs builds an OrderedDict from a sequence of | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewOrderedDictFromPairs) |
 | `NewPyList` | func | NewPyList wraps an existing []any. The slice is adopted, not copied — | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewPyList) |
 | `NewStrict` | func | NewStrict returns a ModeStrict Undefined. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewStrict) |
+| `NewTemplateModule` | func | NewTemplateModule is the module of the template name, whose top-level | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NewTemplateModule) |
 | `Next` | type | Next returns an iterator's next item, or ok=false once it is exhausted. | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Next) |
 | `NormInt` | func | NormInt returns b as an int64 when it fits and as itself otherwise, | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NormInt) |
 | `NormalizeForTemplate` | func | NormalizeForTemplate walks v and rewrites every Go map it encounters | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#NormalizeForTemplate) |
@@ -343,7 +352,9 @@ pkg.go.dev, pinned to **latest**. Set `MIKE_VERSION` to repin.
 | `PyList` | type | PyList is the runtime representation of a Python list: list literals | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#PyList) |
 | `PyTypeName` | func | PyTypeName is the Python type name templates see for v, as used in | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#PyTypeName) |
 | `Range` | type | Range is Python's range object, which range() returns: an immutable | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Range) |
+| `SameMethod` | func | SameMethod reports Python's equality of two bound methods: the same | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#SameMethod) |
 | `Sin` | func | Sin is C's sin(). | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Sin) |
+| `TemplateModule` | type | TemplateModule is what `&#123;% import %}` binds, a port of Jinja2's | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#TemplateModule) |
 | `ToPyList` | func | ToPyList returns v with every []any and []string, at any depth inside | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#ToPyList) |
 | `Tuple` | type | Tuple is a fixed-size ordered sequence — gojinja's runtime | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Tuple) |
 | `Undefined` | type | Undefined is gojinja's representation of "no value at this name". It | [pkg.go.dev](https://pkg.go.dev/github.com/jryberg/gojinja/pkg/runtime#Undefined) |

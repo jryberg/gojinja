@@ -128,10 +128,11 @@ var MutatingMethods = map[string]bool{
 // IsMutatingMethod returns true if attr is a known mutating method name
 // on common built-in types (`pop`, `append`, `clear`, `update`, etc.).
 //
-// Used by the immutable-sandbox variant of the engine: the sandbox
-// refuses to call these even on objects the template otherwise has
-// access to. Without this gate, `{{ ctx_list.append("evil") }}` would
-// mutate context state across renders.
+// Jinja2's ImmutableSandboxedEnvironment refuses to call these; the
+// default sandbox, like SandboxedEnvironment, allows them, so use this to
+// build such a check yourself. Template mutations never reach the
+// caller's data or other renders: values are copied at the Render
+// boundary.
 //
 // Example:
 //

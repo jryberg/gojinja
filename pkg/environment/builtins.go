@@ -312,8 +312,10 @@ func eqString(v any) (string, bool) {
 //
 // Strings and Markup: number of characters, like Python's `len()` on a
 // `str`.
-// Sequences and mappings: number of elements / key-value pairs.
-// Undefined: 0 for ModeBase / ModeChainable; ModeStrict raises through Iter.
+// Sequences and mappings: number of elements / key-value pairs; `loop`:
+// loop.length. Undefined: 0 for ModeBase / ModeChainable; ModeStrict
+// raises. A generator or other iterator has no length and raises, as in
+// Python: count it with `|list|length`.
 //
 // Example:
 //
@@ -566,8 +568,9 @@ func reverseRunes(s string) string {
 //
 // Signature: abs(value)
 //
-// Accepts int, int64, and float64. Other types raise a filter argument
-// error.
+// Python's abs(): exact for ints of any size (a bool gives 0 or 1), the
+// magnitude for a complex number. Other types raise Python's "bad operand
+// type for abs()".
 //
 // Example:
 //
@@ -753,17 +756,15 @@ func filterFloat(_ *Environment, _ *runtime.Context, value any, args []any, kwar
 //
 // Signature: list(value)
 //
-// Lists pass through. Other iterables convert the way Python's `list()`
-// does: strings split into single-rune strings, dicts yield their keys.
+// Python's `list()`: always a new list, even of a list. Strings split into
+// single-character strings, dicts yield their keys, and a generator is
+// read to the end.
 //
 // Example:
 //
 //	{{ "abc"  | list }}  →  ['a', 'b', 'c']
 //	{{ {'a': 1, 'b': 2} | list }}  →  ['a', 'b']
 func filterList(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[string]any) (any, error) {
-	if x, ok := value.([]any); ok {
-		return x, nil
-	}
 	x, err := eval.ToIterable(value)
 	if err != nil {
 		return nil, err
@@ -1250,11 +1251,13 @@ func paramArg(args []any, kwargs map[string]any, i int, name string) (any, bool)
 //
 // Signature: truncate(s, length=255, killwords=False, end='...', leeway=5)
 //
-// Strings shorter than `length + leeway` are returned unchanged.
-// `killwords=False` (the default) breaks at the last whitespace before
-// the cut so words aren't split mid-word. Lengths count characters. A
-// Markup input stays Markup and its `end` is escaped; `length` shorter
-// than `end` or a negative `leeway` raises.
+// A value no longer than `length + leeway` is returned unchanged, whatever
+// its type (an Undefined or a short list too). `killwords=False` (the
+// default) breaks at the last whitespace before the cut so words aren't
+// split mid-word. Lengths count characters. A Markup input stays Markup
+// and its `end` is escaped; `length` shorter than `end`, a negative
+// `leeway`, a value without a length, or a long value that is not a
+// string raises, as in Python.
 //
 // Example:
 //
@@ -1386,7 +1389,8 @@ func filterWordcount(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 // `width` is a number of spaces or a string used as the indentation.
 // `first=False` skips indenting the first line (so the filter chains with
 // templates that already have content on the line). `blank=False` skips
-// blank lines.
+// blank lines. As in Python, which adds a newline to the value and splits
+// it, any value other than a string or Markup raises (an Undefined too).
 //
 // Example:
 //
@@ -1446,9 +1450,9 @@ func filterIndent(_ *Environment, _ *runtime.Context, value any, args []any, kwa
 //
 // Signature: striptags(s)
 //
-// `<!-- ... -->` spans are removed entirely (including content). Whitespace
-// runs are collapsed to a single space and HTML entities are unescaped,
-// like markupsafe's Markup.striptags().
+// markupsafe's Markup.striptags(): `<!-- ... -->` comments, then tags, are
+// removed (an unclosed one is kept), whitespace runs collapse to a single
+// space, and HTML entities are unescaped as Python's html.unescape does.
 //
 // Example:
 //
@@ -1720,8 +1724,10 @@ func filterUrlencode(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 //
 // `&`, `<`, `>` and `'` are unicode-escaped (`\u003c` etc.) so the
 // result is safe in a `<script>` block or a single-quoted HTML attribute.
-// `indent` follows json.dumps: an int indents by that many spaces, a
-// string indents with itself. The result is returned as Markup.
+// Like json.dumps, non-ASCII characters and DEL are escaped as `\uXXXX`
+// (surrogate pairs past the BMP). `indent` follows json.dumps: an int
+// indents by that many spaces, a string indents with itself. The result
+// is returned as Markup.
 //
 // Example:
 //

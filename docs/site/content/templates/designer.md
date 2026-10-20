@@ -277,7 +277,9 @@ A child must override a block marked `required`:
 
 `with context` (the default) shares the parent template's variables;
 `without context` walls them off. `ignore missing` silently no-ops when
-no listed template can be found.
+no listed template can be found; only a missing template is skipped, so
+an included template with a syntax error, or an environment without a
+loader, still raises.
 
 ## Imports
 
@@ -285,6 +287,11 @@ no listed template can be found.
 {% import "macros.html" as m %}
 {{ m.button("Save", primary=true) }}
 ```
+
+`m` is the imported template's module: its macros and top-level
+`{% set %}` variables are its attributes (names starting with an
+underscore are not exported), and printing `{{ m }}` gives the template's
+rendered output.
 
 Or import specific names:
 

@@ -149,6 +149,9 @@ If your template variables come from JSON, decode them with `gojinja.JSONVars` (
 
 - **Number types.** Vanilla `encoding/json.Unmarshal` collapses every JSON number to `float64`, while Python's `json.loads` preserves the int/float distinction — `{{ x }}` renders the two differently (`"130000"` vs `"130000.0"`).
 - **Dict insertion order.** Python dicts (and `json.loads`' output) iterate in source order; Go's `map[string]any` iteration is randomised per run. gojinja always renders deterministically — every Go map you pass to `Render` is normalised to an `*OrderedDict` at the boundary (top-level **and** nested, at any depth) with keys in lex-sorted order, so `{% for k in mydict %}` produces the same bytes on every render of the same input. `JSONVars` goes one step further: it returns an `*OrderedDict` whose keys are in the JSON source order at every nesting level, so iteration matches Python byte-for-byte.
+- **Integer size.** JSON integers past int64 decode exactly, as `*big.Int`, like Python's unbounded ints.
+
+Every value you pass is copied at the `Render` boundary: a template can mutate lists and dicts (`{% do xs.append(1) %}`) and sees its changes for the rest of the render, but your Go data is left unchanged.
 
 ```go
 raw, _ := os.ReadFile("vars.json") // e.g. {"port": 130000, "rate": 1.5}
@@ -384,8 +387,8 @@ Cache files use atomic temp+rename writes and a magic+SHA-256 header, so a half-
 | `{% do expr %}` | Always available (not an opt-in extension here). |
 | `{% break %}` / `{% continue %}` | Always available. |
 | `{# comment #}` | Single-line and multi-line. |
-| String escapes | `\\`, `\'`, `\"`, `\a`, `\b`, `\f`, `\n`, `\r`, `\t`, `\v`, octal `\NNN`, `\xHH`, `\uHHHH`, `\UHHHHHHHH`. |
-| Numeric literals | int (any size up to int64), float, scientific. |
+| String escapes | `\\`, `\'`, `\"`, `\a`, `\b`, `\f`, `\n`, `\r`, `\t`, `\v`, octal `\NNN`, `\xHH`, `\uHHHH`, `\UHHHHHHHH`, `\N{NAME}`. |
+| Numeric literals | Ints of any size (hex `0x`, octal `0o`, binary `0b`, `_` separators), floats, scientific. Integer arithmetic is exact at any size, as in Python; a result over 2^22 bits raises (see [divergences](docs/divergences.md)). |
 | Operators | All Python operators Jinja2 supports — `+ - * / // % **`, `~` (concat), `and or not`, `<=` `<` `==` `!=` `>=` `>`, `in`, `not in`. |
 | Comparison chains | `a < b < c` works. |
 | Conditional expression | `x if cond else y`, `x if cond` (returns Undefined if cond is false). |
@@ -400,9 +403,11 @@ Each renders byte-identically to canonical Jinja2 with the same kwargs and edge 
 
 `abs`, `attr`, `batch`, `capitalize`, `center`, `count`, `d` (alias of `default`), `default`, `dictsort`, `e` (alias of `escape`), `escape`, `filesizeformat`, `first`, `float`, `forceescape`, `format`, `groupby`, `indent`, `int`, `items`, `join`, `last`, `length`, `list`, `lower`, `map`, `max`, `min`, `pprint`, `random`, `reject`, `rejectattr`, `replace`, `reverse`, `round`, `safe`, `select`, `selectattr`, `slice`, `sort`, `string`, `striptags`, `sum`, `title`, `tojson`, `trim`, `truncate`, `unique`, `upper`, `urlencode`, `urlize`, `wordcount`, `wordwrap`, `xmlattr`.
 
-Higher-order filters (`map`, `select`, `reject`, `selectattr`, `rejectattr`, `sort`, `groupby`, `min`, `max`, `sum`) accept Python kwargs (`attribute=`, `default=`, `case_sensitive=`, `reverse=`).
+Higher-order filters (`map`, `select`, `reject`, `selectattr`, `rejectattr`, `sort`, `groupby`, `min`, `max`, `sum`, `unique`, `join`) accept Python kwargs (`attribute=`, `default=`, `case_sensitive=`, `reverse=`).
 
-`groupby` and `sum` support **dotted attribute paths** (`'meta.k'`) and numeric tuple indexes (`groupby(0)`).
+Every filter that takes an `attribute` supports **dotted paths** (`'meta.k'`) and integer indexes (`groupby(0)`, `'items.0'`); `sort` also takes a comma-separated list (`sort(attribute='age,name')`), and `groupby` items have `.grouper` and `.list`.
+
+As in Python, `map`, `select`, `reject`, `selectattr`, `rejectattr`, `unique`, `batch`, `slice` and `items` return **generators**, and `reverse` returns a reverse iterator (a reversed string for strings). They are read lazily, can be iterated only once, are true even when empty and have no length: write `xs|select('odd')|list` to get a list, `|list|length` to count, and `|first` or a `{% for %}` to consume. Printing one shows Python's `<generator object … at 0x…>`.
 
 ### Tests (39)
 
@@ -440,15 +445,21 @@ Opt-in globals (registered when their option is set):
 
 ### Synthetic methods on built-in types
 
-Templates can call Python instance methods on Go values without any setup:
+Templates can call Python's methods on values without any setup. Every public method and attribute of these Python types is there, with Python's results and errors:
 
-| Type | Methods exposed |
-|---|---|
-| `string` / `Markup` | `upper`, `lower`, `title`, `capitalize`, `swapcase`, `strip`, `lstrip`, `rstrip`, `split`, `rsplit`, `splitlines`, `join`, `startswith`, `endswith`, `find`, `rfind`, `index`, `rindex`, `count`, `replace`, `format`, `isdigit`, `isalpha`, `isalnum`, `isspace`, `isupper`, `islower`, `encode`, `zfill`, `ljust`, `rjust`, `center`. |
-| `[]any` | `count`, `index`. |
-| `map[string]any`, `map[any]any`, `*runtime.OrderedDict` | `items`, `keys`, `values`, `get`. |
+| Python type | Go values | Examples |
+|---|---|---|
+| `str` | `string` | `upper`, `split`, `format`, `encode`, `casefold`, `translate`, `isidentifier`, … |
+| `Markup` | `escape.Markup` | the `str` methods with markupsafe's escaping, plus `striptags`, `unescape`, `escape` |
+| `bytes` | `runtime.Bytes` (from `str.encode`) | `decode`, `hex`, `split`, `startswith`, … |
+| `list` | `[]any`, `*runtime.PyList` | `append`, `extend`, `insert`, `pop`, `remove`, `sort`, `reverse`, `copy`, `clear`, `count`, `index` (mutate with `{% do %}`) |
+| `tuple` | `runtime.Tuple` | `count`, `index` |
+| `dict` | `map[string]any`, `*runtime.OrderedDict` | `items`, `keys`, `values`, `get`, `update`, `pop`, `popitem`, `setdefault`, `copy`, `clear`, `fromkeys`; the views are live, with `isdisjoint` and `mapping` |
+| `int`, `bool`, `float`, `complex` | Go numbers, `*big.Int`, `complex128` | `bit_length`, `to_bytes`, `as_integer_ratio`, `hex`, `fromhex`, `is_integer`, `real`, `imag`, `conjugate`, … |
+| `range` | `*runtime.Range` (from `range()`) | `start`, `stop`, `step`, `index`, `count` |
+| generator | `*runtime.Iterator` (from `map`, `select`, …) | `send`, `close`, `throw`, `gi_running`, `gi_suspended`, `gi_yieldfrom` |
 
-Method lookup precedes key lookup on `.attr` access (Python parity); `[]` still goes straight to keys, so `d['items']` returns the `'items'` key while `d.items` returns the method.
+Method lookup precedes key lookup on `.attr` access (Python parity); `[]` still goes straight to keys, so `d['items']` returns the `'items'` key while `d.items` returns the method. Methods print like Python's (`<built-in method append of list object at 0x…>`).
 
 ### Extensions
 
@@ -538,7 +549,7 @@ gj.AutoescapeByExtension{Enabled: []string{"html", "htm"}}   // by file extensio
 ```go
 import "github.com/jryberg/gojinja/pkg/runtime"
 
-runtime.NewBase       // default — silent, renders empty, errors on iteration
+runtime.NewBase       // default — renders empty and iterates as empty; attribute access, calls and arithmetic raise
 runtime.NewChainable  // attribute access on Undefined returns Undefined
 runtime.NewDebug      // prints "{{ name }}"-style placeholder for debugging
 runtime.NewStrict     // raises on any access
@@ -555,6 +566,8 @@ type TestFunc   func(env *Environment, ctx *runtime.Context, value any, args []a
 ```
 
 Wrap as `environment.Filter{Func: ...}` or `environment.Test{Func: ...}` and pass via `gj.WithFilter(name, ...)` / `gj.WithTest(name, ...)`.
+
+`value`, `args` and `kwargs` hold template values in their runtime form: `string`, `escape.Markup`, `bool`, `nil` (None), `int64` or `*big.Int` (ints past int64), `float64`, `complex128`, `[]any` (a list's items, sharing its storage), `runtime.Tuple`, `*runtime.OrderedDict` (dicts), `runtime.Bytes`, `runtime.Undefined`, and the objects templates make: `*runtime.Iterator` (the generators `map` and `select` return), `*runtime.Range`, `*runtime.DictView`, `*runtime.Namespace` and `*runtime.Callable` (methods and builtin functions). `eval.ToIterable` reads any iterable one into a `[]any`.
 
 For globals, register any Go function: gojinja dispatches via reflection, with optional support for `KwargsCallable` if you want to receive Python-style keyword arguments:
 

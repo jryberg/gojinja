@@ -96,6 +96,23 @@ func (s *signature) check(nargs int, kwargs map[string]any) string {
 	return ""
 }
 
+// bind binds a call of a Python function that is not handed a value, as
+// a global is: it reports CPython's TypeError for the call, or returns
+// every parameter's argument, with defaults for those not passed.
+func (s *signature) bind(args []any, kwargs map[string]any, defaults []any) ([]any, string) {
+	if msg := s.check(len(args)-1, kwargs); msg != "" {
+		return nil, msg
+	}
+	out := append([]any(nil), defaults...)
+	copy(out, args)
+	for i, p := range s.params {
+		if v, ok := kwargs[p]; ok {
+			out[i] = v
+		}
+	}
+	return out, ""
+}
+
 // normalize moves keyword arguments that fill the next positional slots
 // into args, so a call like join(d='-') reaches the filter exactly as
 // join('-') would. Keywords that skip an earlier parameter stay in

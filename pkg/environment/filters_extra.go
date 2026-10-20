@@ -107,6 +107,8 @@ func filterGroupby(env *Environment, _ *runtime.Context, value any, args []any, 
 // own at whitespace and after hyphens (break_on_hyphens), words longer
 // than `width` are split (break_long_words), and lines are joined with
 // `wrapstring`, which defaults to the environment's newline sequence.
+// As in Python, which calls the value's splitlines(), any value other
+// than a string or Markup raises (an Undefined too).
 //
 // Example:
 //

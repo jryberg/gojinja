@@ -364,7 +364,10 @@ func (e *Environment) FromString(src string) (*Template, error) {
 
 // GetTemplate fetches the named template through the loader, parses it,
 // and caches the AST. Lookup order: in-memory cache → externalCache (if
-// configured, e.g. a *cache.Filesystem) → fresh parse.
+// configured, e.g. a *cache.Filesystem) → fresh parse. A template the
+// loader lacks is an errors.TemplateNotFound; with no loader the error is
+// a TemplateRuntimeError, "no loader for this environment specified", as
+// Python raises a TypeError, which `ignore missing` does not skip.
 func (e *Environment) GetTemplate(name string) (*Template, error) {
 	e.mu.RLock()
 	if t, ok := e.cache[name]; ok {
@@ -730,12 +733,11 @@ func asTemplateSyntaxError(err error, target **gjerrors.TemplateSyntaxError) boo
 
 // CallFilter looks up name in the filter registry and invokes it.
 //
-// In-template *runtime.PyList values are unwrapped to their underlying
-// []any view (both the input value and any list-typed args/kwargs)
-// before dispatch so existing filters — which exhaustively switch on
-// []any — work unchanged. Filters do not mutate input lists, so the
-// unwrap loses nothing: any subsequent attribute access on the same
-// template binding still sees the original *PyList.
+// A builtin filter gets an in-template list as the *runtime.PyList itself,
+// as Python's filters get the list: one returning its input returns the
+// same list, and a lazy one reads it as it is when each item is reached.
+// A registered filter gets the list's []any items instead, sharing its
+// storage. List-typed args and kwargs are []any for both.
 func (e *Environment) CallFilter(name string, ctx *runtime.Context, value any, args []any, kwargs map[string]any) (any, error) {
 	f, ok := e.filters[name]
 	if !ok {

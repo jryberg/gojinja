@@ -5,6 +5,7 @@ import (
 
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
+	"github.com/jryberg/gojinja/pkg/eval"
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
@@ -136,26 +137,26 @@ func globalJoiner(seps ...string) *runtime.Joiner {
 //
 // Signature: lipsum(n=5, html=True, min=20, max=100)
 //
-// Generates `n` paragraphs of `min` to `max` words each. The result is
-// HTML-wrapped in `<p>` tags by default.
-//
-// Divergence from Python: gojinja uses a smaller built-in word list
-// (~150 words) than Python (380+). Output identity isn't a parity goal
-// here — lipsum is a layout placeholder, not user-facing data.
+// A port of Jinja2's generate_lorem_ipsum: `n` paragraphs of `min` to
+// `max - 1` words drawn at random from Jinja2's word list, capitalized,
+// with commas and full stops placed as Python places them. With `html`
+// true (the default) the paragraphs are wrapped in `<p>` tags and joined
+// by newlines, as Markup; otherwise they are plain text separated by
+// blank lines. The text differs on every call, as Python's does.
 //
 // Example:
 //
-//	{{ lipsum(2) }}   →  two paragraphs of <p>…</p>
-func globalLipsum(args ...int) any {
-	n, min, max := 5, 20, 100
-	if len(args) > 0 {
-		n = args[0]
+//	{{ lipsum(2) }}               →  two paragraphs of <p>…</p>
+//	{{ lipsum(1, html=false) }}   →  one plain-text paragraph
+func globalLipsum(args []any, kwargs map[string]any) (any, error) {
+	vals, msg := lipsumSignature.bind(args, kwargs, []any{int64(5), true, int64(20), int64(100)})
+	if msg != "" {
+		return nil, methodError("%s", msg)
 	}
-	if len(args) > 1 {
-		min = args[1]
+	// range(n); min and max are only read by randrange, per paragraph.
+	n, err := indexArg(vals[0])
+	if err != nil {
+		return nil, err
 	}
-	if len(args) > 2 {
-		max = args[2]
-	}
-	return generateLipsum(n, min, max, true)
+	return generateLipsum(n, eval.Truthy(vals[1]), vals[2], vals[3])
 }

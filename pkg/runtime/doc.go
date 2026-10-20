@@ -1,5 +1,10 @@
-// Package runtime contains the per-render objects: Context, Undefined and
-// its variants, LoopContext, Macro, BlockReference, EvalContext, Namespace,
-// Cycler, Joiner, and the missing sentinel. These mirror the surface in
-// Jinja2's runtime.py.
+// Package runtime contains the objects templates work with, mirroring
+// Jinja2's runtime.py and the Python types it relies on: Context,
+// EvalContext, Undefined and its variants, LoopContext, BlockReference,
+// TemplateModule, Namespace, Cycler and Joiner; Python's containers and
+// values — PyList, Tuple, OrderedDict (and its mappingproxy view,
+// NewMappingProxy), DictView, Range, Bytes, Iterator (generators and
+// reverse iterators) and Callable (methods, functions and classes) — and
+// their shared semantics: HashKey, NumBinop and the other numeric
+// helpers, and the missing sentinel.
 package runtime

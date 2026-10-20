@@ -1,6 +1,7 @@
-// Package loader provides Loader implementations: DictLoader, FunctionLoader,
-// PrefixLoader, ChoiceLoader, FileSystemLoader (allowlist-rooted, no symlink
-// escape), EmbedLoader (replaces Python's PackageLoader), and ModuleLoader
-// (pre-compiled IR). All loaders run user-supplied template names through
-// the splitTemplatePath validator before any I/O.
+// Package loader provides the Loader implementations: Dict, FuncLoader,
+// Prefix, Choice, FileSystem (allowlist-rooted, no symlink escape), Embed
+// (in place of Python's PackageLoader) and Cached. Dict, FuncLoader,
+// FileSystem and Embed run template names through SplitPath before any
+// lookup, and every loader reports a template it does not have as
+// errors.TemplateNotFound.
 package loader
