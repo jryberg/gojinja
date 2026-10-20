@@ -386,13 +386,10 @@ func assignTarget(target ast.Node, value any, ctx *runtime.Context) error {
 		ctx.Set(t.Name, value)
 		return nil
 	case *ast.NSRef:
-		obj, ok := ctx.Resolve(t.Name)
-		if !ok {
-			return fmt.Errorf("namespace %q is not defined", t.Name)
-		}
+		obj, _ := ctx.Resolve(t.Name)
 		ns, ok := obj.(*runtime.Namespace)
 		if !ok {
-			return fmt.Errorf("non-namespace object %T cannot be assigned to via attribute", obj)
+			return gjerrors.NewTemplateRuntimeError("cannot assign attribute on non-namespace object")
 		}
 		ns.Set(t.Attr, value)
 		return nil
@@ -436,7 +433,7 @@ func (e *evaluator) evalAssignBlock(n *ast.AssignBlock, ctx *runtime.Context) er
 	if err := sub.evalBody(n.Body, ctx.Child()); err != nil {
 		return err
 	}
-	v := any(b.String())
+	v := blockOutput(b.String(), ctx)
 	if n.Filter != nil {
 		fv, err := e.applyFilter(n.Filter, v, ctx)
 		if err != nil {
@@ -444,7 +441,26 @@ func (e *evaluator) evalAssignBlock(n *ast.AssignBlock, ctx *runtime.Context) er
 		}
 		v = fv
 	}
+	// Jinja2 assigns (Markup if autoescape else identity)(value).
+	if autoescaping(ctx) {
+		if _, ok := v.(escape.Markup); !ok {
+			v = escape.Markup(escape.SoftStr(v))
+		}
+	}
 	return assignTarget(n.Target, v, ctx)
+}
+
+// blockOutput is a block's rendered body as a filter or set block sees
+// it: Markup when autoescaping.
+func blockOutput(s string, ctx *runtime.Context) any {
+	if autoescaping(ctx) {
+		return escape.Markup(s)
+	}
+	return s
+}
+
+func autoescaping(ctx *runtime.Context) bool {
+	return ctx.Eval != nil && ctx.Eval.Autoescape
 }
 
 // evalWith evaluates every value in the enclosing scope, then binds the
@@ -572,15 +588,23 @@ func (e *evaluator) evalFilterBlock(n *ast.FilterBlock, ctx *runtime.Context) er
 	if err := sub.evalBody(n.Body, ctx.Child()); err != nil {
 		return err
 	}
-	v, err := e.applyFilter(n.Filter, b.String(), ctx)
+	v, err := e.applyFilter(n.Filter, blockOutput(b.String(), ctx), ctx)
 	if err != nil {
 		return err
 	}
 	return e.write(v, ctx)
 }
 
-// applyFilter runs a filter chain against a starting value.
+// applyFilter runs a block's filter chain on value, innermost filter
+// first: in `lower|escape` the Filter node for escape holds lower's.
 func (e *evaluator) applyFilter(f *ast.Filter, value any, ctx *runtime.Context) (any, error) {
+	if inner, ok := f.Node.(*ast.Filter); ok && inner != nil {
+		v, err := e.applyFilter(inner, value, ctx)
+		if err != nil {
+			return nil, err
+		}
+		value = v
+	}
 	args, kwargs, _, err := e.evalCallArgs(f.Args, f.Kwargs, f.DynArgs, f.DynKwargs, ctx)
 	if err != nil {
 		return nil, err
@@ -589,10 +613,6 @@ func (e *evaluator) applyFilter(f *ast.Filter, value any, ctx *runtime.Context) 
 	v = runtime.ToPyList(v)
 	if err != nil {
 		return nil, err
-	}
-	if f.Node != nil {
-		// Already-applied chain — should not happen for FilterBlock/AssignBlock.
-		_ = f.Node
 	}
 	return v, nil
 }
@@ -909,7 +929,11 @@ func (e *evaluator) evalFromImport(n *ast.FromImport, ctx *runtime.Context) erro
 			// Undefined whose hint flags the export miss; the error
 			// surfaces only when something actually tries to use it.
 			factory := e.eng.UndefinedFactory()
-			hint := fmt.Sprintf("the template %q (imported on line %d) does not export the requested name %q", name, n.Position().Lineno, entry.Name)
+			where := fmt.Sprintf("line %d", n.Position().Lineno)
+			if ctx.Name != "" {
+				where += " in " + escape.Repr(ctx.Name)
+			}
+			hint := fmt.Sprintf("the template %s (imported on %s) does not export the requested name %s", escape.Repr(name), where, escape.Repr(entry.Name))
 			v = factory(hint, entry.Name, nil, nil)
 		}
 		alias := entry.Alias

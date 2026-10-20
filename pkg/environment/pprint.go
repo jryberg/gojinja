@@ -16,16 +16,29 @@ import (
 // width=80, sort_dicts=True): a port of PrettyPrinter._format and the
 // dict, list, tuple and str pretty-printers. Widths count characters.
 func pformat(v any) string {
-	p := &prettyPrinter{width: 80, context: map[uintptr]bool{}}
+	return pformatWith(v, 0, false)
+}
+
+// Pformat is pprint.pformat(obj, depth=depth, compact=compact) with the
+// other defaults: depth 0 is unlimited; compact puts as many items of a
+// long list or tuple on each line as fit.
+func (e *Environment) Pformat(v any, depth int, compact bool) string {
+	return pformatWith(v, depth, compact)
+}
+
+func pformatWith(v any, depth int, compact bool) string {
+	p := &prettyPrinter{width: 80, context: map[uintptr]bool{}, maxLevels: depth, compact: compact}
 	p.format(v, 0, 0, 0)
 	return p.b.String()
 }
 
 type prettyPrinter struct {
-	b       strings.Builder
-	width   int
-	context map[uintptr]bool
-	depth   int
+	b         strings.Builder
+	width     int
+	context   map[uintptr]bool
+	depth     int
+	maxLevels int
+	compact   bool
 }
 
 // maxPprintDepth bounds pprint's nesting. CPython's pprint recurses in
@@ -127,21 +140,26 @@ func ppRecursion(v any, id uintptr) string {
 }
 
 // safeRepr is PrettyPrinter._safe_repr: repr with dict keys sorted.
-func (p *prettyPrinter) safeRepr(v any, context map[uintptr]bool) string {
+func (p *prettyPrinter) safeRepr(v any, context map[uintptr]bool, level int) string {
 	defer p.nest()()
 	kind, items := ppClassify(v)
 	if kind == ppOther || kind == ppStr || kind == ppProxy {
 		return escape.Repr(v)
 	}
-	if len(items) == 0 {
-		switch kind {
-		case ppDict:
-			return "{}"
-		case ppList:
-			return "[]"
-		}
-		return "()"
+	open, closer := "(", ")"
+	switch kind {
+	case ppDict:
+		open, closer = "{", "}"
+	case ppList:
+		open, closer = "[", "]"
 	}
+	if len(items) == 0 {
+		return open + closer
+	}
+	if p.maxLevels > 0 && level >= p.maxLevels {
+		return open + "..." + closer
+	}
+	level++
 	id, hasID := ppID(v)
 	if hasID {
 		if context[id] {
@@ -154,12 +172,12 @@ func (p *prettyPrinter) safeRepr(v any, context map[uintptr]bool) string {
 	if kind == ppDict {
 		for i, it := range sortedDictItems(items) {
 			kv := it.(runtime.Tuple)
-			parts[i] = p.safeRepr(kv[0], context) + ": " + p.safeRepr(kv[1], context)
+			parts[i] = p.safeRepr(kv[0], context, level) + ": " + p.safeRepr(kv[1], context, level)
 		}
 		return "{" + strings.Join(parts, ", ") + "}"
 	}
 	for i, it := range items {
-		parts[i] = p.safeRepr(it, context)
+		parts[i] = p.safeRepr(it, context, level)
 	}
 	if kind == ppList {
 		return "[" + strings.Join(parts, ", ") + "]"
@@ -170,12 +188,12 @@ func (p *prettyPrinter) safeRepr(v any, context map[uintptr]bool) string {
 	return "(" + strings.Join(parts, ", ") + ")"
 }
 
-func (p *prettyPrinter) repr(v any) string {
+func (p *prettyPrinter) repr(v any, level int) string {
 	ctx := make(map[uintptr]bool, len(p.context))
 	for k := range p.context {
 		ctx[k] = true
 	}
-	return p.safeRepr(v, ctx)
+	return p.safeRepr(v, ctx, level)
 }
 
 // format is PrettyPrinter._format.
@@ -186,7 +204,7 @@ func (p *prettyPrinter) format(v any, indent, allowance, level int) {
 		p.b.WriteString(ppRecursion(v, id))
 		return
 	}
-	rep := p.repr(v)
+	rep := p.repr(v, level)
 	if utf8.RuneCountInString(rep) > p.width-indent-allowance {
 		kind, items := ppClassify(v)
 		if kind != ppOther {
@@ -234,7 +252,7 @@ func (p *prettyPrinter) formatDictItems(items []any, indent, allowance, level in
 	for i, it := range items {
 		kv := it.(runtime.Tuple)
 		last := i == len(items)-1
-		rep := p.repr(kv[0])
+		rep := p.repr(kv[0], level)
 		p.b.WriteString(rep)
 		p.b.WriteString(": ")
 		a := 1
@@ -248,16 +266,40 @@ func (p *prettyPrinter) formatDictItems(items []any, indent, allowance, level in
 	}
 }
 
-// formatItems is PrettyPrinter._format_items without compact mode.
+// formatItems is PrettyPrinter._format_items.
 func (p *prettyPrinter) formatItems(items []any, indent, allowance, level int) {
 	indent++
-	delim := ",\n" + strings.Repeat(" ", indent)
+	delimNL := ",\n" + strings.Repeat(" ", indent)
+	delim := ""
+	width := p.width - indent + 1
+	maxWidth := width
 	for i, it := range items {
-		if i > 0 {
-			p.b.WriteString(delim)
+		last := i == len(items)-1
+		if last {
+			maxWidth -= allowance
+			width -= allowance
 		}
+		if p.compact {
+			rep := p.repr(it, level)
+			w := utf8.RuneCountInString(rep) + 2
+			if width < w {
+				width = maxWidth
+				if delim != "" {
+					delim = delimNL
+				}
+			}
+			if width >= w {
+				width -= w
+				p.b.WriteString(delim)
+				delim = ", "
+				p.b.WriteString(rep)
+				continue
+			}
+		}
+		p.b.WriteString(delim)
+		delim = delimNL
 		a := 1
-		if i == len(items)-1 {
+		if last {
 			a = allowance
 		}
 		p.format(it, indent, a, level)

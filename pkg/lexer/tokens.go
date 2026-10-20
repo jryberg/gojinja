@@ -258,8 +258,9 @@ func describeKind(k TokenKind) string {
 	return k.String()
 }
 
-// describeExpr mirrors lexer.py:describe_token_expr.
-func describeExpr(expr string) string {
+// DescribeExpr is lexer.py's describe_token_expr: how an error message
+// names a token expression such as "name:endfor" or "block_end".
+func DescribeExpr(expr string) string {
 	for i := 0; i < len(expr); i++ {
 		if expr[i] == ':' {
 			if expr[:i] == "name" {

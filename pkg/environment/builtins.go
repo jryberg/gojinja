@@ -22,12 +22,10 @@ import (
 func registerBuiltins(e *Environment) {
 	// ------------------------------------------------------- globals
 	// The globals print as Python's do: the sandbox's range is
-	// safe_range, the others Jinja2's classes and functions.
-	if e.sandboxed {
-		e.globals["range"] = runtime.NewFunction("safe_range", globalRange(e))
-	} else {
-		e.globals["range"] = runtime.NewClass("range", globalRange(e))
-	}
+	// safe_range (WithUnsafe makes it the range class), the others
+	// Jinja2's classes and functions.
+	e.globals["range"] = runtime.NewFunction("safe_range", globalRange(e))
+	e.safeRange = e.globals["range"].(*runtime.Callable)
 	e.globals["dict"] = dictClass(globalDict)
 	e.globals["namespace"] = runtime.NewClass("jinja2.utils.Namespace", orderedKwargsFunc(namespaceCtor))
 	e.globals["cycler"] = runtime.NewClass("jinja2.utils.Cycler", globalCycler)
@@ -1432,17 +1430,28 @@ func filterIndent(_ *Environment, _ *runtime.Context, value any, args []any, kwa
 	if v, ok := paramArg(args, kwargs, 2, "blank"); ok {
 		blank = eval.Truthy(v)
 	}
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if i == 0 && !first {
-			continue
+	// do_indent: s += "\n", then splitlines(), rejoined with "\n".
+	lines := pySplitlines(s+"\n", false)
+	var rv string
+	if blank {
+		rv = strings.Join(lines, "\n"+pad)
+	} else {
+		rv = lines[0]
+		if len(lines) > 1 {
+			rest := make([]string, len(lines)-1)
+			for i, line := range lines[1:] {
+				if line != "" {
+					line = pad + line
+				}
+				rest[i] = line
+			}
+			rv += "\n" + strings.Join(rest, "\n")
 		}
-		if line == "" && !blank {
-			continue
-		}
-		lines[i] = pad + line
 	}
-	return keepMarkup(value, strings.Join(lines, "\n")), nil
+	if first {
+		rv = pad + rv
+	}
+	return keepMarkup(value, rv), nil
 }
 
 // filterStripTags implements the `striptags` filter: drop HTML tags and

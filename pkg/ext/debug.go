@@ -3,7 +3,6 @@ package ext
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/jryberg/gojinja/pkg/ast"
 	"github.com/jryberg/gojinja/pkg/parser"
@@ -21,11 +20,12 @@ const DebugGlobalName = "__gojinja_debug__"
 type DebugFunc func(ctx *runtime.Context) (string, error)
 
 // EnvLister is the slice of *environment.Environment behaviour the debug
-// dump needs (filter and test names). Defining it here as an interface
-// avoids an import cycle.
+// dump needs. Defining it here as an interface avoids an import cycle.
 type EnvLister interface {
 	Filters() []string
 	Tests() []string
+	// Pformat is Python's pprint.pformat with the given depth and compact.
+	Pformat(v any, depth int, compact bool) string
 }
 
 // DebugTag is the parser hook for `{% debug %}`. It expands to an
@@ -46,76 +46,34 @@ func DebugTag(p *parser.Parser) (ast.Node, error) {
 	return out, nil
 }
 
-// DebugRender is the default helper bound by [DebugGlobalName]. It dumps
-// context vars (sorted), filter names, and test names in a Python-pprint
-// style — matching Jinja2's DebugExtension output close enough that
-// scrapers looking for `'context'`, `'filters'`, `'tests'` and named
-// entries find them.
+// DebugRender is the default helper bound by [DebugGlobalName], a port of
+// Jinja2's DebugExtension._render: the context's names, and the sorted
+// filter and test names, as pprint.pformat(result, depth=3, compact=True).
 func DebugRender(ctx *runtime.Context) (string, error) {
 	if ctx == nil {
 		return "", fmt.Errorf("debug: nil context")
 	}
-	var b strings.Builder
-	vars := ctx.All()
-	names := sortedKeys(vars)
-	b.WriteString("{'context': {")
-	for i, k := range names {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		fmt.Fprintf(&b, "'%s': %s", k, formatValue(vars[k]))
+	env, ok := ctx.Env.(EnvLister)
+	if !ok {
+		return "", fmt.Errorf("debug: the environment cannot list its filters and tests")
 	}
-	b.WriteString("},\n 'filters': [")
-	if env, ok := ctx.Env.(EnvLister); ok {
-		fs := env.Filters()
-		sort.Strings(fs)
-		for i, f := range fs {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			fmt.Fprintf(&b, "'%s'", f)
+	vars := runtime.NewOrderedDict()
+	for k, v := range ctx.All() {
+		if k != DebugGlobalName {
+			vars.Set(k, v)
 		}
 	}
-	b.WriteString("],\n 'tests': [")
-	if env, ok := ctx.Env.(EnvLister); ok {
-		ts := env.Tests()
-		sort.Strings(ts)
-		for i, tt := range ts {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			fmt.Fprintf(&b, "'%s'", tt)
+	names := func(list []string) []any {
+		sort.Strings(list)
+		out := make([]any, len(list))
+		for i, n := range list {
+			out[i] = n
 		}
+		return out
 	}
-	b.WriteString("]}")
-	return b.String(), nil
-}
-
-func sortedKeys(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func formatValue(v any) string {
-	if v == nil {
-		return "None"
-	}
-	switch x := v.(type) {
-	case string:
-		return fmt.Sprintf("%q", x)
-	case bool:
-		if x {
-			return "True"
-		}
-		return "False"
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return fmt.Sprintf("%d", x)
-	case float32, float64:
-		return fmt.Sprintf("%v", x)
-	}
-	return fmt.Sprintf("<%T>", v)
+	result := runtime.NewOrderedDict()
+	result.Set("context", vars)
+	result.Set("filters", names(env.Filters()))
+	result.Set("tests", names(env.Tests()))
+	return env.Pformat(result, 3, true), nil
 }

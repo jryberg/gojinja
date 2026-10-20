@@ -722,7 +722,7 @@ func TestDebugExtensionDumpsContextFiltersTests(t *testing.T) {
 	for _, want := range []string{
 		"Hello", "Goodbye",
 		"'context'", "'filters'", "'tests'",
-		"'who'", `"world"`,
+		"'who'", "'world'",
 		"'abs'", // a sample filter
 		"'in'",  // a sample test
 	} {

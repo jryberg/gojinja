@@ -306,7 +306,7 @@ func (l *Lexer) tokenize(source, name, filename string) ([]rawToken, error) {
 				lineStarting = advanced > 0 && source[pos-1] == '\n'
 			}
 		case stateRawBegin:
-			advanced, err = l.lexRawBody(source, pos, lineno, &out, &stack, name, filename)
+			advanced, err = l.lexRawBody(source, pos, lineno, &out, &stack, &newlinesStripped, lineStarting, name, filename)
 			if err == nil {
 				lineno += countNewlines(source[pos : pos+advanced])
 				pos += advanced
@@ -561,7 +561,7 @@ func (l *Lexer) lexLineComment(source string, pos, lineno int, out *[]rawToken, 
 // data + raw_end, pop state. The leading dash on the closing tag (e.g.
 // `{%- endraw %}`) strips trailing whitespace from the body — same
 // OptionalLStrip semantics the root state applies before tag-begin tokens.
-func (l *Lexer) lexRawBody(source string, pos, lineno int, out *[]rawToken, stack *[]stateName, name, filename string) (int, error) {
+func (l *Lexer) lexRawBody(source string, pos, lineno int, out *[]rawToken, stack *[]stateName, newlinesStripped *int, lineStarting bool, name, filename string) (int, error) {
 	loc := l.rawEnd.FindStringSubmatchIndex(source[pos:])
 	if loc == nil {
 		return 0, gjerrors.NewTemplateSyntaxError("Missing end of raw directive", lineno, name, filename)
@@ -573,9 +573,9 @@ func (l *Lexer) lexRawBody(source string, pos, lineno int, out *[]rawToken, stac
 	if 7 < len(loc) && loc[6] >= 0 {
 		sign = source[pos+loc[6] : pos+loc[7]]
 	}
-	if sign == "-" {
-		text = strings.TrimRightFunc(text, isASCIISpace)
-	}
+	// The text before {% endraw %} takes the tag's whitespace control,
+	// lstrip_blocks included, as Jinja2's OptionalLStrip does.
+	text = l.applyWhitespaceControl(text, sign, TokenRawEnd, newlinesStripped, lineStarting)
 	if text != "" {
 		*out = append(*out, rawToken{Lineno: lineno, Kind: TokenData, Value: text})
 	}

@@ -95,6 +95,9 @@ type Environment struct {
 	// extensions registered via [WithExtension]; consulted by the parser
 	// when it encounters an unknown statement keyword.
 	extensions map[string]parser.ExtensionFunc
+	// safeRange is the builtin range global, which WithUnsafe replaces
+	// with the range class unless something else took its place.
+	safeRange *runtime.Callable
 }
 
 // externalASTCache mirrors pkg/cache.Cache to avoid an import cycle.
@@ -185,7 +188,13 @@ func WithUndefined(f runtime.UndefinedFactory) Option {
 // WithUnsafe disables the default sandbox. Reserved for explicit
 // trusted-template scenarios; never enable for user-supplied templates.
 func WithUnsafe() Option {
-	return func(e *Environment) { e.sandboxed = false }
+	return func(e *Environment) {
+		e.sandboxed = false
+		// Unsandboxed, range is Python's own class, not safe_range.
+		if e.globals["range"] == any(e.safeRange) {
+			e.globals["range"] = runtime.NewClass("range", e.safeRange.Fn)
+		}
+	}
 }
 
 // WithHostEnv registers `env` as a global function that returns the
@@ -576,12 +585,37 @@ func validateNamesIn(n ast.Node, filters map[string]Filter, tests map[string]Tes
 			}
 		}
 		return nil
+	case *ast.AssignBlock:
+		if x.Filter != nil {
+			if err := validateNamesIn(x.Filter, filters, tests, name, filename, false); err != nil {
+				return err
+			}
+		}
+		for _, c := range x.Body {
+			if err := validateNamesIn(c, filters, tests, name, filename, false); err != nil {
+				return err
+			}
+		}
+		return nil
+	case *ast.With:
+		// The values are read in the enclosing frame, the body in its own.
+		for _, v := range x.Values {
+			if err := validateNamesIn(v, filters, tests, name, filename, soft); err != nil {
+				return err
+			}
+		}
+		for _, c := range x.Body {
+			if err := validateNamesIn(c, filters, tests, name, filename, false); err != nil {
+				return err
+			}
+		}
+		return nil
 
 	case *ast.Filter:
 		if !soft {
 			if _, ok := filters[x.Name]; !ok {
 				return gjerrors.NewTemplateAssertionError(
-					fmt.Sprintf("No filter named %q.", x.Name),
+					fmt.Sprintf("No filter named %s.", escape.Repr(x.Name)),
 					x.Position().Lineno, name, filename)
 			}
 		}
@@ -590,7 +624,7 @@ func validateNamesIn(n ast.Node, filters map[string]Filter, tests map[string]Tes
 		if !soft {
 			if _, ok := tests[x.Name]; !ok {
 				return gjerrors.NewTemplateAssertionError(
-					fmt.Sprintf("No test named %q.", x.Name),
+					fmt.Sprintf("No test named %s.", escape.Repr(x.Name)),
 					x.Position().Lineno, name, filename)
 			}
 		}
@@ -762,6 +796,18 @@ func (e *Environment) CallFilter(name string, ctx *runtime.Context, value any, a
 	args = unwrapPyListArgs(args)
 	kwargs = unwrapPyListKwargs(kwargs)
 	return f.Func(e, ctx, value, args, kwargs)
+}
+
+// HasFilter reports whether the filter name is registered.
+func (e *Environment) HasFilter(name string) bool {
+	_, ok := e.filters[name]
+	return ok
+}
+
+// HasTest reports whether the test name is registered.
+func (e *Environment) HasTest(name string) bool {
+	_, ok := e.tests[name]
+	return ok
 }
 
 // ConstFoldable reports whether Jinja2 would fold a call of the named
@@ -986,6 +1032,11 @@ func (e *Environment) GetAttr(obj any, attr string) (any, error) {
 func (e *Environment) getAttr(obj any, attr string) (any, error) {
 	if u, ok := e.unsafeAttr(obj, attr); ok {
 		return u, nil
+	}
+	if !e.sandboxed {
+		if v, ok := pyInternalAttr(obj, attr); ok {
+			return v, nil
+		}
 	}
 	// Built-in types with custom attribute resolution.
 	switch x := obj.(type) {

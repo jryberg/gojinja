@@ -99,7 +99,7 @@ func (s *TokenStream) Next() Token {
 // TemplateSyntaxError.
 func (s *TokenStream) Expect(expr string) (Token, error) {
 	if !s.current.Test(expr) {
-		desc := describeExpr(expr)
+		desc := DescribeExpr(expr)
 		if s.current.Kind == TokenEOF {
 			return Token{}, gjerrors.NewTemplateSyntaxError(
 				fmt.Sprintf("unexpected end of template, expected %s.", escape.Repr(desc)),

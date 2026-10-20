@@ -326,6 +326,9 @@ func (e *evaluator) evalFilter(n *ast.Filter, ctx *runtime.Context) (any, error)
 	if err != nil {
 		return nil, err
 	}
+	if err := e.knownName(true, n.Name); err != nil {
+		return nil, err
+	}
 	v, err := e.eng.CallFilter(n.Name, ctx, value, args, kwargs)
 	return runtime.ToPyList(v), err
 }
@@ -337,6 +340,9 @@ func (e *evaluator) evalTest(n *ast.Test, ctx *runtime.Context) (any, error) {
 	}
 	args, kwargs, _, err := e.evalCallArgs(n.Args, n.Kwargs, n.DynArgs, n.DynKwargs, ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := e.knownName(false, n.Name); err != nil {
 		return nil, err
 	}
 	return e.eng.CallTest(n.Name, ctx, value, args, kwargs)
@@ -525,4 +531,28 @@ func (e *evaluator) binop(op string, left, right ast.Expr, ctx *runtime.Context)
 		return nil, err
 	}
 	return applyBinop(op, lv, rv)
+}
+
+// nameChecker is satisfied by the environment: whether a filter or test
+// is registered.
+type nameChecker interface {
+	HasFilter(name string) bool
+	HasTest(name string) bool
+}
+
+// knownName is the runtime check Jinja2 compiles in for a filter or test
+// a template names inside an if or a conditional expression, where the
+// compile-time check is deferred until the code runs.
+func (e *evaluator) knownName(filter bool, name string) error {
+	nc, ok := e.eng.(nameChecker)
+	if !ok {
+		return nil
+	}
+	if filter && !nc.HasFilter(name) {
+		return gjerrors.NewTemplateRuntimeError("No filter named " + escape.Repr(name) + " found.")
+	}
+	if !filter && !nc.HasTest(name) {
+		return gjerrors.NewTemplateRuntimeError("No test named " + escape.Repr(name) + " found.")
+	}
+	return nil
 }

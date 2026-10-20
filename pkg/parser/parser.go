@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
 
 	"github.com/jryberg/gojinja/pkg/ast"
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
@@ -133,18 +134,49 @@ func (p *Parser) failAssertion(msg string, lineno int) error {
 }
 
 func (p *Parser) failUnknownTag(name string, lineno int) error {
-	return p.fail(fmt.Sprintf("Encountered unknown tag %s.", escape.Repr(name)), lineno)
+	return p.failUTEOF(name, p.endTokenStack, lineno)
 }
 
 func (p *Parser) failEOF(end []string, lineno int) error {
-	expected := append([][]string{}, p.endTokenStack...)
+	stack := append([][]string{}, p.endTokenStack...)
 	if end != nil {
-		expected = append(expected, end)
+		stack = append(stack, end)
 	}
-	if len(expected) == 0 {
-		return p.fail("Unexpected end of template.", lineno)
+	return p.failUTEOF("", stack, lineno)
+}
+
+// failUTEOF is Parser._fail_ut_eof: an unknown tag (name) or the end of
+// the template (name empty), with what the parser was looking for and
+// the innermost block left open.
+func (p *Parser) failUTEOF(name string, stack [][]string, lineno int) error {
+	expected := map[string]bool{}
+	for _, exprs := range stack {
+		for _, x := range exprs {
+			expected[lexer.DescribeExpr(x)] = true
+		}
 	}
-	return p.fail(fmt.Sprintf("Unexpected end of template. Looking for %v.", expected[len(expected)-1]), lineno)
+	var looking []string
+	if len(stack) > 0 {
+		for _, x := range stack[len(stack)-1] {
+			looking = append(looking, escape.Repr(lexer.DescribeExpr(x)))
+		}
+	}
+	message := []string{"Unexpected end of template."}
+	if name != "" {
+		message = []string{"Encountered unknown tag " + escape.Repr(name) + "."}
+	}
+	if len(looking) > 0 {
+		current := strings.Join(looking, " or ")
+		if name != "" && expected[name] {
+			message = append(message, "You probably made a nesting mistake. Jinja is expecting this tag, but currently looking for "+current+".")
+		} else {
+			message = append(message, "Jinja was looking for the following tags: "+current+".")
+		}
+	}
+	if len(p.tagStack) > 0 {
+		message = append(message, "The innermost block that needs to be closed is "+escape.Repr(p.tagStack[len(p.tagStack)-1])+".")
+	}
+	return p.fail(strings.Join(message, " "), lineno)
 }
 
 func (p *Parser) currentLine() int { return p.stream.Current().Lineno }
