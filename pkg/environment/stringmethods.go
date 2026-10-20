@@ -786,7 +786,7 @@ func mapItemsSorted(m any) []any {
 }
 
 // pySplitlines is str.splitlines: it breaks on \n, \r, \r\n, \v, \f,
-// \x1c-\x1e, \x85,   and  , keeping the breaks when keep is
+// \x1c-\x1e, \x85, \u2028 and \u2029, keeping the breaks when keep is
 // set.
 func pySplitlines(s string, keep bool) []string {
 	var out []string

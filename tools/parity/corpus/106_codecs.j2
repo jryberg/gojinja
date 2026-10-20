@@ -1,0 +1,4 @@
+{{ '€ café'.encode('cp1252') }}|{{ 'Žluť'.encode('iso8859_2') }}|{{ 'Привет'.encode('koi8_r') }}|{{ 'ç'.encode('mac_roman') }}|{{ '€x'.encode('cp437', 'replace') }}|{{ '€'.encode('latin-1', 'xmlcharrefreplace') }}
+{{ 'x\u0080'.encode('windows-1252', 'backslashreplace') }}|{{ 'ÿ'.encode('cp1252').decode('latin2') }}|{{ 'abc'.encode('cp037') }}|{{ 'abc'.encode('cp037').decode('cp500') }}|{{ 'Ω'.encode('cp1253').decode('cp1253') }}
+{{ 'Hi + é 😀'.encode('utf-7') }}|{{ 'bücher'.encode('punycode') }}|{{ 'bcher-kva'.encode().decode('punycode') }}|{{ 'é\n\\'.encode('unicode_escape') }}|{{ '\\u00e9\\x41\\101'.encode().decode('unicode_escape') }}
+{{ 'é€😀'.encode('raw_unicode_escape') }}|{{ 'x'.encode('utf-8-sig') }}|{{ 'x'.encode('utf-8-sig').decode('utf_8_sig') }}|{{ 'é'.encode('charmap') }}|{{ ''.encode().decode('nope') }}|{{ 'a\x81b'.encode('latin-1').decode('cp1252', 'replace') }}

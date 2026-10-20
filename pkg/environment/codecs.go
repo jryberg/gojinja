@@ -10,9 +10,37 @@ import (
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
 
-// Python's codecs for str.encode and bytes.decode, limited to the ones the
-// Go standard library can implement exactly: UTF-8, ASCII, Latin-1,
-// UTF-16 and UTF-32 (with and without byte order).
+// Python's text codecs for str.encode and bytes.decode. Single-byte
+// codecs and codec name aliases come from codectables_table.go, generated
+// from the Python that runs the pinned Jinja2; the others are ports of
+// CPython's implementations.
+
+type codecKind int
+
+const (
+	kindUTF8 codecKind = iota
+	kindUTF8Sig
+	kindLimit // ascii, latin-1 and charmap: code points up to limit are one byte
+	kindWide  // UTF-16 and UTF-32
+	kindTable // single-byte charmap codecs
+	kindUTF7
+	kindUnicodeEscape
+	kindRawUnicodeEscape
+	kindPunycode
+	kindUndefined
+)
+
+type codec struct {
+	kind  codecKind
+	name  string // name used in error messages
+	limit rune
+	width int // 2 or 4 for kindWide
+	order byteOrder
+	bom   bool
+	table *charmapTable
+	// encodeMap is the inverse of table.decode with its overrides applied.
+	encodeMap map[rune]byte
+}
 
 // byteOrder reads and appends fixed-width units.
 type byteOrder interface {
@@ -20,60 +48,102 @@ type byteOrder interface {
 	binary.AppendByteOrder
 }
 
-type codec struct {
-	name  string // name used in error messages
-	limit rune   // highest encodable code point for single-byte codecs
-	width int    // 2 or 4 for UTF-16/32, 0 otherwise
-	order byteOrder
-	bom   bool
+type charmapTable struct {
+	decode [256]rune
+	encode map[rune]int
 }
 
-var codecAliases = map[string]string{
-	"utf_8": "utf_8", "u8": "utf_8", "utf": "utf_8", "utf8": "utf_8", "utf8_ucs2": "utf_8", "utf8_ucs4": "utf_8", "cp65001": "utf_8",
-	"ascii": "ascii", "646": "ascii", "ansi_x3.4_1968": "ascii", "ansi_x3_4_1968": "ascii", "ansi_x3.4_1986": "ascii", "cp367": "ascii",
-	"csascii": "ascii", "ibm367": "ascii", "iso646_us": "ascii", "iso_646.irv_1991": "ascii", "iso_ir_6": "ascii", "us": "ascii", "us_ascii": "ascii",
-	"latin_1": "latin_1", "8859": "latin_1", "cp819": "latin_1", "csisolatin1": "latin_1", "ibm819": "latin_1", "iso8859": "latin_1",
-	"iso8859_1": "latin_1", "iso_8859_1": "latin_1", "iso_8859_1_1987": "latin_1", "iso_ir_100": "latin_1", "l1": "latin_1", "latin": "latin_1", "latin1": "latin_1",
-	"utf_16": "utf_16", "u16": "utf_16", "utf16": "utf_16",
-	"utf_16_le": "utf_16_le", "utf_16le": "utf_16_le", "unicodelittleunmarked": "utf_16_le",
-	"utf_16_be": "utf_16_be", "utf_16be": "utf_16_be", "unicodebigunmarked": "utf_16_be",
-	"utf_32": "utf_32", "u32": "utf_32", "utf32": "utf_32",
-	"utf_32_le": "utf_32_le", "utf_32le": "utf_32_le",
-	"utf_32_be": "utf_32_be", "utf_32be": "utf_32_be",
+const charmapUndefined = 0xfffe
+
+var builtinCodecs = map[string]codec{
+	"utf_8":     {kind: kindUTF8, name: "utf-8"},
+	"utf_8_sig": {kind: kindUTF8Sig, name: "utf-8"},
+	"ascii":     {kind: kindLimit, name: "ascii", limit: 0x7f},
+	"latin_1":   {kind: kindLimit, name: "latin-1", limit: 0xff},
+	// Without a mapping table the charmap codec is latin-1.
+	"charmap":            {kind: kindLimit, name: "latin-1", limit: 0xff},
+	"utf_16":             {kind: kindWide, name: "utf-16", width: 2, order: binary.LittleEndian, bom: true},
+	"utf_16_le":          {kind: kindWide, name: "utf-16-le", width: 2, order: binary.LittleEndian},
+	"utf_16_be":          {kind: kindWide, name: "utf-16-be", width: 2, order: binary.BigEndian},
+	"utf_32":             {kind: kindWide, name: "utf-32", width: 4, order: binary.LittleEndian, bom: true},
+	"utf_32_le":          {kind: kindWide, name: "utf-32-le", width: 4, order: binary.LittleEndian},
+	"utf_32_be":          {kind: kindWide, name: "utf-32-be", width: 4, order: binary.BigEndian},
+	"utf_7":              {kind: kindUTF7, name: "utf7"},
+	"unicode_escape":     {kind: kindUnicodeEscape, name: "unicodeescape"},
+	"raw_unicode_escape": {kind: kindRawUnicodeEscape, name: "rawunicodeescape"},
+	"punycode":           {kind: kindPunycode, name: "punycode"},
+	"undefined":          {kind: kindUndefined, name: "undefined"},
 }
 
-var codecs = map[string]codec{
-	"utf_8":     {name: "utf-8"},
-	"ascii":     {name: "ascii", limit: 0x7f},
-	"latin_1":   {name: "latin-1", limit: 0xff},
-	"utf_16":    {name: "utf-16", width: 2, order: binary.LittleEndian, bom: true},
-	"utf_16_le": {name: "utf-16-le", width: 2, order: binary.LittleEndian},
-	"utf_16_be": {name: "utf-16-be", width: 2, order: binary.BigEndian},
-	"utf_32":    {name: "utf-32", width: 4, order: binary.LittleEndian, bom: true},
-	"utf_32_le": {name: "utf-32-le", width: 4, order: binary.LittleEndian},
-	"utf_32_be": {name: "utf-32-be", width: 4, order: binary.BigEndian},
-}
+// errNotTextEncoding marks codecs that exist but are not text encodings;
+// pyEncode and pyDecode word the error.
+var errNotTextEncoding = fmt.Errorf("not a text encoding")
 
-// lookupCodec normalises an encoding name like encodings.normalize_encoding
-// and resolves its alias.
+// lookupCodec resolves an encoding name like codecs.lookup: the name is
+// lower-cased and normalised (runs of other characters than letters,
+// digits and '.' become '_'), then resolved through Python's aliases.
 func lookupCodec(encoding string) (codec, error) {
 	var b strings.Builder
 	pending := false
 	for _, r := range strings.ToLower(encoding) {
-		if r == '.' || r < utf8.RuneSelf && (r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+		switch {
+		case r == '.' || r < utf8.RuneSelf && (r >= 'a' && r <= 'z' || r >= '0' && r <= '9'):
 			if pending && b.Len() > 0 {
 				b.WriteByte('_')
 			}
 			pending = false
 			b.WriteRune(r)
-		} else {
+		case r >= utf8.RuneSelf && isPyAlnum(r):
+			// Non-ASCII alphanumerics are dropped without separating.
+			if pending && b.Len() > 0 {
+				b.WriteByte('_')
+			}
+			pending = false
+		default:
 			pending = true
 		}
 	}
-	if name, ok := codecAliases[b.String()]; ok {
-		return codecs[name], nil
+	// encodings.search_function: try the alias (also with '.' as '_'),
+	// then the normalised name itself, as a module name without dots.
+	norm := b.String()
+	var candidates []string
+	if alias, ok := codecAliases[norm]; ok {
+		candidates = append(candidates, alias)
+	} else if alias, ok := codecAliases[strings.ReplaceAll(norm, ".", "_")]; ok {
+		candidates = append(candidates, alias)
 	}
-	return codec{}, fmt.Errorf("unknown encoding: %s", encoding)
+	candidates = append(candidates, norm)
+	module, text := "", false
+	for _, m := range candidates {
+		if t, ok := codecModules[m]; ok && m != "" && !strings.Contains(m, ".") {
+			module, text = m, t
+			break
+		}
+	}
+	if module == "" {
+		return codec{}, fmt.Errorf("unknown encoding: %s", encoding)
+	}
+	if !text {
+		return codec{}, errNotTextEncoding
+	}
+	if c, ok := builtinCodecs[module]; ok {
+		return c, nil
+	}
+	t := charmapTables[module]
+	c := codec{kind: kindTable, name: "charmap", table: &t, encodeMap: make(map[rune]byte, 256)}
+	for i := 255; i >= 0; i-- {
+		if r := t.decode[i]; r != charmapUndefined {
+			c.encodeMap[r] = byte(i)
+		}
+	}
+	for r, v := range t.encode {
+		if v < 0 {
+			delete(c.encodeMap, r)
+		} else {
+			c.encodeMap[r] = byte(v)
+		}
+	}
+	return c, nil
 }
 
 // charRepr formats a code point the way UnicodeEncodeError messages do.
@@ -97,12 +167,20 @@ func positionRange(start, end int) string {
 // pyEncode is str.encode(encoding, errors).
 func pyEncode(s, encoding, errorsMode string) (runtime.Bytes, error) {
 	c, err := lookupCodec(encoding)
+	if err == errNotTextEncoding {
+		return nil, fmt.Errorf("'%s' is not a text encoding; use codecs.encode() to handle arbitrary codecs", encoding)
+	}
 	if err != nil {
 		return nil, err
 	}
 	rs := []rune(s)
-	var out []byte
-	if c.width > 0 {
+	switch c.kind {
+	case kindUTF8:
+		return runtime.Bytes(s), nil
+	case kindUTF8Sig:
+		return runtime.Bytes("\ufeff" + s), nil
+	case kindWide:
+		var out []byte
 		if c.bom {
 			out = c.appendUnit(out, 0xfeff)
 		}
@@ -116,42 +194,79 @@ func pyEncode(s, encoding, errorsMode string) (runtime.Bytes, error) {
 			}
 		}
 		return out, nil
+	case kindUTF7:
+		return encodeUTF7(rs), nil
+	case kindUnicodeEscape:
+		return encodeUnicodeEscape(rs, false), nil
+	case kindRawUnicodeEscape:
+		return encodeUnicodeEscape(rs, true), nil
+	case kindPunycode:
+		return punycodeEncode(rs), nil
+	case kindUndefined:
+		return nil, fmt.Errorf("undefined encoding")
 	}
-	if c.limit == 0 {
-		return runtime.Bytes(s), nil
+	return encodeSingleByte(c, rs, errorsMode)
+}
+
+// encodeSingleByte encodes with ascii, latin-1, charmap or a charmap
+// table, applying the error handler to unencodable characters.
+func encodeSingleByte(c codec, rs []rune, errorsMode string) (runtime.Bytes, error) {
+	encodeOne := func(r rune) (byte, bool) {
+		if c.kind == kindTable {
+			b, ok := c.encodeMap[r]
+			return b, ok
+		}
+		return byte(r), r <= c.limit
 	}
+	reason := "character maps to <undefined>"
+	if c.kind == kindLimit {
+		reason = fmt.Sprintf("ordinal not in range(%d)", c.limit+1)
+	}
+	out := runtime.Bytes{}
 	for i := 0; i < len(rs); {
-		if rs[i] <= c.limit {
-			out = append(out, byte(rs[i]))
+		if b, ok := encodeOne(rs[i]); ok {
+			out = append(out, b)
 			i++
 			continue
 		}
 		// Unencodable characters are handled a run at a time, as CPython's
 		// error handlers are.
-		end := i
-		for end < len(rs) && rs[end] > c.limit {
+		end := i + 1
+		for end < len(rs) {
+			if _, ok := encodeOne(rs[end]); ok {
+				break
+			}
 			end++
 		}
+		var repl []rune
 		switch errorsMode {
 		case "strict":
 			what := "characters"
 			if end-i == 1 {
 				what = "character " + charRepr(rs[i])
 			}
-			return nil, fmt.Errorf("'%s' codec can't encode %s %s: ordinal not in range(%d)", c.name, what, positionRange(i, end), c.limit+1)
+			return nil, fmt.Errorf("'%s' codec can't encode %s %s: %s", c.name, what, positionRange(i, end), reason)
 		case "ignore":
 		case "replace":
-			out = append(out, strings.Repeat("?", end-i)...)
+			repl = []rune(strings.Repeat("?", end-i))
 		case "backslashreplace":
 			for _, r := range rs[i:end] {
-				out = append(out, strings.Trim(charRepr(r), "'")...)
+				repl = append(repl, []rune(strings.Trim(charRepr(r), "'"))...)
 			}
 		case "xmlcharrefreplace":
 			for _, r := range rs[i:end] {
-				out = append(out, fmt.Sprintf("&#%d;", r)...)
+				repl = append(repl, []rune(fmt.Sprintf("&#%d;", r))...)
 			}
 		default:
 			return nil, fmt.Errorf("unknown error handler name '%s'", errorsMode)
+		}
+		// The replacement must itself be encodable.
+		for _, r := range repl {
+			b, ok := encodeOne(r)
+			if !ok {
+				return nil, fmt.Errorf("'%s' codec can't encode %s %s: %s", c.name, "character "+charRepr(rs[i]), positionRange(i, end), reason)
+			}
+			out = append(out, b)
 		}
 		i = end
 	}
@@ -165,56 +280,90 @@ func (c codec) appendUnit(out []byte, u uint32) []byte {
 	return c.order.AppendUint32(out, u)
 }
 
+// decodeErrors applies a decode error handler to b[start:end].
+type decodeErrors struct {
+	codec string
+	mode  string
+	b     []byte
+	sb    *strings.Builder
+}
+
+func (d decodeErrors) fail(start, end int, reason string) error {
+	switch d.mode {
+	case "strict":
+		what := fmt.Sprintf("byte 0x%02x", d.b[start])
+		if end-start > 1 {
+			what = "bytes"
+		}
+		return fmt.Errorf("'%s' codec can't decode %s %s: %s", d.codec, what, positionRange(start, end), reason)
+	case "ignore":
+	case "replace":
+		d.sb.WriteRune(utf8.RuneError)
+	case "backslashreplace":
+		for _, x := range d.b[start:end] {
+			fmt.Fprintf(d.sb, `\x%02x`, x)
+		}
+	default:
+		return fmt.Errorf("unknown error handler name '%s'", d.mode)
+	}
+	return nil
+}
+
 // pyDecode is bytes.decode(encoding, errors).
 func pyDecode(b []byte, encoding, errorsMode string) (string, error) {
+	// CPython returns '' for empty input before looking the codec up.
+	if len(b) == 0 {
+		return "", nil
+	}
 	c, err := lookupCodec(encoding)
+	if err == errNotTextEncoding {
+		return "", fmt.Errorf("'%s' is not a text encoding; use codecs.decode() to handle arbitrary codecs", encoding)
+	}
 	if err != nil {
 		return "", err
 	}
 	var sb strings.Builder
-	// fail applies the error handler to the undecodable bytes b[start:end].
-	fail := func(start, end int, reason string) error {
-		switch errorsMode {
-		case "strict":
-			what := fmt.Sprintf("byte 0x%02x", b[start])
-			if end-start > 1 {
-				what = "bytes"
-			}
-			return fmt.Errorf("'%s' codec can't decode %s %s: %s", c.name, what, positionRange(start, end), reason)
-		case "ignore":
-		case "replace":
-			sb.WriteRune(utf8.RuneError)
-		case "backslashreplace":
-			for _, x := range b[start:end] {
-				fmt.Fprintf(&sb, `\x%02x`, x)
-			}
-		default:
-			return fmt.Errorf("unknown error handler name '%s'", errorsMode)
-		}
-		return nil
-	}
-	switch {
-	case c.width > 0:
-		return decodeWide(c, b, &sb, fail)
-	case c.limit == 0xff:
-		for _, x := range b {
-			sb.WriteRune(rune(x))
-		}
-	case c.limit == 0x7f:
+	d := decodeErrors{codec: c.name, mode: errorsMode, b: b, sb: &sb}
+	switch c.kind {
+	case kindUndefined:
+		return "", fmt.Errorf("undefined encoding")
+	case kindWide:
+		return decodeWide(c, b, d)
+	case kindUTF7:
+		return decodeUTF7(b, d)
+	case kindUnicodeEscape:
+		return decodeUnicodeEscape(b, d, false)
+	case kindRawUnicodeEscape:
+		return decodeUnicodeEscape(b, d, true)
+	case kindPunycode:
+		return punycodeDecode(b, errorsMode)
+	case kindTable:
 		for i, x := range b {
-			if x >= 0x80 {
-				if err := fail(i, i+1, "ordinal not in range(128)"); err != nil {
+			if r := c.table.decode[x]; r != charmapUndefined {
+				sb.WriteRune(r)
+			} else if err := d.fail(i, i+1, "character maps to <undefined>"); err != nil {
+				return "", err
+			}
+		}
+	case kindLimit:
+		for i, x := range b {
+			if rune(x) > c.limit {
+				if err := d.fail(i, i+1, fmt.Sprintf("ordinal not in range(%d)", c.limit+1)); err != nil {
 					return "", err
 				}
 				continue
 			}
-			sb.WriteByte(x)
+			sb.WriteRune(rune(x))
 		}
 	default:
+		if c.kind == kindUTF8Sig && len(b) >= 3 && string(b[:3]) == "\ufeff" {
+			b = b[3:]
+			d.b = b
+		}
 		for i := 0; i < len(b); {
 			n, reason := utf8Sequence(b[i:])
 			if reason != "" {
-				if err := fail(i, i+n, reason); err != nil {
+				if err := d.fail(i, i+n, reason); err != nil {
 					return "", err
 				}
 				i += n
@@ -267,20 +416,26 @@ func utf8Sequence(b []byte) (int, string) {
 	return need, ""
 }
 
-func decodeWide(c codec, b []byte, sb *strings.Builder, fail func(int, int, string) error) (string, error) {
+func decodeWide(c codec, b []byte, d decodeErrors) (string, error) {
 	var order binary.ByteOrder = c.order
+	sb := d.sb
 	i := 0
-	if c.bom && len(b) >= c.width {
-		switch {
-		case c.width == 2 && b[0] == 0xff && b[1] == 0xfe, c.width == 4 && b[0] == 0xff && b[1] == 0xfe && b[2] == 0 && b[3] == 0:
-			order, i = binary.LittleEndian, c.width
-		case c.width == 2 && b[0] == 0xfe && b[1] == 0xff, c.width == 4 && b[0] == 0 && b[1] == 0 && b[2] == 0xfe && b[3] == 0xff:
-			order, i = binary.BigEndian, c.width
+	if c.bom {
+		// Errors name the byte order in effect, native (little) unless a
+		// BOM says otherwise.
+		d.codec = c.name + "-le"
+		if len(b) >= c.width {
+			switch {
+			case c.width == 2 && b[0] == 0xff && b[1] == 0xfe, c.width == 4 && b[0] == 0xff && b[1] == 0xfe && b[2] == 0 && b[3] == 0:
+				order, i = binary.LittleEndian, c.width
+			case c.width == 2 && b[0] == 0xfe && b[1] == 0xff, c.width == 4 && b[0] == 0 && b[1] == 0 && b[2] == 0xfe && b[3] == 0xff:
+				order, i, d.codec = binary.BigEndian, c.width, c.name+"-be"
+			}
 		}
 	}
 	for i < len(b) {
 		if len(b)-i < c.width {
-			if err := fail(i, len(b), "truncated data"); err != nil {
+			if err := d.fail(i, len(b), "truncated data"); err != nil {
 				return "", err
 			}
 			break
@@ -292,7 +447,7 @@ func decodeWide(c codec, b []byte, sb *strings.Builder, fail func(int, int, stri
 				if u < 0x110000 {
 					reason = "code point in surrogate code point range(0xd800, 0xe000)"
 				}
-				if err := fail(i, i+4, reason); err != nil {
+				if err := d.fail(i, i+4, reason); err != nil {
 					return "", err
 				}
 			} else {
@@ -307,19 +462,19 @@ func decodeWide(c codec, b []byte, sb *strings.Builder, fail func(int, int, stri
 			sb.WriteRune(rune(u))
 			i += 2
 		case u >= 0xdc00:
-			if err := fail(i, i+2, "illegal encoding"); err != nil {
+			if err := d.fail(i, i+2, "illegal encoding"); err != nil {
 				return "", err
 			}
 			i += 2
 		case len(b)-i < 4:
-			if err := fail(i, len(b), "unexpected end of data"); err != nil {
+			if err := d.fail(i, len(b), "unexpected end of data"); err != nil {
 				return "", err
 			}
 			i = len(b)
 		default:
 			lo := order.Uint16(b[i+2:])
 			if lo < 0xdc00 || lo >= 0xe000 {
-				if err := fail(i, i+2, "illegal UTF-16 surrogate"); err != nil {
+				if err := d.fail(i, i+2, "illegal UTF-16 surrogate"); err != nil {
 					return "", err
 				}
 				i += 2
@@ -330,4 +485,524 @@ func decodeWide(c codec, b []byte, sb *strings.Builder, fail func(int, int, stri
 		}
 	}
 	return sb.String(), nil
+}
+
+// utf7Category is CPython's utf7_category: 0 set D, 1 set O, 2
+// whitespace, 3 special (always base64-encoded).
+var utf7Category = [128]byte{
+	3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 3, 3, 2, 3, 3,
+	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+	2, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 3, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0,
+	1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 1, 1, 1,
+	1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 3, 3,
+}
+
+const base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+func isBase64(c rune) bool { return c < 128 && strings.ContainsRune(base64Alphabet, c) }
+
+// utf7Direct is ENCODE_DIRECT with set O and whitespace written directly.
+func utf7Direct(c rune) bool { return c > 0 && c < 128 && utf7Category[c] != 3 }
+
+// encodeUTF7 is CPython's _PyUnicode_EncodeUTF7 as str.encode('utf-7')
+// calls it.
+func encodeUTF7(rs []rune) runtime.Bytes {
+	out := runtime.Bytes{}
+	inShift := false
+	bits, buf := 0, uint64(0)
+	emit := func(u uint64) {
+		bits += 16
+		buf = buf<<16 | u
+		for bits >= 6 {
+			out = append(out, base64Alphabet[(buf>>(bits-6))&0x3f])
+			bits -= 6
+		}
+		buf &= (1 << bits) - 1
+	}
+	for _, ch := range rs {
+		if inShift && utf7Direct(ch) {
+			if bits > 0 {
+				out = append(out, base64Alphabet[(buf<<(6-bits))&0x3f])
+				bits, buf = 0, 0
+			}
+			inShift = false
+			if isBase64(ch) || ch == '-' {
+				out = append(out, '-')
+			}
+			out = append(out, byte(ch))
+			continue
+		}
+		if !inShift {
+			switch {
+			case ch == '+':
+				out = append(out, '+', '-')
+				continue
+			case utf7Direct(ch):
+				out = append(out, byte(ch))
+				continue
+			}
+			out = append(out, '+')
+			inShift = true
+		}
+		if ch >= 0x10000 {
+			hi, lo := utf16.EncodeRune(ch)
+			emit(uint64(hi))
+			emit(uint64(lo))
+		} else {
+			emit(uint64(ch))
+		}
+	}
+	if bits > 0 {
+		out = append(out, base64Alphabet[(buf<<(6-bits))&0x3f])
+	}
+	if inShift {
+		out = append(out, '-')
+	}
+	return out
+}
+
+// decodeUTF7 is CPython's PyUnicode_DecodeUTF7Stateful (final=True). A
+// lone surrogate, which Go strings cannot hold, becomes U+FFFD.
+func decodeUTF7(b []byte, d decodeErrors) (string, error) {
+	sb := d.sb
+	inShift := false
+	bits, buf := 0, uint64(0)
+	var surrogate rune
+	start := 0
+	for s := 0; s < len(b); {
+		ch := rune(b[s])
+		if inShift {
+			if isBase64(ch) {
+				buf = buf<<6 | uint64(strings.IndexRune(base64Alphabet, ch))
+				bits += 6
+				s++
+				if bits >= 16 {
+					out := rune(buf >> (bits - 16))
+					bits -= 16
+					buf &= (1 << bits) - 1
+					if surrogate != 0 {
+						if out >= 0xdc00 && out < 0xe000 {
+							sb.WriteRune(utf16.DecodeRune(surrogate, out))
+							surrogate = 0
+							continue
+						}
+						sb.WriteRune(utf8.RuneError)
+						surrogate = 0
+					}
+					switch {
+					case out >= 0xd800 && out < 0xdc00:
+						surrogate = out
+					case out >= 0xdc00 && out < 0xe000:
+						sb.WriteRune(utf8.RuneError)
+					default:
+						sb.WriteRune(out)
+					}
+				}
+				continue
+			}
+			inShift = false
+			var reason string
+			switch {
+			case bits >= 6:
+				reason = "partial character in shift sequence"
+			case buf != 0:
+				reason = "non-zero padding bits in shift sequence"
+			}
+			if reason != "" {
+				s++
+				if err := d.fail(start, s, reason); err != nil {
+					return "", err
+				}
+				continue
+			}
+			if surrogate != 0 && ch <= 127 && ch != '+' {
+				sb.WriteRune(utf8.RuneError)
+			}
+			surrogate = 0
+			if ch == '-' {
+				s++
+			}
+			continue
+		}
+		switch {
+		case ch == '+':
+			start = s
+			s++
+			switch {
+			case s < len(b) && b[s] == '-':
+				s++
+				sb.WriteByte('+')
+			case s < len(b) && !isBase64(rune(b[s])):
+				s++
+				if err := d.fail(start, s, "ill-formed sequence"); err != nil {
+					return "", err
+				}
+			default:
+				inShift, surrogate, bits, buf = true, 0, 0, 0
+			}
+		case ch <= 127:
+			s++
+			sb.WriteRune(ch)
+		default:
+			start = s
+			s++
+			if err := d.fail(start, s, "unexpected special character"); err != nil {
+				return "", err
+			}
+		}
+	}
+	if inShift && (surrogate != 0 || bits >= 6 || bits > 0 && buf != 0) {
+		if err := d.fail(start, len(b), "unterminated shift sequence"); err != nil {
+			return "", err
+		}
+	}
+	return sb.String(), nil
+}
+
+// encodeUnicodeEscape is the unicode_escape encoder, or with raw set the
+// raw_unicode_escape encoder, which only escapes characters above 0xff.
+func encodeUnicodeEscape(rs []rune, raw bool) runtime.Bytes {
+	out := runtime.Bytes{}
+	for _, r := range rs {
+		switch {
+		case r >= 0x10000:
+			out = fmt.Appendf(out, `\U%08x`, r)
+		case r >= 0x100:
+			out = fmt.Appendf(out, `\u%04x`, r)
+		case raw:
+			out = append(out, byte(r))
+		case r == '\\':
+			out = append(out, `\\`...)
+		case r == '\t':
+			out = append(out, `\t`...)
+		case r == '\n':
+			out = append(out, `\n`...)
+		case r == '\r':
+			out = append(out, `\r`...)
+		case r < 0x20 || r >= 0x7f:
+			out = fmt.Appendf(out, `\x%02x`, r)
+		default:
+			out = append(out, byte(r))
+		}
+	}
+	return out
+}
+
+func hexValue(c byte) (rune, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return rune(c - '0'), true
+	case c >= 'a' && c <= 'f':
+		return rune(c-'a') + 10, true
+	case c >= 'A' && c <= 'F':
+		return rune(c-'A') + 10, true
+	}
+	return 0, false
+}
+
+// decodeUnicodeEscape is the unicode_escape decoder (bytes read as
+// Latin-1, Python string-literal escapes interpreted), or with raw set
+// the raw_unicode_escape decoder, which only knows \u and \U.
+func decodeUnicodeEscape(b []byte, d decodeErrors, raw bool) (string, error) {
+	sb := d.sb
+	for s := 0; s < len(b); {
+		if b[s] != '\\' {
+			sb.WriteRune(rune(b[s]))
+			s++
+			continue
+		}
+		start := s
+		if raw {
+			// \u escapes count only after an odd number of backslashes.
+			j := s
+			for j < len(b) && b[j] == '\\' {
+				j++
+			}
+			n := j - s
+			if n%2 == 0 || j >= len(b) || b[j] != 'u' && b[j] != 'U' {
+				sb.WriteString(strings.Repeat(`\`, n))
+				s = j
+				continue
+			}
+			sb.WriteString(strings.Repeat(`\`, n-1))
+			start = j - 1
+			s = j
+		} else {
+			s++
+			if s >= len(b) {
+				if err := d.fail(start, s, `\ at end of string`); err != nil {
+					return "", err
+				}
+				break
+			}
+		}
+		c := b[s]
+		s++
+		digits := 0
+		switch c {
+		case '\n':
+			continue
+		case '\\', '\'', '"':
+			sb.WriteByte(c)
+			continue
+		case 'b':
+			sb.WriteByte('\b')
+			continue
+		case 'f':
+			sb.WriteByte('\f')
+			continue
+		case 't':
+			sb.WriteByte('\t')
+			continue
+		case 'n':
+			sb.WriteByte('\n')
+			continue
+		case 'r':
+			sb.WriteByte('\r')
+			continue
+		case 'v':
+			sb.WriteByte('\v')
+			continue
+		case 'a':
+			sb.WriteByte('\a')
+			continue
+		case '0', '1', '2', '3', '4', '5', '6', '7':
+			v := rune(c - '0')
+			for k := 0; k < 2 && s < len(b) && b[s] >= '0' && b[s] <= '7'; k++ {
+				v = v*8 + rune(b[s]-'0')
+				s++
+			}
+			sb.WriteRune(v)
+			continue
+		case 'x':
+			digits = 2
+		case 'u':
+			digits = 4
+		case 'U':
+			digits = 8
+		case 'N':
+			// \N{name}. A malformed escape fails like CPython's; resolving
+			// a name would need Unicode's name table, which gojinja does
+			// not ship (see the \N{NAME} divergence for string literals).
+			reason := "malformed \\N character escape"
+			if s < len(b) && b[s] == '{' {
+				end := strings.IndexByte(string(b[s+1:]), '}')
+				switch {
+				case end < 0:
+					s = len(b)
+				case end == 0:
+					s++
+				default:
+					return "", fmt.Errorf("'%s' codec can't decode bytes %s: \\N{...} escapes are not supported", d.codec, positionRange(start, s+end+2))
+				}
+			}
+			if err := d.fail(start, s, reason); err != nil {
+				return "", err
+			}
+			continue
+		default:
+			// Unknown escapes are kept, the byte read as Latin-1.
+			sb.WriteByte('\\')
+			sb.WriteRune(rune(c))
+			continue
+		}
+		var v rune
+		k := 0
+		for ; k < digits && s < len(b); k++ {
+			h, ok := hexValue(b[s])
+			if !ok {
+				break
+			}
+			v = v<<4 | h
+			s++
+		}
+		if k < digits {
+			names := map[int]string{2: `\xXX`, 4: `\uXXXX`, 8: `\UXXXXXXXX`}
+			if err := d.fail(start, s, "truncated "+names[digits]+" escape"); err != nil {
+				return "", err
+			}
+			continue
+		}
+		if v > 0x10ffff {
+			if err := d.fail(start, s, "illegal Unicode character"); err != nil {
+				return "", err
+			}
+			continue
+		}
+		if v >= 0xd800 && v < 0xe000 {
+			v = utf8.RuneError
+		}
+		sb.WriteRune(v)
+	}
+	return sb.String(), nil
+}
+
+// Punycode (RFC 3492), ported from Python's encodings/punycode.py.
+
+const (
+	punyBase        = 36
+	punyTMin        = 1
+	punyTMax        = 26
+	punyInitialBias = 72
+	punyInitialN    = 128
+	punyDigits      = "abcdefghijklmnopqrstuvwxyz0123456789"
+)
+
+func punyAdapt(delta, numchars int, first bool) int {
+	if first {
+		delta /= 700
+	} else {
+		delta /= 2
+	}
+	delta += delta / numchars
+	divisions := 0
+	for delta > ((punyBase-punyTMin)*punyTMax)/2 {
+		delta /= punyBase - punyTMin
+		divisions += punyBase
+	}
+	return divisions + (punyBase-punyTMin+1)*delta/(delta+38)
+}
+
+func punyT(j, bias int) int {
+	return max(punyTMin, min(punyBase*(j+1)-bias, punyTMax))
+}
+
+func punycodeEncode(rs []rune) runtime.Bytes {
+	out := runtime.Bytes{}
+	seen := map[rune]bool{}
+	var extended []rune
+	for _, r := range rs {
+		if r < 128 {
+			out = append(out, byte(r))
+		} else if !seen[r] {
+			seen[r] = true
+			extended = append(extended, r)
+		}
+	}
+	basicLen := len(out)
+	if basicLen > 0 {
+		out = append(out, '-')
+	}
+	for i := 1; i < len(extended); i++ {
+		for j := i; j > 0 && extended[j] < extended[j-1]; j-- {
+			extended[j], extended[j-1] = extended[j-1], extended[j]
+		}
+	}
+	n, delta, bias, h := punyInitialN, 0, punyInitialBias, basicLen
+	for _, m := range extended {
+		delta += (int(m) - n) * (h + 1)
+		n = int(m)
+		for _, r := range rs {
+			if int(r) < n {
+				delta++
+			}
+			if int(r) == n {
+				q := delta
+				for j := 0; ; j++ {
+					t := punyT(j, bias)
+					if q < t {
+						out = append(out, punyDigits[q])
+						break
+					}
+					out = append(out, punyDigits[t+(q-t)%(punyBase-t)])
+					q = (q - t) / (punyBase - t)
+				}
+				bias = punyAdapt(delta, h+1, h == basicLen)
+				delta = 0
+				h++
+			}
+		}
+		delta++
+		n++
+	}
+	return out
+}
+
+func punycodeDecode(b []byte, errorsMode string) (string, error) {
+	if errorsMode != "strict" && errorsMode != "replace" && errorsMode != "ignore" {
+		//lint:ignore ST1005 Python's exact message
+		return "", fmt.Errorf("Unsupported error handling %s", errorsMode)
+	}
+	// Python's punycode_decode: the part before the last '-' is ASCII
+	// decoded with the error handler, the rest strictly and upper-cased.
+	asciiDecode := func(part []byte, mode string) (string, error) {
+		var sb strings.Builder
+		d := decodeErrors{codec: "ascii", mode: mode, b: part, sb: &sb}
+		for k, c := range part {
+			if c >= 0x80 {
+				if err := d.fail(k, k+1, "ordinal not in range(128)"); err != nil {
+					return "", err
+				}
+				continue
+			}
+			sb.WriteByte(c)
+		}
+		return sb.String(), nil
+	}
+	pos := strings.LastIndexByte(string(b), '-')
+	var base, ext string
+	var err error
+	if pos < 0 {
+		ext, err = asciiDecode(b, "strict")
+	} else {
+		if base, err = asciiDecode(b[:pos], errorsMode); err == nil {
+			ext, err = asciiDecode(b[pos+1:], "strict")
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	ext = strings.ToUpper(ext)
+	chars := []rune(base)
+	char, at, bias := punyInitialN, -1, punyInitialBias
+	for extpos := 0; extpos < len(ext); {
+		// decode_generalized_number
+		delta, w := 0, 1
+		for j := 0; ; j++ {
+			if extpos >= len(ext) {
+				if errorsMode == "strict" {
+					return "", fmt.Errorf("incomplete punicode string")
+				}
+				return string(chars), nil
+			}
+			c := ext[extpos]
+			extpos++
+			var digit int
+			switch {
+			case c >= 'A' && c <= 'Z':
+				digit = int(c - 'A')
+			case c >= '0' && c <= '9':
+				digit = int(c) - 22
+			default:
+				if errorsMode == "strict" {
+					//lint:ignore ST1005 Python's exact message
+					return "", fmt.Errorf("Invalid extended code point '%c'", c)
+				}
+				return string(chars), nil
+			}
+			t := punyT(j, bias)
+			delta += digit * w
+			if digit < t {
+				break
+			}
+			w *= punyBase - t
+		}
+		first := at == -1 && len(chars) == len([]rune(base))
+		at += delta + 1
+		char += at / (len(chars) + 1)
+		if char > 0x10ffff {
+			if errorsMode == "strict" {
+				//lint:ignore ST1005 Python's exact message
+				return "", fmt.Errorf("Invalid character U+%x", char)
+			}
+			char = '?'
+		}
+		at %= len(chars) + 1
+		chars = append(chars[:at], append([]rune{rune(char)}, chars[at:]...)...)
+		bias = punyAdapt(delta, len(chars), first)
+	}
+	return string(chars), nil
 }
