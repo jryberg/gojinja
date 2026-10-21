@@ -8,6 +8,7 @@
 /gojinja
 /parity
 /external
+/docgen
 
 # Editors
 .idea/
