@@ -7,8 +7,8 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
-	"unicode"
 
+	"github.com/jryberg/gojinja/internal/pyunicode"
 	"github.com/jryberg/gojinja/pkg/escape"
 )
 
@@ -23,22 +23,25 @@ func valueError(format string, a ...any) error {
 	return escape.ValueError{Msg: fmt.Sprintf(format, a...)}
 }
 
-// asciiDigits strips Python's whitespace and turns Unicode decimal
-// digits into ASCII ones, as int() and float() do before parsing.
+// asciiDigits strips whitespace and turns Unicode decimal digits into
+// ASCII ones, as int() and float() do before parsing. CPython keeps ASCII
+// characters as they are and turns other whitespace into spaces, then
+// strips C's isspace, so of the ASCII separators \x1c-\x1f str.isspace
+// accepts, none is stripped.
 func asciiDigits(s string) string {
-	s = strings.TrimFunc(s, unicode.IsSpace)
+	s = strings.TrimFunc(s, func(r rune) bool {
+		if r < 0x7f {
+			return strings.ContainsRune(" \t\n\v\f\r", r)
+		}
+		return pyunicode.IsSpace(r)
+	})
 	if isASCII(s) {
 		return s
 	}
 	var b strings.Builder
 	for _, r := range s {
-		if r > 0x7f && unicode.IsDigit(r) {
-			// Decimal digits come in runs of ten starting at zero.
-			start := r
-			for unicode.IsDigit(start - 1) {
-				start--
-			}
-			r = '0' + (r-start)%10
+		if v, ok := pyunicode.DecimalValue(r); ok {
+			r = '0' + rune(v)
 		}
 		b.WriteRune(r)
 	}
@@ -105,7 +108,7 @@ func ParseInt(s string, base int) (any, error) {
 	}
 	prefixed := false
 	if len(s) >= 2 && s[0] == '0' {
-		p := unicode.ToLower(rune(s[1]))
+		p := rune(s[1]) | 0x20
 		if pb := map[rune]int{'x': 16, 'o': 8, 'b': 2}[p]; pb != 0 && (base == 0 || base == pb) {
 			base, s, prefixed = pb, s[2:], true
 		}
@@ -147,7 +150,7 @@ func ParseFloat(s string) (float64, error) {
 	if len(t)-len(body) > 1 {
 		return 0, invalidFloat(s)
 	}
-	switch strings.ToLower(body) {
+	switch pyunicode.LowerASCII(body) {
 	case "inf", "infinity":
 		if strings.HasPrefix(t, "-") {
 			return math.Inf(-1), nil
@@ -156,7 +159,7 @@ func ParseFloat(s string) (float64, error) {
 	case "nan":
 		return math.NaN(), nil
 	}
-	mant, exp, hasExp := strings.Cut(strings.ToLower(body), "e")
+	mant, exp, hasExp := strings.Cut(pyunicode.LowerASCII(body), "e")
 	intPart, frac, hasDot := strings.Cut(mant, ".")
 	ok := (intPart != "" || frac != "") &&
 		(intPart == "" || digitsWithUnderscores(intPart, 10, false)) &&

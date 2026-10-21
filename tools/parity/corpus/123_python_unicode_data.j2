@@ -1,0 +1,8 @@
+{# Unicode data comes from the pinned Python (internal/pyunicode), never Go's tables: characters changed after Unicode 15.0, Python's whitespace and digits, and the lexer's \s, \d and name characters. #}
+{{ 'ƛ'.upper() }}|{{ 'ƛx'.capitalize() }}|{{ 'ʕ'.islower() }}|{{ 'Ᲊ'.lower() }}|{{ '\U0001e5d0'.isalpha() }}|{{ ['࢏'] }}|{{ '\U00010d40'|int(-1) }}
+{{ 'aΣͅ'.lower() }}|{{ 'AͅΣ b'.lower() }}|{{ ('xƛy z')|title }}|{{ ['bƛ', 'Aƛ', 'ƛa']|sort|join(',') }}
+{{ '\x1cab\x1f'|trim }}|{{ 'a\x1cb'.split() }}|{{ ('a\x1db c')|wordcount }}|{{ 'www.x.com'|urlize(rel='a\x1cb') }}
+{{ ' 1.5　'|float }}|{{ '\x1c5'|int(-1) }}|{{ 'İnf'|float(-1) }}|{{ (1.0).fromhex(' 0x1p1\t') }}
+{{ 'x'.encode('utfİ8') }}|{{ [[1, 2, 3, 4]]|map(attribute='٣')|list }}|{{ 'www.aʕb.com xᲉy.org'|urlize }}
+{{　1　}}|{{2}}|a　{{- 3 }}|{{ 4 -}}　b|{%　raw　%}{{ x }}{%　endraw　%}
+{{ 1٣ }}|{{ 1_٣ }}|{{ 0x١f }}|{{ 9٩٩ * 2 }}|{% set ᢅ = 5 %}{{ ᢅ }}|{{ ℮ is defined }}

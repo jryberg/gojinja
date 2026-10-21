@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jryberg/gojinja/internal/pyescape"
+	"github.com/jryberg/gojinja/internal/pyunicode"
 	"github.com/jryberg/gojinja/internal/unicodename"
 	"github.com/jryberg/gojinja/pkg/runtime"
 )
@@ -87,13 +88,14 @@ var builtinCodecs = map[string]codec{
 // pyEncode and pyDecode word the error.
 var errNotTextEncoding = fmt.Errorf("not a text encoding")
 
-// lookupCodec resolves an encoding name like codecs.lookup: the name is
-// lower-cased and normalised (runs of other characters than letters,
-// digits and '.' become '_'), then resolved through Python's aliases.
+// lookupCodec resolves an encoding name like codecs.lookup: its ASCII
+// letters are lower-cased, it is normalised (runs of other characters
+// than letters, digits and '.' become '_'), then resolved through
+// Python's aliases.
 func lookupCodec(encoding string) (codec, error) {
 	var b strings.Builder
 	pending := false
-	for _, r := range strings.ToLower(encoding) {
+	for _, r := range pyunicode.LowerASCII(encoding) {
 		switch {
 		case r == '.' || r < utf8.RuneSelf && (r >= 'a' && r <= 'z' || r >= '0' && r <= '9'):
 			if pending && b.Len() > 0 {
@@ -101,7 +103,7 @@ func lookupCodec(encoding string) (codec, error) {
 			}
 			pending = false
 			b.WriteRune(r)
-		case r >= utf8.RuneSelf && isPyAlnum(r):
+		case r >= utf8.RuneSelf && pyunicode.IsAlnum(r):
 			// Non-ASCII alphanumerics are dropped without separating.
 			if pending && b.Len() > 0 {
 				b.WriteByte('_')

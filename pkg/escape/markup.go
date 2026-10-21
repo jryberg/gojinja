@@ -19,7 +19,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
+
+	"github.com/jryberg/gojinja/internal/pyunicode"
 )
 
 // Markup is a string the engine has marked as already-safe for HTML
@@ -268,7 +269,7 @@ func pyStringRepr(s string) string {
 		default:
 			// Python's repr escapes what str.isprintable rejects.
 			switch {
-			case r == ' ' || unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S):
+			case pyunicode.IsPrintable(r):
 				b.WriteRune(r)
 			case r <= 0xff:
 				fmt.Fprintf(&b, `\x%02x`, r)

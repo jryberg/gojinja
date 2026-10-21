@@ -33,6 +33,13 @@ func TestIDNACodec(t *testing.T) {
 		{"enc", "strict", "e\u0301\u0327x", "\x78\x6e\x2d\x2d\x78\x2d\x6b\x79\x61\x32\x36\x64", ""},
 		{"enc", "strict", "\u212b\u00fc", "\x78\x6e\x2d\x2d\x35\x63\x61\x30\x63", ""},
 		{"enc", "strict", "", "", ""},
+		// Characters newer than Unicode 3.2 keep their case: B.3 is fixed
+		// at 3.2 (CPython gh-155292).
+		{"enc", "strict", "\u023a.com", "xn--wma.com", ""},
+		{"enc", "strict", "\u0370x", "xn--x-8hb", ""},
+		{"enc", "strict", "\u03f7\u00fc", "xn--tda93m", ""},
+		{"dec", "strict", "xn--wma", "\u023a", ""},
+		{"dec", "strict", "xn--x-8hb", "\u0370x", ""},
 		{"enc", "strict", "\u65e5\u672c\u8a9e.jp", "\x78\x6e\x2d\x2d\x77\x67\x76\x37\x31\x61\x31\x31\x39\x65\x2e\x6a\x70", ""},
 		{"enc", "replace", "\u00fc", "", "unsupported error handling replace"},
 		{"enc", "ignore", "", "", "unsupported error handling ignore"},

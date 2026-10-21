@@ -8,9 +8,9 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
+	"github.com/jryberg/gojinja/internal/pyunicode"
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/eval"
@@ -238,7 +238,7 @@ func filterTitle(_ *Environment, _ *runtime.Context, value any, _ []any, _ map[s
 func jinjaTitle(s string) string {
 	// do_title: re.split(r"([-\s({\[<]+)", s), then each piece becomes
 	// piece[0].upper() + piece[1:].lower().
-	isSep := func(r rune) bool { return pyIsSpace(r) || strings.ContainsRune("-({[<", r) }
+	isSep := func(r rune) bool { return pyunicode.IsSpace(r) || strings.ContainsRune("-({[<", r) }
 	rs := []rune(s)
 	var b strings.Builder
 	for i := 0; i < len(rs); {
@@ -272,9 +272,9 @@ func filterCapitalize(_ *Environment, _ *runtime.Context, value any, _ []any, _ 
 //
 // Signature: trim(s, chars=None)
 //
-// With no argument, trims ASCII + Unicode whitespace (Go's
-// [strings.TrimSpace]). With `chars`, trims any of the given runes from
-// both ends (Go's [strings.Trim]); `chars` must be a string or None.
+// With no argument, trims whitespace as Python's str.strip does. With
+// `chars`, trims any of the given characters from both ends; `chars`
+// must be a string or None.
 //
 // Example:
 //
@@ -289,7 +289,7 @@ func filterTrim(_ *Environment, _ *runtime.Context, value any, args []any, kwarg
 		}
 		return keepMarkup(value, strings.Trim(s, cut)), nil
 	}
-	return keepMarkup(value, strings.TrimSpace(s)), nil
+	return keepMarkup(value, strings.TrimFunc(s, pyunicode.IsSpace)), nil
 }
 
 // eqString returns the text of a str or Markup value.
@@ -914,7 +914,7 @@ func attributeParts(attribute any) ([]any, error) {
 	}
 	var parts []any
 	for _, p := range strings.Split(a, ".") {
-		if p != "" && strings.IndexFunc(p, func(r rune) bool { return !unicode.IsDigit(r) }) < 0 {
+		if p != "" && strings.IndexFunc(p, func(r rune) bool { return !pyunicode.IsDigit(r) }) < 0 {
 			n, err := runtime.ParseInt(p, 10)
 			if err != nil {
 				return nil, err
@@ -1370,7 +1370,7 @@ func filterWordcount(_ *Environment, _ *runtime.Context, value any, _ []any, _ m
 	count := 0
 	inWord := false
 	for _, r := range s {
-		isWord := r == '_' || isPyAlnum(r)
+		isWord := r == '_' || pyunicode.IsAlnum(r)
 		if isWord && !inWord {
 			count++
 		}

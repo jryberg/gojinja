@@ -2,18 +2,14 @@ package environment
 
 import (
 	"strings"
-	"unicode"
+
+	"github.com/jryberg/gojinja/internal/pyunicode"
 )
 
 // This file ports the parts of Python's textwrap.TextWrapper that the
 // wordwrap filter uses (expand_tabs=False, replace_whitespace=False, no
 // indents, drop_whitespace=True). Lengths count characters, as Python's
 // len() does.
-
-// pyIsSpace is Python's str.isspace for one character.
-func pyIsSpace(r rune) bool {
-	return unicode.IsSpace(r) || (r >= 0x1c && r <= 0x1f)
-}
 
 // isWrapSpace is textwrap's whitespace set: '\t\n\x0b\x0c\r '.
 func isWrapSpace(r rune) bool {
@@ -24,19 +20,14 @@ func isWrapSpace(r rune) bool {
 	return false
 }
 
-// isPyWord is the regex class \w for str patterns.
-func isPyWord(r rune) bool {
-	return r == '_' || unicode.IsLetter(r) || unicode.IsNumber(r)
-}
-
 // isWrapLetter is textwrap's letter class [^\d\W].
 func isWrapLetter(r rune) bool {
-	return isPyWord(r) && !unicode.Is(unicode.Nd, r)
+	return pyunicode.IsWord(r) && !pyunicode.IsDecimal(r)
 }
 
 // isWordPunct is textwrap's word_punct class [\w!"'&.,?].
 func isWordPunct(r rune) bool {
-	return isPyWord(r) || strings.ContainsRune(`!"'&.,?`, r)
+	return pyunicode.IsWord(r) || strings.ContainsRune(`!"'&.,?`, r)
 }
 
 // wrapChunks splits text into chunks like TextWrapper._split: runs of
@@ -100,7 +91,7 @@ func dashRunBeforeWord(t []rune, i int) (int, bool) {
 	for j < len(t) && t[j] == '-' {
 		j++
 	}
-	return j, j-i >= 2 && j < len(t) && isPyWord(t[j])
+	return j, j-i >= 2 && j < len(t) && pyunicode.IsWord(t[j])
 }
 
 // hyphenAfterLetters checks the lookbehinds for the hyphen at t[h]:
@@ -125,7 +116,7 @@ func letterPairAhead(t []rune, p int) bool {
 
 func isBlankChunk(c []rune) bool {
 	for _, r := range c {
-		if !pyIsSpace(r) {
+		if !pyunicode.IsSpace(r) {
 			return false
 		}
 	}

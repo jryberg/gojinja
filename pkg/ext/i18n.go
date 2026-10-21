@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jryberg/gojinja/internal/pyunicode"
 	"github.com/jryberg/gojinja/pkg/ast"
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/lexer"
@@ -502,23 +503,30 @@ func parseTransBlock(p *parser.Parser, allowPluralize bool) (referenced []string
 	}
 }
 
-// trimWhitespace collapses runs of whitespace around newlines into a
-// single space, matching Jinja2's _ws_re behaviour.
+// trimWhitespace is Jinja2's _trim_whitespace: strip, then replace each
+// run of whitespace that holds a newline (_ws_re, \s*\n\s*) with one
+// space.
 func trimWhitespace(s string) string {
-	s = strings.TrimSpace(s)
+	s = strings.TrimFunc(s, pyunicode.IsSpace)
 	var b strings.Builder
-	inWS := false
-	for _, r := range s {
-		switch r {
-		case ' ', '\t', '\n', '\r':
-			if !inWS {
-				b.WriteByte(' ')
-				inWS = true
-			}
-		default:
-			b.WriteRune(r)
-			inWS = false
+	for s != "" {
+		i := strings.IndexFunc(s, pyunicode.IsSpace)
+		if i < 0 {
+			b.WriteString(s)
+			break
 		}
+		b.WriteString(s[:i])
+		s = s[i:]
+		j := strings.IndexFunc(s, func(r rune) bool { return !pyunicode.IsSpace(r) })
+		if j < 0 {
+			j = len(s)
+		}
+		if run := s[:j]; strings.Contains(run, "\n") {
+			b.WriteByte(' ')
+		} else {
+			b.WriteString(run)
+		}
+		s = s[j:]
 	}
 	return b.String()
 }

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jryberg/gojinja/internal/pyunicode"
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/eval"
@@ -281,28 +282,41 @@ func filterXmlattr(_ *Environment, ctx *runtime.Context, value any, args []any, 
 // xmlattrKeyRe is Jinja2's _attr_key_re: characters a key may not hold.
 var xmlattrKeyRe = regexp.MustCompile(`[\t\n\v\f\r /=>]`)
 
-// urlRegex matches URL-ish substrings: http(s)://, www., bare emails,
-// and bare domains (`example.com`). Mirrors Python's urlize coverage
-// closely enough for template parity.
-// Regexes ported from jinja2.utils.urlize. Python's \w, \d and \s are
-// Unicode-aware, so they are spelled out here; Go's are ASCII-only.
-const (
-	pyWord  = `\p{L}\p{N}_`
-	pySpace = `\t\n\v\f\r \x1c-\x1f\x85\p{Z}`
+// Regexes ported from jinja2.utils.urlize. Their \w, \d and \s classes
+// are Python's, which are Unicode-aware, and _http_re is IGNORECASE, so
+// its letters match what Python's case folding matches.
+var (
+	pyWord  = pyunicode.Word.Class()
+	pyDigit = pyunicode.Decimal.Class()
+	pySpace = pyunicode.Space.Class()
 )
 
 var (
 	urlizeSplitRe = regexp.MustCompile(`[` + pySpace + `]+`)
 	urlizeHeadRe  = regexp.MustCompile(`^(?:[(<]|&lt;)+`)
 	urlizeTailRe  = regexp.MustCompile(`(?:[)>.,\n]|&gt;)+$`)
-	urlizeHTTPRe  = regexp.MustCompile(`(?i)^(?:` +
-		`(?:https?://|www\.)(?:(?:[` + pyWord + `%-]+\.)+)?(?:[a-z]{2,63}|xn--[` + pyWord + `%]{2,59})` +
-		`|(?:[` + pyWord + `%-]{2,63}\.)+(?:com|net|int|edu|gov|org|info|mil)` +
-		`|https?://(?:\p{Nd}{1,3}(?:\.\p{Nd}{1,3}){3}|\[(?:[\p{Nd}a-f]{0,4}:){2}(?:[\p{Nd}a-f]{0,4}:?){1,6}\])` +
-		`)(?::\p{Nd}{1,5})?(?:[/?#][^` + pySpace + `]*)?$`)
+	urlizeHTTPRe  = regexp.MustCompile(`^(?:` +
+		`(?:` + ignoreCaseLiteral("http") + ignoreCaseLiteral("s") + `?://|` + ignoreCaseLiteral("www") + `\.)` +
+		`(?:(?:[` + pyWord + `%-]+\.)+)?` +
+		`(?:[` + pyunicode.IgnoreCaseClass("abcdefghijklmnopqrstuvwxyz") + `]{2,63}|` + ignoreCaseLiteral("xn") + `--[` + pyWord + `%]{2,59})` +
+		`|(?:[` + pyWord + `%-]{2,63}\.)+(?:` + ignoreCaseLiteral("com") + `|` + ignoreCaseLiteral("net") + `|` + ignoreCaseLiteral("int") + `|` +
+		ignoreCaseLiteral("edu") + `|` + ignoreCaseLiteral("gov") + `|` + ignoreCaseLiteral("org") + `|` + ignoreCaseLiteral("info") + `|` + ignoreCaseLiteral("mil") + `)` +
+		`|` + ignoreCaseLiteral("http") + ignoreCaseLiteral("s") + `?://(?:[` + pyDigit + `]{1,3}(?:\.[` + pyDigit + `]{1,3}){3}` +
+		`|\[(?:[` + pyDigit + pyunicode.IgnoreCaseClass("abcdef") + `]{0,4}:){2}(?:[` + pyDigit + pyunicode.IgnoreCaseClass("abcdef") + `]{0,4}:?){1,6}\])` +
+		`)(?::[` + pyDigit + `]{1,5})?(?:[/?#][^` + pySpace + `]*)?$`)
 	urlizeEmailRe = regexp.MustCompile(`^[^` + pySpace + `]+@[` + pyWord + `][` + pyWord + `.-]*\.[` + pyWord + `]+$`)
 	uriSchemeRe   = regexp.MustCompile(`^[` + pyWord + `.+-]{2,}:/{0,2}$`)
 )
+
+// ignoreCaseLiteral spells out a lowercase ASCII literal as the characters
+// Python's re.IGNORECASE matches for each of its letters.
+func ignoreCaseLiteral(lit string) string {
+	var b strings.Builder
+	for i := 0; i < len(lit); i++ {
+		b.WriteString("[" + pyunicode.IgnoreCaseClass(lit[i:i+1]) + "]")
+	}
+	return b.String()
+}
 
 // filterUrlize implements the `urlize` filter: convert URLs and email
 // addresses in text into HTML links.
@@ -333,7 +347,7 @@ func filterUrlize(env *Environment, ctx *runtime.Context, value any, args []any,
 	// for, and the urlize.rel policy ("noopener"), as in do_urlize.
 	relParts := map[string]bool{"noopener": true}
 	if v, ok := paramArg(args, kwargs, 3, "rel"); ok && v != nil {
-		for _, p := range strings.Fields(escape.SoftStr(v)) {
+		for _, p := range strings.FieldsFunc(escape.SoftStr(v), pyunicode.IsSpace) {
 			relParts[p] = true
 		}
 	}

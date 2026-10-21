@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/jryberg/gojinja/internal/pyunicode"
 	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/eval"
 	"github.com/jryberg/gojinja/pkg/runtime"
@@ -374,10 +375,10 @@ func spaceParts(line string) []string {
 	var parts []string
 	for i := 0; i < len(rs); {
 		j := i
-		for j < len(rs) && !pyIsSpace(rs[j]) {
+		for j < len(rs) && !pyunicode.IsSpace(rs[j]) {
 			j++
 		}
-		for j < len(rs) && pyIsSpace(rs[j]) {
+		for j < len(rs) && pyunicode.IsSpace(rs[j]) {
 			j++
 		}
 		parts = append(parts, string(rs[i:j]))

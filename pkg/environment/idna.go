@@ -133,7 +133,7 @@ func composeSets() (first, last map[rune]bool) {
 func nameprep(label []rune) ([]rune, error) {
 	var mapped []rune
 	for _, r := range label {
-		if inRanges(nameprepB1, r) {
+		if nameprepB1.Contains(r) {
 			continue
 		}
 		if m, ok := nameprepB2[r]; ok {
@@ -144,23 +144,23 @@ func nameprep(label []rune) ([]rune, error) {
 	}
 	label = nfkc32(mapped)
 	for _, r := range label {
-		if inRanges(nameprepProhibited, r) {
+		if nameprepProhibited.Contains(r) {
 			//lint:ignore ST1005 Python's exact message
 			return nil, fmt.Errorf("Invalid character %s", escape.Repr(string(r)))
 		}
 	}
 	randAL := false
 	for _, r := range label {
-		randAL = randAL || inRanges(nameprepRandAL, r)
+		randAL = randAL || nameprepRandAL.Contains(r)
 	}
 	if randAL {
 		for _, r := range label {
-			if inRanges(nameprepL, r) {
+			if nameprepL.Contains(r) {
 				//lint:ignore ST1005 Python's exact message
 				return nil, fmt.Errorf("Violation of BIDI requirement 2")
 			}
 		}
-		if !inRanges(nameprepRandAL, label[0]) || !inRanges(nameprepRandAL, label[len(label)-1]) {
+		if !nameprepRandAL.Contains(label[0]) || !nameprepRandAL.Contains(label[len(label)-1]) {
 			//lint:ignore ST1005 Python's exact message
 			return nil, fmt.Errorf("Violation of BIDI requirement 3")
 		}

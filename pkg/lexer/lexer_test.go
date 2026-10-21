@@ -404,16 +404,6 @@ func TestIdentifierValidity(t *testing.T) {
 			t.Errorf("name %q -> token value %q", name, got)
 		}
 	}
-	// isIdentifier directly: rejects empty and pure-non-letter starts.
-	if isIdentifier("") {
-		t.Error("isIdentifier(\"\") should be false")
-	}
-	if isIdentifier("1abc") {
-		t.Error("isIdentifier(\"1abc\") should be false (digit start)")
-	}
-	if !isIdentifier("a_b") {
-		t.Error("isIdentifier(\"a_b\") should be true")
-	}
 }
 
 // -------------------------------------------------------------- balancing

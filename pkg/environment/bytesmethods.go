@@ -392,17 +392,9 @@ func init() {
 			return runtime.Bytes(b.String()), nil
 		}},
 		"decode": {style: styleKeywords, max: 2, keywords: []string{"encoding", "errors"}, call: func(s string, a []any) (any, error) {
-			encoding, errorsMode := "utf-8", "strict"
-			var err error
-			if a[0] != nil {
-				if encoding, err = strArg("decode() argument 'encoding'", a[0]); err != nil {
-					return nil, err
-				}
-			}
-			if a[1] != nil {
-				if errorsMode, err = strArg("decode() argument 'errors'", a[1]); err != nil {
-					return nil, err
-				}
+			encoding, errorsMode, err := codecArgs("decode", a)
+			if err != nil {
+				return nil, err
 			}
 			return pyDecode([]byte(s), encoding, errorsMode)
 		}},

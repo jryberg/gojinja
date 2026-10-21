@@ -2,22 +2,34 @@ package environment
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 	"time"
 )
 
 // TestLexLinear guards against quadratic lexing: a tag-body rule that
-// fails to match must not scan the rest of the source.
+// fails to match must not scan the rest of the source. It compares two
+// input sizes instead of bounding one, so a slow runner or -race can't
+// fail it: four times the tags take about 4x as long when lexing is
+// linear and about 16x when it is quadratic.
 func TestLexLinear(t *testing.T) {
 	e := mustEnv(t)
-	src := strings.Repeat("{{ x }}{% if 1 %}a{% endif %}", 50000)
-	start := time.Now()
-	if _, err := e.FromString(src); err != nil {
-		t.Fatal(err)
+	parse := func(n int) time.Duration {
+		src := strings.Repeat("{{ x }}{% if 1 %}a{% endif %}", n)
+		best := time.Duration(math.MaxInt64)
+		for range 3 {
+			start := time.Now()
+			if _, err := e.FromString(src); err != nil {
+				t.Fatal(err)
+			}
+			best = min(best, time.Since(start))
+		}
+		return best
 	}
-	if d := time.Since(start); d > 10*time.Second {
-		t.Fatalf("parsing 100000 tags took %v", d)
+	small, large := parse(2500), parse(10000)
+	if ratio := float64(large) / float64(small); ratio > 8 {
+		t.Fatalf("4x the tags took %.1fx as long (%v vs %v)", ratio, large, small)
 	}
 }
 

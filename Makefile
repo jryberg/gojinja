@@ -1,4 +1,4 @@
-.PHONY: test vet lint audit tidy build parity parity-venv signatures signatures-check strtables strtables-check codectables codectables-check unicodenames unicodenames-check cjktables cjktables-check idnatables idnatables-check htmlentities htmlentities-check pyattrs pyattrs-check lipsum lipsum-check parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall docs docs-serve docs-check
+.PHONY: test vet lint audit tidy build parity parity-venv signatures signatures-check pyunicode pyunicode-check codectables codectables-check unicodenames unicodenames-check cjktables cjktables-check idnatables idnatables-check htmlentities htmlentities-check pyattrs pyattrs-check lipsum lipsum-check parity-external parity-external-fetch ci gofmt-check precommit hooks-install hooks-uninstall docs docs-serve docs-check
 
 GO ?= go
 
@@ -37,18 +37,28 @@ tidy:
 # Parity runs Python Jinja2 from a project venv built from the pinned,
 # hash-locked tools/parity/requirements.txt — never the system copy, so
 # every machine and CI compare against the same Jinja2 release. The venv
-# is rebuilt whenever the requirements change.
+# is rebuilt whenever the requirements or the pinned Python change.
+#
+# The CPython release is pinned too, in tools/parity/.python-version:
+# the generated tables follow it, and a patch release can change them.
+# PARITY_BASE_PYTHON is the interpreter the venv is built from; it
+# defaults to uv's copy of the pinned release, else python3.
 PARITY_VENV ?= .venv-parity
 PARITY_PYTHON := $(PARITY_VENV)/bin/python
+PARITY_PYTHON_VERSION := $(shell cat tools/parity/.python-version)
+PARITY_BASE_PYTHON ?= $(shell uv python find $(PARITY_PYTHON_VERSION) 2>/dev/null || echo python3)
 
-$(PARITY_VENV)/.installed: tools/parity/requirements.txt
+$(PARITY_VENV)/.installed: tools/parity/requirements.txt tools/parity/.python-version
+	@v=$$($(PARITY_BASE_PYTHON) -c 'import platform; print(platform.python_version())') \
+		&& [ "$$v" = "$(PARITY_PYTHON_VERSION)" ] \
+		|| { echo "parity needs CPython $(PARITY_PYTHON_VERSION), but $(PARITY_BASE_PYTHON) is $$v; set PARITY_BASE_PYTHON (see DEVELOPMENT.md)"; exit 1; }
 	rm -rf $(PARITY_VENV)
-	python3 -m venv $(PARITY_VENV)
+	$(PARITY_BASE_PYTHON) -m venv $(PARITY_VENV)
 	$(PARITY_PYTHON) -m pip install --quiet --require-hashes -r tools/parity/requirements.txt
 	@touch $@
 
 parity-venv: $(PARITY_VENV)/.installed
-	@$(PARITY_PYTHON) -c 'from importlib.metadata import version as v; print("parity venv: jinja2", v("jinja2"), "markupsafe", v("markupsafe"))'
+	@$(PARITY_PYTHON) -c 'import platform, sys; from importlib.metadata import version as v; p = platform.python_version(); print("parity venv: python", p, "jinja2", v("jinja2"), "markupsafe", v("markupsafe")); sys.exit(p != sys.argv[1] and f"parity venv runs Python {p}, not the pinned {sys.argv[1]}; delete $(PARITY_VENV) and rerun")' $(PARITY_PYTHON_VERSION)
 
 # Builtin filter/test signatures are generated from the pinned Jinja2;
 # signatures-check fails when they no longer match it.
@@ -62,16 +72,18 @@ signatures-check: parity-venv
 	@$(PARITY_PYTHON) -I -B tools/parity/signatures.py | gofmt | diff -u $(SIGNATURES_GO) - \
 		|| { echo "$(SIGNATURES_GO) is stale for the pinned Jinja2; run 'make signatures'"; exit 1; }
 
-# Unicode data for Python's str methods, generated from the venv's Python.
-STRTABLES_GO := pkg/environment/strtables_table.go
+# All the Unicode data template output depends on (str predicates and
+# case mappings, regex classes, identifiers), generated from the venv's
+# Python so it never follows the Go toolchain's Unicode version.
+PYUNICODE_GO := internal/pyunicode/pyunicode_table.go
 
-strtables: parity-venv
-	$(PARITY_PYTHON) -I -B tools/parity/strtables.py > $(STRTABLES_GO)
-	gofmt -w $(STRTABLES_GO)
+pyunicode: parity-venv
+	$(PARITY_PYTHON) -I -B tools/parity/pyunicode.py > $(PYUNICODE_GO)
+	gofmt -w $(PYUNICODE_GO)
 
-strtables-check: parity-venv
-	@$(PARITY_PYTHON) -I -B tools/parity/strtables.py | gofmt | diff -q $(STRTABLES_GO) - >/dev/null \
-		|| { echo "$(STRTABLES_GO) is stale for the pinned Python; run 'make strtables'"; exit 1; }
+pyunicode-check: parity-venv
+	@$(PARITY_PYTHON) -I -B tools/parity/pyunicode.py | gofmt | diff -q $(PYUNICODE_GO) - >/dev/null \
+		|| { echo "$(PYUNICODE_GO) is stale for the pinned Python; run 'make pyunicode'"; exit 1; }
 
 # Python's codec tables and aliases, generated from the venv's Python.
 CODECTABLES_GO := pkg/environment/codectables_table.go
@@ -149,7 +161,7 @@ cjktables-check: parity-venv
 
 # Parity harness: renders every corpus template through both gojinja and
 # Python Jinja2 (via tools/parity/parity.py) and diffs the outputs.
-parity: parity-venv signatures-check strtables-check codectables-check unicodenames-check cjktables-check idnatables-check htmlentities-check pyattrs-check lipsum-check
+parity: parity-venv signatures-check pyunicode-check codectables-check unicodenames-check cjktables-check idnatables-check htmlentities-check pyattrs-check lipsum-check
 	$(GO) run ./tools/parity -python $(PARITY_PYTHON)
 
 # External parity: validates gojinja against real-world templates fetched

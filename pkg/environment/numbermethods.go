@@ -6,8 +6,8 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
-	"unicode"
 
+	"github.com/jryberg/gojinja/internal/pyunicode"
 	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/eval"
 	"github.com/jryberg/gojinja/pkg/runtime"
@@ -283,7 +283,8 @@ func floatHex(f float64) string {
 // errors.
 func floatFromHex(s string) (any, error) {
 	invalid := methodError("invalid hexadecimal floating-point string")
-	t := strings.TrimFunc(s, unicode.IsSpace)
+	// float_fromhex skips C's isspace, the ASCII whitespace only.
+	t := strings.Trim(s, " \t\n\v\f\r")
 	neg := false
 	if t != "" && (t[0] == '+' || t[0] == '-') {
 		neg, t = t[0] == '-', t[1:]
@@ -292,7 +293,7 @@ func floatFromHex(s string) (any, error) {
 	if neg {
 		sign = -1
 	}
-	switch strings.ToLower(t) {
+	switch pyunicode.LowerASCII(t) {
 	case "inf", "infinity":
 		return math.Copysign(math.Inf(1), sign), nil
 	case "nan":
@@ -301,7 +302,7 @@ func floatFromHex(s string) (any, error) {
 	if len(t) >= 2 && t[0] == '0' && (t[1] == 'x' || t[1] == 'X') {
 		t = t[2:]
 	}
-	mantStr, expStr, hasExp := strings.Cut(strings.ToLower(t), "p")
+	mantStr, expStr, hasExp := strings.Cut(pyunicode.LowerASCII(t), "p")
 	intPart, frac, _ := strings.Cut(mantStr, ".")
 	digits := intPart + frac
 	if digits == "" || strings.Contains(frac, ".") {

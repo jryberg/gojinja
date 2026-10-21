@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/jryberg/gojinja/internal/pyunicode"
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
 	"github.com/jryberg/gojinja/pkg/eval"
@@ -145,16 +146,16 @@ func init() {
 		"swapcase":   noArgs(func(s string) any { return pySwapcase(s) }),
 		"title":      noArgs(func(s string) any { return pyTitle(s) }),
 
-		"isalnum":      predicate(func(s string) bool { return allRunes(s, isPyAlnum) }),
-		"isalpha":      predicate(func(s string) bool { return allRunes(s, isPyAlpha) }),
+		"isalnum":      predicate(func(s string) bool { return allRunes(s, pyunicode.IsAlnum) }),
+		"isalpha":      predicate(func(s string) bool { return allRunes(s, pyunicode.IsAlpha) }),
 		"isascii":      predicate(func(s string) bool { return s == "" || allRunes(s, func(r rune) bool { return r < 0x80 }) }),
-		"isdecimal":    predicate(func(s string) bool { return allRunes(s, isPyDecimal) }),
-		"isdigit":      predicate(func(s string) bool { return allRunes(s, isPyDigit) }),
-		"isidentifier": predicate(pyIsIdentifier),
+		"isdecimal":    predicate(func(s string) bool { return allRunes(s, pyunicode.IsDecimal) }),
+		"isdigit":      predicate(func(s string) bool { return allRunes(s, pyunicode.IsDigit) }),
+		"isidentifier": predicate(pyunicode.IsIdentifier),
 		"islower":      predicate(pyIsLower),
-		"isnumeric":    predicate(func(s string) bool { return allRunes(s, isPyNumeric) }),
-		"isprintable":  predicate(func(s string) bool { return s == "" || allRunes(s, isPyPrintable) }),
-		"isspace":      predicate(func(s string) bool { return allRunes(s, pyIsSpace) }),
+		"isnumeric":    predicate(func(s string) bool { return allRunes(s, pyunicode.IsNumeric) }),
+		"isprintable":  predicate(func(s string) bool { return s == "" || allRunes(s, pyunicode.IsPrintable) }),
+		"isspace":      predicate(func(s string) bool { return allRunes(s, pyunicode.IsSpace) }),
 		"istitle":      predicate(pyIsTitle),
 		"isupper":      predicate(pyIsUpper),
 
@@ -256,17 +257,9 @@ func init() {
 			return pyExpandtabs(s, tab), nil
 		}},
 		"encode": {style: styleKeywords, max: 2, keywords: []string{"encoding", "errors"}, call: func(s string, a []any) (any, error) {
-			encoding, errorsMode := "utf-8", "strict"
-			var err error
-			if a[0] != nil {
-				if encoding, err = strArg("encode() argument 'encoding'", a[0]); err != nil {
-					return nil, err
-				}
-			}
-			if a[1] != nil {
-				if errorsMode, err = strArg("encode() argument 'errors'", a[1]); err != nil {
-					return nil, err
-				}
+			encoding, errorsMode, err := codecArgs("encode", a)
+			if err != nil {
+				return nil, err
 			}
 			return pyEncode(s, encoding, errorsMode)
 		}},
@@ -279,6 +272,31 @@ func strArg(what string, v any) (string, error) {
 		return s, nil
 	}
 	return "", fmt.Errorf("%s must be str, not %s", what, runtime.PyTypeName(v))
+}
+
+// codecArgs reads the encoding and errors arguments of str.encode and
+// bytes.decode, which CPython converts to C strings and so rejects when
+// they contain a NUL.
+func codecArgs(method string, a []any) (encoding, errorsMode string, err error) {
+	encoding, errorsMode = "utf-8", "strict"
+	for i, name := range []string{"encoding", "errors"} {
+		if a[i] == nil {
+			continue
+		}
+		v, err := strArg(fmt.Sprintf("%s() argument '%s'", method, name), a[i])
+		if err != nil {
+			return "", "", err
+		}
+		if strings.ContainsRune(v, 0) {
+			return "", "", escape.ValueError{Msg: "embedded null character"}
+		}
+		if i == 0 {
+			encoding = v
+		} else {
+			errorsMode = v
+		}
+	}
+	return encoding, errorsMode, nil
 }
 
 func strIndexArg(v any) (int, error) {
@@ -440,7 +458,7 @@ func pyCenter(s string, width int, fill string) string {
 
 func stripMethod(name string, left, right bool) func(string, []any) (any, error) {
 	return func(s string, a []any) (any, error) {
-		cut := pyIsSpace
+		cut := pyunicode.IsSpace
 		if a[0] != nil {
 			chars, ok := eqString(a[0])
 			if !ok {
@@ -521,20 +539,20 @@ func splitWhitespace(s string, limit int, fromRight bool) []string {
 	if !fromRight {
 		i := 0
 		for limit != 0 {
-			for i < len(rs) && pyIsSpace(rs[i]) {
+			for i < len(rs) && pyunicode.IsSpace(rs[i]) {
 				i++
 			}
 			if i == len(rs) {
 				break
 			}
 			j := i
-			for i < len(rs) && !pyIsSpace(rs[i]) {
+			for i < len(rs) && !pyunicode.IsSpace(rs[i]) {
 				i++
 			}
 			parts = append(parts, string(rs[j:i]))
 			limit--
 		}
-		for i < len(rs) && pyIsSpace(rs[i]) {
+		for i < len(rs) && pyunicode.IsSpace(rs[i]) {
 			i++
 		}
 		if i < len(rs) {
@@ -544,20 +562,20 @@ func splitWhitespace(s string, limit int, fromRight bool) []string {
 	}
 	i := len(rs) - 1
 	for limit != 0 {
-		for i >= 0 && pyIsSpace(rs[i]) {
+		for i >= 0 && pyunicode.IsSpace(rs[i]) {
 			i--
 		}
 		if i < 0 {
 			break
 		}
 		j := i
-		for i >= 0 && !pyIsSpace(rs[i]) {
+		for i >= 0 && !pyunicode.IsSpace(rs[i]) {
 			i--
 		}
 		parts = append(parts, string(rs[i+1:j+1]))
 		limit--
 	}
-	for i >= 0 && pyIsSpace(rs[i]) {
+	for i >= 0 && pyunicode.IsSpace(rs[i]) {
 		i--
 	}
 	if i >= 0 {

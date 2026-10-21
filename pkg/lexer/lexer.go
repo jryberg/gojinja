@@ -3,12 +3,15 @@
 package lexer
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/jryberg/gojinja/internal/pyunicode"
 	gjerrors "github.com/jryberg/gojinja/pkg/errors"
 	"github.com/jryberg/gojinja/pkg/escape"
 )
@@ -49,7 +52,6 @@ type Lexer struct {
 	tagWhitespace *regexp.Regexp
 	tagFloat      *regexp.Regexp
 	tagInteger    *regexp.Regexp
-	tagName       *regexp.Regexp
 	tagString     *regexp.Regexp
 	tagOperator   *regexp.Regexp
 
@@ -102,13 +104,13 @@ func New(opts Options) (*Lexer, error) {
 		// one byte at emit time — see emitRoot.
 		candidates = append(candidates, rootRule{
 			"linecomment_begin", TokenLineCommentBegin,
-			fmt.Sprintf(`(?P<linecomment_begin>(?m:^|[^\S\r\n])[^\S\r\n]*%s(\-|\+|))`, lcp),
+			fmt.Sprintf(`(?P<linecomment_begin>(?m:^|%s)%s*%s(\-|\+|))`, pyInlineSpace, pyInlineSpace, lcp),
 		})
 	}
 
 	// Also recognize {% raw %} as a special root rule that skips straight
 	// to raw_begin state.
-	rawBegin := fmt.Sprintf(`(?P<raw_begin>%s(\-|\+|)\s*raw\s*(?:\-%s\s*|%s))`, blkS, blkE, blkE)
+	rawBegin := fmt.Sprintf(`(?P<raw_begin>%s(\-|\+|)%s*raw%s*(?:\-%s%s*|%s))`, blkS, pySpace, pySpace, blkE, pySpace, blkE)
 
 	// Sort candidates by descending pattern length proxy: longer delimiters
 	// must come first in the alternation. We ensure comment/block/variable
@@ -133,35 +135,31 @@ func New(opts Options) (*Lexer, error) {
 	l.rootTrailing = regexp.MustCompile(`(?s).+`)
 
 	l.commentEnd = regexp.MustCompile(fmt.Sprintf(
-		`(?s)(.*?)((?:\+%s|\-%s\s*|%s%s))`, cmtE, cmtE, cmtE, blockSuffix))
+		`(?s)(.*?)((?:\+%s|\-%s%s*|%s%s))`, cmtE, cmtE, pySpace, cmtE, blockSuffix))
 	// The tag-body rules only match at the current position; anchoring
 	// them keeps a miss from scanning the rest of the source.
 	l.blockEnd = regexp.MustCompile(fmt.Sprintf(
-		`(?s)\A(?:\+%s|\-%s\s*|%s%s)`, blkE, blkE, blkE, blockSuffix))
+		`(?s)\A(?:\+%s|\-%s%s*|%s%s)`, blkE, blkE, pySpace, blkE, blockSuffix))
 	l.variableEnd = regexp.MustCompile(fmt.Sprintf(
-		`(?s)\A(?:\-%s\s*|%s)`, varE, varE))
+		`(?s)\A(?:\-%s%s*|%s)`, varE, pySpace, varE))
 	l.rawEnd = regexp.MustCompile(fmt.Sprintf(
-		`(?s)(.*?)((?:%s(\-|\+|))\s*endraw\s*(?:\+%s|\-%s\s*|%s%s))`,
-		blkS, blkE, blkE, blkE, blockSuffix))
-	l.lineStmtEnd = regexp.MustCompile(`(?s)\A\s*(\n|$)`)
+		`(?s)(.*?)((?:%s(\-|\+|))%s*endraw%s*(?:\+%s|\-%s%s*|%s%s))`,
+		blkS, pySpace, pySpace, blkE, blkE, pySpace, blkE, blockSuffix))
+	l.lineStmtEnd = regexp.MustCompile(`(?s)\A` + pySpace + `*(\n|$)`)
 	l.lineCommentEnd = regexp.MustCompile(`(?s)(.*?)()(?:\n|$)`)
 
 	// Tag-body rules (used inside block_begin / variable_begin /
 	// linestatement_begin states).
-	l.tagWhitespace = regexp.MustCompile(`\A\s+`)
-	// integer (decimal/binary/octal/hex with optional `_` separators)
-	l.tagInteger = regexp.MustCompile(
-		`(?i)\A(?:0b(?:_?[0-1])+|0o(?:_?[0-7])+|0x(?:_?[0-9a-f])+|[1-9](?:_?[0-9])*|0(?:_?0)*)`)
+	l.tagWhitespace = regexp.MustCompile(`\A` + pySpace + `+`)
+	// integer (decimal/binary/octal/hex with optional `_` separators);
+	// Python's \d takes any decimal digit, which int() then reads.
+	l.tagInteger = regexp.MustCompile(withPyDigits(
+		`(?i)\A(?:0b(?:_?[0-1])+|0o(?:_?[0-7])+|0x(?:_?[\da-f])+|[1-9](?:_?\d)*|0(?:_?0)*)`))
 	// float — the `(?<!\.)` lookbehind from Python is enforced in code.
-	l.tagFloat = regexp.MustCompile(
-		`(?i)\A(?:[0-9]+_)*[0-9]+(?:(?:\.(?:[0-9]+_)*[0-9]+)?e[+\-]?(?:[0-9]+_)*[0-9]+|\.(?:[0-9]+_)*[0-9]+)`)
+	l.tagFloat = regexp.MustCompile(withPyDigits(
+		`(?i)\A(?:\d+_)*\d+(?:(?:\.(?:\d+_)*\d+)?e[+\-]?(?:\d+_)*\d+|\.(?:\d+_)*\d+)`))
 	// String literal — single OR double quoted, with backslash escapes.
 	l.tagString = regexp.MustCompile(`(?s)\A(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")`)
-	// Name pattern — we accept ASCII identifiers in the regex and then
-	// extend the match with a hand-rolled walk if the next bytes form
-	// non-ASCII identifier continuation. This avoids having to ship
-	// Python's giant character class.
-	l.tagName = regexp.MustCompile(`\A[A-Za-z_][A-Za-z0-9_]*`)
 	// Operator: longest-match-wins. We sort by descending length so `**`
 	// beats `*`, etc.
 	l.tagOperator = regexp.MustCompile(`\A(?:` + buildOperatorPattern() + `)`)
@@ -487,7 +485,7 @@ func (l *Lexer) lexRoot(source string, pos, lineno *int, out *[]rawToken, stack 
 func (l *Lexer) applyWhitespaceControl(text, sign string, kind TokenKind, newlinesStripped *int, lineStarting bool) string {
 	switch sign {
 	case "-":
-		stripped := strings.TrimRightFunc(text, isASCIISpace)
+		stripped := strings.TrimRightFunc(text, pyunicode.IsSpace)
 		*newlinesStripped += countNewlines(text[len(stripped):])
 		return stripped
 	case "+":
@@ -503,22 +501,24 @@ func (l *Lexer) applyWhitespaceControl(text, sign string, kind TokenKind, newlin
 	if lpos == 0 && !lineStarting {
 		return text
 	}
-	tail := text[lpos:]
-	for i := 0; i < len(tail); i++ {
-		if !isASCIISpace(rune(tail[i])) {
-			return text
-		}
+	if strings.TrimLeftFunc(text[lpos:], pyunicode.IsSpace) != "" {
+		return text
 	}
 	return text[:lpos]
 }
 
-// isASCIISpace mirrors Python's `\s` for ASCII characters.
-func isASCIISpace(r rune) bool {
-	switch r {
-	case ' ', '\t', '\n', '\r', '\v', '\f':
-		return true
-	}
-	return false
+// Python's regex classes, which are Unicode-aware where Go's are ASCII:
+// pySpace is \s and pyInlineSpace is [^\S\r\n].
+var (
+	pySpace       = "[" + pyunicode.Space.Class() + "]"
+	pyInlineSpace = "[" + pyunicode.Space.Without('\r', '\n').Class() + "]"
+)
+
+// withPyDigits gives pattern Python's \d, alone or inside a class.
+func withPyDigits(pattern string) string {
+	digits := pyunicode.Decimal.Class()
+	pattern = strings.ReplaceAll(pattern, `[\d`, `[`+digits)
+	return strings.ReplaceAll(pattern, `\d`, `[`+digits+`]`)
 }
 
 // lexCommentBody handles state `comment_begin`: consume up to comment_end,
@@ -633,29 +633,17 @@ func (l *Lexer) lexTagBody(st stateName, source string, pos, lineno int, out *[]
 		*out = append(*out, rawToken{Lineno: lineno, Kind: TokenInteger, Value: rest[:loc[1]]})
 		return loc[1], nil
 	}
-	// Identifier — start with the ASCII regex, then extend across non-ASCII.
-	if loc := l.tagName.FindStringIndex(rest); loc != nil && loc[0] == 0 {
-		end := loc[1]
-		for end < len(rest) {
-			r, size := decodeRune(rest[end:])
-			if !isIdentContinue(r) {
-				break
-			}
-			end += size
+	// A name is a run of jinja2._identifier characters; tokenize checks
+	// it with str.isidentifier afterwards.
+	end := 0
+	for end < len(rest) {
+		r, size := decodeRune(rest[end:])
+		if !pyunicode.IsJinjaName(r) {
+			break
 		}
-		*out = append(*out, rawToken{Lineno: lineno, Kind: TokenName, Value: rest[:end]})
-		return end, nil
+		end += size
 	}
-	// Bare identifier-start that isn't ASCII (e.g. a unicode letter).
-	if r, size := decodeRune(rest); size > 0 && isIdentStart(r) {
-		end := size
-		for end < len(rest) {
-			r2, sz := decodeRune(rest[end:])
-			if !isIdentContinue(r2) {
-				break
-			}
-			end += sz
-		}
+	if end > 0 {
 		*out = append(*out, rawToken{Lineno: lineno, Kind: TokenName, Value: rest[:end]})
 		return end, nil
 	}
@@ -730,7 +718,7 @@ func (l *Lexer) wrap(raw []rawToken, name, filename string) ([]Token, error) {
 				v = strings.ReplaceAll(v, "\n", l.opts.NewlineSequence)
 			}
 		case TokenName:
-			if !isIdentifier(v) {
+			if !pyunicode.IsIdentifier(v) {
 				return nil, gjerrors.NewTemplateSyntaxError(
 					"Invalid character in identifier", t.Lineno, name, filename)
 			}
@@ -787,7 +775,13 @@ func lastLineno(toks []Token) int {
 // bases and `_` separators. Like Python's int(), it is unbounded, but a
 // decimal literal may have at most escape.MaxStrDigits digits.
 func parseIntLiteral(s string) (*big.Int, error) {
-	clean := strings.ReplaceAll(s, "_", "")
+	// int() reads any decimal digit.
+	clean := strings.Map(func(r rune) rune {
+		if v, ok := pyunicode.DecimalValue(r); ok {
+			return '0' + rune(v)
+		}
+		return r
+	}, strings.ReplaceAll(s, "_", ""))
 	base := 10
 	switch {
 	case strings.HasPrefix(clean, "0b") || strings.HasPrefix(clean, "0B"):
@@ -809,8 +803,21 @@ func parseIntLiteral(s string) (*big.Int, error) {
 }
 
 // parseFloatLiteral parses a Jinja2 float literal, allowing `_` separators.
+// Jinja2 hands it to literal_eval, whose tokenizer reads ASCII digits
+// only, so another decimal digit fails with the tokenizer's error: an
+// exponent missing its digits is an invalid literal, and anywhere else
+// the number ends and the digit is an invalid character of its own.
 func parseFloatLiteral(s string) (float64, error) {
-	return strconv.ParseFloat(strings.ReplaceAll(s, "_", ""), 64)
+	clean := strings.ReplaceAll(s, "_", "")
+	if i := strings.IndexFunc(clean, func(r rune) bool { return r >= utf8.RuneSelf }); i >= 0 {
+		head := strings.TrimRight(clean[:i], "+-")
+		if strings.HasSuffix(head, "e") || strings.HasSuffix(head, "E") {
+			return 0, errors.New("invalid decimal literal (<unknown>, line 1)")
+		}
+		r, _ := utf8.DecodeRuneInString(clean[i:])
+		return 0, fmt.Errorf("invalid character '%c' (U+%04X) (<unknown>, line 1)", r, r)
+	}
+	return strconv.ParseFloat(clean, 64)
 }
 
 // firstRune returns the first character of s, for error messages.

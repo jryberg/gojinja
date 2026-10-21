@@ -1,57 +1,25 @@
 package environment
 
 import (
-	"sort"
 	"strings"
-	"unicode"
+
+	"github.com/jryberg/gojinja/internal/pyunicode"
 )
 
-// Python str semantics on top of Go's unicode package and the generated
-// tables in strtables_table.go (which must share Go's Unicode version).
-
-type runeRange struct{ lo, hi rune }
-
-func inRanges(rs []runeRange, r rune) bool {
-	i := sort.Search(len(rs), func(i int) bool { return rs[i].hi >= r })
-	return i < len(rs) && rs[i].lo <= r
-}
-
-// isPyLower and isPyUpper are the derived Lowercase/Uppercase properties
-// CPython's islower/isupper use.
-func isPyLower(r rune) bool { return unicode.IsLower(r) || unicode.Is(unicode.Other_Lowercase, r) }
-func isPyUpper(r rune) bool { return unicode.IsUpper(r) || unicode.Is(unicode.Other_Uppercase, r) }
-func isPyCased(r rune) bool { return isPyLower(r) || isPyUpper(r) || unicode.IsTitle(r) }
-
-func isPyDecimal(r rune) bool { return unicode.Is(unicode.Nd, r) }
-func isPyDigit(r rune) bool   { return isPyDecimal(r) || inRanges(digitExtra, r) }
-func isPyNumeric(r rune) bool {
-	if unicode.IsNumber(r) {
-		return !inRanges(numericMissing, r)
-	}
-	return inRanges(numericExtra, r)
-}
-func isPyAlpha(r rune) bool { return unicode.IsLetter(r) }
-func isPyAlnum(r rune) bool {
-	return isPyAlpha(r) || isPyDecimal(r) || isPyDigit(r) || isPyNumeric(r)
-}
-
-// isPyPrintable is str.isprintable for one character.
-func isPyPrintable(r rune) bool {
-	return r == ' ' || unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S)
-}
+// Python str semantics on top of the Unicode data in internal/pyunicode.
 
 func upperRune(r rune) string {
-	if s, ok := upperFull[r]; ok {
+	if s, ok := pyunicode.Upper(r); ok {
 		return s
 	}
-	return string(unicode.ToUpper(r))
+	return string(r)
 }
 
 func titleRune(r rune) string {
-	if s, ok := titleFull[r]; ok {
+	if s, ok := pyunicode.Title(r); ok {
 		return s
 	}
-	return string(unicode.ToTitle(r))
+	return string(r)
 }
 
 // lowerAt lowercases rs[i], applying the Final_Sigma rule to capital
@@ -61,23 +29,23 @@ func lowerAt(rs []rune, i int) string {
 	if r == 0x03a3 {
 		return string(finalSigma(rs, i))
 	}
-	if s, ok := lowerFull[r]; ok {
+	if s, ok := pyunicode.Lower(r); ok {
 		return s
 	}
-	return string(unicode.ToLower(r))
+	return string(r)
 }
 
 func finalSigma(rs []rune, i int) rune {
 	j := i - 1
-	for j >= 0 && inRanges(caseIgnorable, rs[j]) {
+	for j >= 0 && pyunicode.IsCaseIgnorable(rs[j]) {
 		j--
 	}
-	before := j >= 0 && isPyCased(rs[j])
+	before := j >= 0 && pyunicode.IsCased(rs[j])
 	k := i + 1
-	for k < len(rs) && inRanges(caseIgnorable, rs[k]) {
+	for k < len(rs) && pyunicode.IsCaseIgnorable(rs[k]) {
 		k++
 	}
-	after := k < len(rs) && isPyCased(rs[k])
+	after := k < len(rs) && pyunicode.IsCased(rs[k])
 	if before && !after {
 		return 0x03c2
 	}
@@ -106,13 +74,10 @@ func pyLower(s string) string {
 func pyCasefold(s string) string {
 	var b strings.Builder
 	for _, r := range s {
-		switch {
-		case casefoldFull[r] != "":
-			b.WriteString(casefoldFull[r])
-		case lowerFull[r] != "":
-			b.WriteString(lowerFull[r])
-		default:
-			b.WriteRune(unicode.ToLower(r))
+		if f, ok := pyunicode.Fold(r); ok {
+			b.WriteString(f)
+		} else {
+			b.WriteRune(r)
 		}
 	}
 	return b.String()
@@ -145,7 +110,7 @@ func pyTitle(s string) string {
 		} else {
 			b.WriteString(titleRune(r))
 		}
-		prevCased = isPyCased(r)
+		prevCased = pyunicode.IsCased(r)
 	}
 	return b.String()
 }
@@ -155,9 +120,9 @@ func pySwapcase(s string) string {
 	var b strings.Builder
 	for i, r := range rs {
 		switch {
-		case isPyUpper(r):
+		case pyunicode.IsUpper(r):
 			b.WriteString(lowerAt(rs, i))
-		case isPyLower(r):
+		case pyunicode.IsLower(r):
 			b.WriteString(upperRune(r))
 		default:
 			b.WriteRune(r)
@@ -169,10 +134,10 @@ func pySwapcase(s string) string {
 func pyIsLower(s string) bool {
 	cased := false
 	for _, r := range s {
-		if isPyUpper(r) || unicode.IsTitle(r) {
+		if pyunicode.IsUpper(r) || pyunicode.IsTitle(r) {
 			return false
 		}
-		cased = cased || isPyLower(r)
+		cased = cased || pyunicode.IsLower(r)
 	}
 	return cased
 }
@@ -180,10 +145,10 @@ func pyIsLower(s string) bool {
 func pyIsUpper(s string) bool {
 	cased := false
 	for _, r := range s {
-		if isPyLower(r) || unicode.IsTitle(r) {
+		if pyunicode.IsLower(r) || pyunicode.IsTitle(r) {
 			return false
 		}
-		cased = cased || isPyUpper(r)
+		cased = cased || pyunicode.IsUpper(r)
 	}
 	return cased
 }
@@ -192,12 +157,12 @@ func pyIsTitle(s string) bool {
 	cased, prevCased := false, false
 	for _, r := range s {
 		switch {
-		case isPyUpper(r) || unicode.IsTitle(r):
+		case pyunicode.IsUpper(r) || pyunicode.IsTitle(r):
 			if prevCased {
 				return false
 			}
 			prevCased, cased = true, true
-		case isPyLower(r):
+		case pyunicode.IsLower(r):
 			if !prevCased {
 				return false
 			}
@@ -207,15 +172,6 @@ func pyIsTitle(s string) bool {
 		}
 	}
 	return cased
-}
-
-func pyIsIdentifier(s string) bool {
-	for i, r := range []rune(s) {
-		if i == 0 && !inRanges(xidStart, r) || i > 0 && !inRanges(xidContinue, r) {
-			return false
-		}
-	}
-	return s != ""
 }
 
 // allRunes reports whether s is non-empty and every character satisfies

@@ -42,9 +42,9 @@ def go_string(s):
 
 def emit_ranges(name, doc, rs):
     print(f"// {doc}")
-    print(f"var {name} = []runeRange{{")
+    print(f"var {name} = pyunicode.Set{{")
     for lo, hi in rs:
-        print(f"\t{{0x{lo:04x}, 0x{hi:04x}}},")
+        print(f"\t{{Lo: 0x{lo:04x}, Hi: 0x{hi:04x}}},")
     print("}")
     print()
 
@@ -99,6 +99,8 @@ def main():
           f"{unicodedata.unidata_version}). DO NOT EDIT; run `make idnatables`.")
     print()
     print("package environment")
+    print()
+    print('import "github.com/jryberg/gojinja/internal/pyunicode"')
     print()
     emit_ranges("nameprepB1", "nameprepB1 is stringprep table B.1, characters mapped to nothing.",
                 ranges(stringprep.in_table_b1))

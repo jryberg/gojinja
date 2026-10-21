@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"unicode"
 )
 
 // Expected values come from rendering the same templates with the Jinja2
@@ -122,13 +121,5 @@ func TestStrMethods(t *testing.T) {
 		case c.err == "" && got != c.want:
 			t.Errorf("%s = %q, want %q", c.src, got, c.want)
 		}
-	}
-}
-
-// strtables_table.go only tabulates what Go's unicode package lacks, which
-// is right only while both use the same Unicode version.
-func TestStrTablesMatchGoUnicode(t *testing.T) {
-	if unicode.Version != pyUnicodeVersion {
-		t.Fatalf("Go has Unicode %s but strtables_table.go was generated from Unicode %s; run make strtables with a matching Python", unicode.Version, pyUnicodeVersion)
 	}
 }

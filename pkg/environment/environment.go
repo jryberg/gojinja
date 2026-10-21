@@ -137,7 +137,7 @@ func (a AutoescapeByExtension) AutoescapeFor(name string) bool {
 	if name == "" {
 		return a.DefaultForString
 	}
-	low := strings.ToLower(name)
+	low := pyLower(name)
 	for _, ext := range a.Disabled {
 		if strings.HasSuffix(low, "."+ext) {
 			return false
