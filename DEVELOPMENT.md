@@ -42,7 +42,7 @@ make hooks-install   # opt in to .githooks/ (DCO sign-off + lint)
 ```
 
 Requirements:
-- Go 1.26+
+- Go 1.27+
 - For the parity harness: the exact CPython release in `tools/parity/.python-version`. `make parity` builds `.venv-parity/` with it from the pinned, hash-locked `tools/parity/requirements.txt` and never uses a system-wide Jinja2. It takes uv's copy when uv has one (`uv python install $(cat tools/parity/.python-version)`), otherwise `python3`; point `PARITY_BASE_PYTHON` at any other interpreter of that release. A mismatched release is an error, since a patch release can change the generated tables (3.12.15 fixed `stringprep`, behind the idna codec).
 - Optional: `staticcheck` for `make lint` and the pre-commit hook.
 
