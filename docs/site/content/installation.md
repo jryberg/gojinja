@@ -8,7 +8,7 @@ gojinja is a single Go module with **zero external dependencies**.
 go get github.com/jryberg/gojinja@latest
 ```
 
-Requires Go 1.22 or newer.
+Requires Go 1.27 or newer.
 
 ```go
 import gj "github.com/jryberg/gojinja"
