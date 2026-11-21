@@ -33,4 +33,4 @@ six==1.17.0
 urllib3==2.8.0
 verspec==0.2.1
 watchdog==6.0.0
-wcmatch==11.1
+wcmatch==11.2
